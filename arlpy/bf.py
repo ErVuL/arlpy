@@ -12,7 +12,6 @@
 
 import numpy as _np
 import scipy.signal as _sig
-import arlpy.plot as _plt
 import arlpy.utils as _utils
 
 def normalize(x, unit_variance=True):
@@ -218,10 +217,9 @@ def bartlett_beampattern(i, fc, sd, shading=None, theta=None, show=False):
     bp = _np.abs(_np.dot(a.conj(), a[i]))**2
     if show:
         if theta is None:
-            _plt.plot(_utils.pow2db(bp), ylabel='Array response (dB)', title='Beam #'+str(i))
+            pass
         else:
             a = theta * 180/_np.pi
-            _plt.plot(a, _utils.pow2db(bp), xlabel='Angle (deg)', ylabel='Array response (dB)', title='Beam #%d @ %0.1f deg'%(i, a[i]))
     else:
         return bp
 

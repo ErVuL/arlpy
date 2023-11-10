@@ -28,8 +28,10 @@ import pandas as _pd
 from tempfile import mkstemp as _mkstemp
 from struct import unpack as _unpack
 from sys import float_info as _fi
+"""
 import arlpy.plot as _plt
-import bokeh as _bokeh
+import arlpy.bokeh as _bokeh
+"""
 
 # constants
 linear = 'linear'
@@ -246,6 +248,7 @@ def plot_env(env, surface_color='dodgerblue', bottom_color='peru', tx_color='ora
         max_y = env['depth']
     mgn_x = 0.01*(max_x-min_x)
     mgn_y = 0.1*(max_y-min_y)
+    """
     oh = _plt.hold()
     if env['surface'] is None:
         _plt.plot([min_x, max_x], [0, 0], xlabel=xlabel, ylabel='Depth (m)', xlim=(min_x-mgn_x, max_x+mgn_x), ylim=(-max_y-mgn_y, -min_y+mgn_y), color=surface_color, **kwargs)
@@ -271,7 +274,7 @@ def plot_env(env, surface_color='dodgerblue', bottom_color='peru', tx_color='ora
             rxd = env['rx_depth']
             _plt.plot([r/divisor]*_np.size(rxd), -rxd, marker='o', style=None, color=rx_color)
     _plt.hold(oh)
-
+    """
 def plot_ssp(env, **kwargs):
     """Plots the sound speed profile.
 
@@ -294,16 +297,23 @@ def plot_ssp(env, **kwargs):
             max_y = _np.max(env['depth'][:,1])
         else:
             max_y = env['depth']
+        """
         _plt.plot([svp, svp], [0, -max_y], xlabel='Soundspeed (m/s)', ylabel='Depth (m)', **kwargs)
+        """
     elif env['soundspeed_interp'] == spline:
         s = svp
         ynew = _np.linspace(_np.min(svp[:,0]), _np.max(svp[:,0]), 100)
         tck = _interp.splrep(svp[:,0], svp[:,1], s=0)
         xnew = _interp.splev(ynew, tck, der=0)
+        """
         _plt.plot(xnew, -ynew, xlabel='Soundspeed (m/s)', ylabel='Depth (m)', hold=True, **kwargs)
         _plt.plot(svp[:,1], -svp[:,0], marker='.', style=None, **kwargs)
+        """
     else:
+        """
         _plt.plot(svp[:,1], -svp[:,0], xlabel='Soundspeed (m/s)', ylabel='Depth (m)', **kwargs)
+        """
+        pass
 
 def compute_arrivals(env, model=None, debug=False):
     """Compute arrivals between each transmitter and receiver.
@@ -448,16 +458,19 @@ def plot_arrivals(arrivals, dB=False, color='blue', **kwargs):
         ylabel = 'Amplitude (dB)'
     else:
         ylabel = 'Amplitude'
+        """
         _plt.plot([t0, t1], [0, 0], xlabel='Arrival time (s)', ylabel=ylabel, color=color, **kwargs)
+        """
         min_y = 0
     for _, row in arrivals.iterrows():
         t = row.time_of_arrival.real
         y = _np.abs(row.arrival_amplitude)
         if dB:
             y = max(20*_np.log10(_fi.epsilon+y), min_y)
+        """    
         _plt.plot([t, t], [min_y, y], xlabel='Arrival time (s)', ylabel=ylabel, ylim=[min_y, min_y+70], color=color, **kwargs)
     _plt.hold(oh)
-
+    """
 def plot_rays(rays, env=None, invert_colors=False, **kwargs):
     """Plots ray paths.
 
@@ -487,17 +500,20 @@ def plot_rays(rays, env=None, invert_colors=False, **kwargs):
     if max(r)-min(r) > 10000:
         divisor = 1000
         xlabel = 'Range (km)'
+    """    
     oh = _plt.hold()
+    """
     for _, row in rays.iterrows():
         c = int(255*_np.abs(row.bottom_bounces)/max_amp)
         if invert_colors:
             c = 255-c
+    """
         c = _bokeh.colors.RGB(c, c, c)
         _plt.plot(row.ray[:,0]/divisor, -row.ray[:,1], color=c, xlabel=xlabel, ylabel='Depth (m)', **kwargs)
     if env is not None:
         plot_env(env)
     _plt.hold(oh)
-
+    """
 def plot_transmission_loss(tloss, env=None, **kwargs):
     """Plots transmission loss.
 
@@ -526,12 +542,13 @@ def plot_transmission_loss(tloss, env=None, **kwargs):
     if xr[1]-xr[0] > 10000:
         xr = (min(tloss.columns)/1000, max(tloss.columns)/1000)
         xlabel = 'Range (km)'
+    """
     oh = _plt.hold()
     _plt.image(20*_np.log10(_fi.epsilon+_np.abs(_np.flipud(_np.array(tloss)))), x=xr, y=yr, xlabel=xlabel, ylabel='Depth (m)', xlim=xr, ylim=yr, **kwargs)
     if env is not None:
         plot_env(env, rx_plot=False)
     _plt.hold(oh)
-
+    """
 def models(env=None, task=None):
     """List available models.
 
