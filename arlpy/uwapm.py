@@ -28,6 +28,8 @@ import pandas as _pd
 from tempfile import mkstemp as _mkstemp
 from struct import unpack as _unpack
 from sys import float_info as _fi
+import matplotlib.pyplot as plt
+
 """
 import arlpy.plot as _plt
 import arlpy.bokeh as _bokeh
@@ -514,7 +516,7 @@ def plot_rays(rays, env=None, invert_colors=False, **kwargs):
         plot_env(env)
     _plt.hold(oh)
     """
-def plot_transmission_loss(tloss, env=None, **kwargs):
+def plot_transmission_loss(tloss, Title, env=None, vmin=-180, vmax=0, **kwargs):
     """Plots transmission loss.
 
     :param tloss: complex transmission loss
@@ -536,19 +538,52 @@ def plot_transmission_loss(tloss, env=None, **kwargs):
     >>> tloss = pm.compute_transmission_loss(env)
     >>> pm.plot_transmission_loss(tloss, width=1000)
     """
+    
+    """ Bokeh
     xr = (min(tloss.columns), max(tloss.columns))
     yr = (-max(tloss.index), -min(tloss.index))
     xlabel = 'Range (m)'
     if xr[1]-xr[0] > 10000:
         xr = (min(tloss.columns)/1000, max(tloss.columns)/1000)
         xlabel = 'Range (km)'
-    """
     oh = _plt.hold()
     _plt.image(20*_np.log10(_fi.epsilon+_np.abs(_np.flipud(_np.array(tloss)))), x=xr, y=yr, xlabel=xlabel, ylabel='Depth (m)', xlim=xr, ylim=yr, **kwargs)
     if env is not None:
         plot_env(env, rx_plot=False)
     _plt.hold(oh)
     """
+    
+    """ Matplotlib """
+    
+    X = env['rx_range']
+    Y = env['rx_depth']
+    tlossplt = 20*_np.log10(_fi.epsilon+_np.abs(_np.array(tloss)))
+    
+    """ Remove TL in sediment and reduce artifacts """
+    for ii,x in enumerate(X): # For all map pixels
+        for jj,y in enumerate(Y):
+            if y > _np.interp(x, env['depth'][:,0], env['depth'][:,1]):
+                tlossplt[jj,ii] = vmax
+    
+    for ii,x in enumerate(X): # For all map pixels
+        for jj,y in enumerate(Y):
+            if y < _np.interp(x, env['surface'][:,0], env['surface'][:,1]):
+                tlossplt[jj,ii] = _np.NaN
+                
+    fig, ax = plt.subplots()
+    X,Y = _np.meshgrid(X, Y)
+    im1 = ax.pcolormesh(X/1000,Y,tlossplt, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
+    ax.plot(env['depth'][:,0]/1000, env['depth'][:,1],'k', linewidth=3)
+    ax.plot(env['surface'][:,0]/1000, env['surface'][:,1],'b', linewidth=3)
+    ax.set_xlabel('Range [km]')
+    ax.set_ylabel('Depth [m]')
+    ax.set_title(f"[ BELLHOP- {Title} ] Propagation Loss @ F = {env['frequency']} Hz")
+    cbar1 = fig.colorbar(im1, ax=ax)
+    cbar1.ax.set_ylabel('Loss [dB]')
+    ax.invert_yaxis()
+    return fig, ax
+    
+    
 def models(env=None, task=None):
     """List available models.
 
