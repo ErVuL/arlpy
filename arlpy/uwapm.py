@@ -454,7 +454,7 @@ def plot_arrivals(arrivals, dB=False, color='blue', **kwargs):
     """
     t0 = min(arrivals.time_of_arrival)
     t1 = max(arrivals.time_of_arrival)
-    oh = _plt.hold()
+    #oh = _plt.hold()
     if dB:
         min_y = 20*_np.log10(_np.max(_np.abs(arrivals.arrival_amplitude)))-60
         ylabel = 'Amplitude (dB)'
@@ -473,7 +473,7 @@ def plot_arrivals(arrivals, dB=False, color='blue', **kwargs):
         _plt.plot([t, t], [min_y, y], xlabel='Arrival time (s)', ylabel=ylabel, ylim=[min_y, min_y+70], color=color, **kwargs)
     _plt.hold(oh)
     """
-def plot_rays(rays, env=None, invert_colors=False, **kwargs):
+def plot_rays(rays, Title, env=None, invert_colors=False, **kwargs):
     """Plots ray paths.
 
     :param rays: ray paths
@@ -495,20 +495,44 @@ def plot_rays(rays, env=None, invert_colors=False, **kwargs):
     if max_amp <= 0:
         max_amp = 1
     divisor = 1
-    xlabel = 'Range (m)'
+    xlabel = 'Range [m]'
     r = []
     for _, row in rays.iterrows():
         r += list(row.ray[:,0])
     if max(r)-min(r) > 10000:
         divisor = 1000
-        xlabel = 'Range (km)'
+        xlabel = 'Range [km]'
     """    
     oh = _plt.hold()
     """
+    fig, ax = plt.subplots()
+    
     for _, row in rays.iterrows():
-        c = int(255*_np.abs(row.bottom_bounces)/max_amp)
-        if invert_colors:
-            c = 255-c
+        num_bnc = row.bottom_bounces + row.surface_bounces
+        if row.bottom_bounces == 0 and row.surface_bounces==0: 
+            ax.plot(row.ray[:,0]/divisor,row.ray[:,1], color='k', alpha=.5)
+        elif num_bnc > 1:
+            ax.plot(row.ray[:,0]/divisor,row.ray[:,1], color='r', alpha=.5)
+        elif row.surface_bounces == 1:
+            ax.plot(row.ray[:,0]/divisor,row.ray[:,1], color='b', alpha=.5)
+        elif row.bottom_bounces == 1:
+            ax.plot(row.ray[:,0]/divisor,row.ray[:,1], color='saddlebrown', alpha=.5)
+
+    if env is not None:
+        ax.plot(env['depth'][:,0]/divisor, env['depth'][:,1],'saddlebrown', linewidth=3)
+        ax.plot(env['surface'][:,0]/divisor, env['surface'][:,1],'b', linewidth=3)
+    
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Depth [m]")
+    ax.set_ylim((_np.min(env['surface']), _np.max(env['depth'][:,1])))
+    ax.set_xlim((0, env['rx_range']/divisor))
+    ax.set_title(f"[ BELLHOP- {Title} ] Rays")
+    ax.scatter(0, env['tx_depth'], label= "Source", color= "k", s=250, marker="*")
+    ax.scatter(env['rx_range'], env['rx_depth'], label= "Receiver", color= "k", s=250, marker="o")
+    ax.invert_yaxis()
+    ax.grid('all')
+    
+    return fig, ax
     """
         c = _bokeh.colors.RGB(c, c, c)
         _plt.plot(row.ray[:,0]/divisor, -row.ray[:,1], color=c, xlabel=xlabel, ylabel='Depth (m)', **kwargs)
@@ -516,6 +540,9 @@ def plot_rays(rays, env=None, invert_colors=False, **kwargs):
         plot_env(env)
     _plt.hold(oh)
     """
+
+    
+    
 def plot_transmission_loss(tloss, Title, env=None, vmin=-180, vmax=0, **kwargs):
     """Plots transmission loss.
 
