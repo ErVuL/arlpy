@@ -518,10 +518,8 @@ def plot_rays(rays, Title, env=None, invert_colors=False, **kwargs):
         elif row.bottom_bounces == 1:
             ax.plot(row.ray[:,0]/divisor,row.ray[:,1], color='saddlebrown', alpha=.5)
 
-    if env is not None:
-        ax.plot(env['depth'][:,0]/divisor, env['depth'][:,1],'saddlebrown', linewidth=3)
-        ax.plot(env['surface'][:,0]/divisor, env['surface'][:,1],'b', linewidth=3)
-    
+    ax.plot(env['depth'][:,0]/divisor, env['depth'][:,1],'saddlebrown', linewidth=3)
+    ax.plot(env['surface'][:,0]/divisor, env['surface'][:,1],'b', linewidth=3)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Depth [m]")
     ax.set_ylim((_np.min(env['surface']), _np.max(env['depth'][:,1])))
