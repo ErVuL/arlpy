@@ -95,6 +95,7 @@ def create_env2d(**kv):
     env = {
         'name': 'arlpy',
         'type': '2D',                   # 2D/3D
+        'model': 'BELLHOP',             # Model
         'frequency': 25000,             # Hz
         'soundspeed': 1500,             # m/s
         'soundspeed_interp': spline,    # spline/linear
@@ -133,6 +134,7 @@ def check_env2d(env):
     >>> check_env2d(env)
     """
     try:
+        assert env['model'] is not None, 'model is not defined'
         assert env['type'] == '2D', 'Not a 2D environment'
         max_range = _np.max(env['rx_range'])
         if env['surface'] is not None:
@@ -438,7 +440,18 @@ def arrivals_to_impulse_response(arrivals, fs, abs_time=False):
         ir[ndx] = row.arrival_amplitude
     return ir
 
-def plot_arrivals(arrivals, dB=False, color='blue', **kwargs):
+def plot_ir(ir, env, Title, fs=96000, dB=False, color='blue', **kwargs):
+    
+    fig, ax = plt.subplots()
+    x = [ii for ii in range(len(ir))]
+    ax.stem(x, ir)
+    ax.set_xlabel('Sample [S]')
+    ax.set_ylabel('Amplitude')
+    ax.set_title(f"[ {env['model']} - {Title} ] Impulse response @ {fs} $S.s^{-1}$")
+    ax.grid('all')
+    return fig, ax
+
+def plot_arrivals(arrivals, env, Title, dB=False, color='blue', **kwargs):
     """Plots the arrival times and amplitudes.
 
     :param arrivals: arrivals times (s) and coefficients
@@ -455,14 +468,16 @@ def plot_arrivals(arrivals, dB=False, color='blue', **kwargs):
     t0 = min(arrivals.time_of_arrival)
     t1 = max(arrivals.time_of_arrival)
     #oh = _plt.hold()
+    fig, ax = plt.subplots()
     if dB:
         min_y = 20*_np.log10(_np.max(_np.abs(arrivals.arrival_amplitude)))-60
-        ylabel = 'Amplitude (dB)'
+        ylabel = 'Amplitude [dB]'
     else:
         ylabel = 'Amplitude'
         """
         _plt.plot([t0, t1], [0, 0], xlabel='Arrival time (s)', ylabel=ylabel, color=color, **kwargs)
         """
+        ax.plot([t0, t1], [0, 0], 'r')
         min_y = 0
     for _, row in arrivals.iterrows():
         t = row.time_of_arrival.real
@@ -472,8 +487,15 @@ def plot_arrivals(arrivals, dB=False, color='blue', **kwargs):
         """    
         _plt.plot([t, t], [min_y, y], xlabel='Arrival time (s)', ylabel=ylabel, ylim=[min_y, min_y+70], color=color, **kwargs)
     _plt.hold(oh)
-    """
-def plot_rays(rays, Title, env=None, invert_colors=False, **kwargs):
+        """
+        ax.stem(t,  y)
+    ax.set_ylabel(ylabel)
+    ax.set_title(f"[ {env['model']}- {Title} ] Arrivals")
+    ax.set_xlabel('Arrival time [s]')
+    ax.grid('all')
+    return fig, ax
+    
+def plot_rays(rays, env, Title, invert_colors=False, **kwargs):
     """Plots ray paths.
 
     :param rays: ray paths
@@ -524,7 +546,7 @@ def plot_rays(rays, Title, env=None, invert_colors=False, **kwargs):
     ax.set_ylabel("Depth [m]")
     ax.set_ylim((_np.min(env['surface']), _np.max(env['depth'][:,1])))
     ax.set_xlim((0, env['rx_range']/divisor))
-    ax.set_title(f"[ BELLHOP- {Title} ] Rays")
+    ax.set_title(f"[ {env['model']}- {Title} ] Rays")
     ax.scatter(0, env['tx_depth'], label= "Source", color= "k", s=250, marker="*")
     ax.scatter(env['rx_range'], env['rx_depth'], label= "Receiver", color= "k", s=250, marker="o")
     ax.invert_yaxis()
@@ -541,7 +563,7 @@ def plot_rays(rays, Title, env=None, invert_colors=False, **kwargs):
 
     
     
-def plot_transmission_loss(tloss, Title, env=None, vmin=-180, vmax=0, **kwargs):
+def plot_transmission_loss(tloss, env, Title, vmin=-180, vmax=0, **kwargs):
     """Plots transmission loss.
 
     :param tloss: complex transmission loss
@@ -586,13 +608,15 @@ def plot_transmission_loss(tloss, Title, env=None, vmin=-180, vmax=0, **kwargs):
     
     """ Remove TL in sediment and reduce artifacts """
     for ii,x in enumerate(X): # For all map pixels
+        ylim = _np.interp(x, env['depth'][:,0], env['depth'][:,1])
         for jj,y in enumerate(Y):
-            if y > _np.interp(x, env['depth'][:,0], env['depth'][:,1]):
+            if y > ylim:
                 tlossplt[jj,ii] = vmax
     
     for ii,x in enumerate(X): # For all map pixels
+        ylim = _np.interp(x, env['surface'][:,0], env['surface'][:,1])
         for jj,y in enumerate(Y):
-            if y < _np.interp(x, env['surface'][:,0], env['surface'][:,1]):
+            if y < ylim:
                 tlossplt[jj,ii] = _np.NaN
                 
     fig, ax = plt.subplots()
@@ -602,7 +626,7 @@ def plot_transmission_loss(tloss, Title, env=None, vmin=-180, vmax=0, **kwargs):
     ax.plot(env['surface'][:,0]/1000, env['surface'][:,1],'b', linewidth=3)
     ax.set_xlabel('Range [km]')
     ax.set_ylabel('Depth [m]')
-    ax.set_title(f"[ BELLHOP- {Title} ] Propagation Loss @ F = {env['frequency']} Hz")
+    ax.set_title(f"[ {env['model']}-{Title} ] Propagation Loss @ {env['frequency']} Hz")
     cbar1 = fig.colorbar(im1, ax=ax)
     cbar1.ax.set_ylabel('Loss [dB]')
     ax.invert_yaxis()
