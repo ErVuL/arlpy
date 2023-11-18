@@ -29,6 +29,8 @@ from tempfile import mkstemp as _mkstemp
 from struct import unpack as _unpack
 from sys import float_info as _fi
 import matplotlib.pyplot as plt
+import pyram.PyRAM as ram
+import pandas as pd
 
 """
 import arlpy.plot as _plt
@@ -45,6 +47,7 @@ rays = 'rays'
 coherent = 'coherent'
 incoherent = 'incoherent'
 semicoherent = 'semicoherent'
+
 
 # models (in order of preference)
 _models = []
@@ -98,11 +101,15 @@ def create_env2d(**kv):
         'model': 'BELLHOP',             # Model
         'frequency': 25000,             # Hz
         'soundspeed': 1500,             # m/s
+        'soundspeed_range': [0],        # m
+        'soundspeed_depth': [0],        # m
         'soundspeed_interp': spline,    # spline/linear
         'bottom_soundspeed': 1600,      # m/s
         'bottom_density': 1600,         # kg/m^3
         'bottom_absorption': 0.1,       # dB/wavelength
         'bottom_roughness': 0,          # m (rms)
+        'bottom_srange': [0],           # m
+        'bottom_sdepth': [0],           # m
         'surface': None,                # surface profile
         'surface_interp': linear,       # curvilinear/linear
         'tx_depth': 5,                  # m
@@ -161,8 +168,8 @@ def check_env2d(env):
             assert env['soundspeed'].index[-1] >= max_depth, 'Last depth in soundspeed array must be beyond water depth: '+str(max_depth)+' m'
             assert _np.all(_np.diff(env['soundspeed'].index) > 0), 'Soundspeed array must be strictly monotonic in depth'
         elif _np.size(env['soundspeed']) > 1:
-            assert env['soundspeed'].ndim == 2, 'soundspeed must be a scalar or an Nx2 array'
-            assert env['soundspeed'].shape[1] == 2, 'soundspeed must be a scalar or an Nx2 array'
+            #assert env['soundspeed'].ndim == 2, 'soundspeed must be a scalar or an Nx2 array'
+            #assert env['soundspeed'].shape[1] == 2, 'soundspeed must be a scalar or an Nx2 array'
             assert env['soundspeed'].shape[0] > 3, 'soundspeed profile must have at least 4 points'
             assert env['soundspeed'][0,0] <= 0, 'First depth in soundspeed array must be 0 m'
             assert env['soundspeed'][-1,0] >= max_depth, 'Last depth in soundspeed array must be beyond water depth: '+str(max_depth)+' m'
@@ -411,10 +418,12 @@ def compute_transmission_loss(env, tx_depth_ndx=0, mode=coherent, model=None, de
     if _np.size(env['tx_depth']) > 1:
         env = env.copy()
         env['tx_depth'] = env['tx_depth'][tx_depth_ndx]
-    (model_name, model) = _select_model(env, mode, model)
+    (model_name, model_process) = _select_model(env, mode, env['model'])
     if debug:
         print('[DEBUG] Model: '+model_name)
-    return model.run(env, mode, debug)
+    if env['model'] == 'RAM':
+        mode = 'TL'
+    return model_process.run(env, mode, debug)
 
 def arrivals_to_impulse_response(arrivals, fs, abs_time=False):
     """Convert arrival times and coefficients to an impulse response.
@@ -490,7 +499,7 @@ def plot_arrivals(arrivals, env, Title, dB=False, color='blue', **kwargs):
         """
         ax.stem(t,  y)
     ax.set_ylabel(ylabel)
-    ax.set_title(f"[ {env['model']}- {Title} ] Arrivals")
+    ax.set_title(f"[ {env['model']} - {Title} ] Arrivals")
     ax.set_xlabel('Arrival time [s]')
     ax.grid('all')
     return fig, ax
@@ -546,7 +555,7 @@ def plot_rays(rays, env, Title, invert_colors=False, **kwargs):
     ax.set_ylabel("Depth [m]")
     ax.set_ylim((_np.min(env['surface']), _np.max(env['depth'][:,1])))
     ax.set_xlim((0, env['rx_range']/divisor))
-    ax.set_title(f"[ {env['model']}- {Title} ] Rays")
+    ax.set_title(f"[ {env['model']} - {Title} ] Rays")
     ax.scatter(0, env['tx_depth'], label= "Source", color= "k", s=250, marker="*")
     ax.scatter(env['rx_range'], env['rx_depth'], label= "Receiver", color= "k", s=250, marker="o")
     ax.invert_yaxis()
@@ -601,37 +610,287 @@ def plot_transmission_loss(tloss, env, Title, vmin=-180, vmax=0, **kwargs):
     """
     
     """ Matplotlib """
-    
+    fig, ax = plt.subplots()
     X = env['rx_range']
     Y = env['rx_depth']
+
     tlossplt = 20*_np.log10(_fi.epsilon+_np.abs(_np.array(tloss)))
     
-    """ Remove TL in sediment and reduce artifacts """
+    """ Remove TL in sediment/surface and reduce artifacts """
     for ii,x in enumerate(X): # For all map pixels
         ylim = _np.interp(x, env['depth'][:,0], env['depth'][:,1])
         for jj,y in enumerate(Y):
             if y > ylim:
                 tlossplt[jj,ii] = vmax
     
-    for ii,x in enumerate(X): # For all map pixels
-        ylim = _np.interp(x, env['surface'][:,0], env['surface'][:,1])
-        for jj,y in enumerate(Y):
-            if y < ylim:
-                tlossplt[jj,ii] = _np.NaN
-                
-    fig, ax = plt.subplots()
+    if env['model'] == 'BELLHOP':
+        for ii,x in enumerate(X): # For all map pixels
+            ylim = _np.interp(x, env['surface'][:,0], env['surface'][:,1])
+            for jj,y in enumerate(Y):
+                if y < ylim:
+                    tlossplt[jj,ii] = _np.NaN
+        ax.plot(env['surface'][:,0]/1000, env['surface'][:,1],'b', linewidth=3)
+        
+    elif env['model'] == 'RAM':
+        ax.plot([0, env['surface'][-1,0]/1000],[0,0],'b', linewidth=3)
+    
     X,Y = _np.meshgrid(X, Y)
     im1 = ax.pcolormesh(X/1000,Y,tlossplt, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
     ax.plot(env['depth'][:,0]/1000, env['depth'][:,1],'k', linewidth=3)
-    ax.plot(env['surface'][:,0]/1000, env['surface'][:,1],'b', linewidth=3)
+    ax.set_xlim((X[0,0]/1000, X[-1,-1]/1000))
+    ax.set_ylim((Y[0,0], Y[-1,-1]))
     ax.set_xlabel('Range [km]')
     ax.set_ylabel('Depth [m]')
-    ax.set_title(f"[ {env['model']}-{Title} ] Propagation Loss @ {env['frequency']} Hz")
+    ax.set_title(f"[ {env['model']} - {Title} ] Propagation Loss @ {env['frequency']} Hz")
     cbar1 = fig.colorbar(im1, ax=ax)
     cbar1.ax.set_ylabel('Loss [dB]')
     ax.invert_yaxis()
+    
     return fig, ax
     
+def plot_absorption(env, Title, vmin=0, vmax=20, Nxy=500, **pyRAM_settings):
+                 
+    fig, ax = plt.subplots()
+            
+    Xb = _np.array(env['bottom_srange'])
+    Yb = _np.array(env['bottom_sdepth']-_np.max(env['depth'][:,1]),ndmin=1)
+    Zb = _np.array(_np.array(env['bottom_absorption'],ndmin=2))
+    
+    if env['model'] == 'BELLHOP':
+        Xb = [0, env['rx_range'][-1]]
+        Zb = _np.full((len(Yb),2), _np.mean(Zb))
+        
+    Xg = _np.linspace(0, env['rx_range'][-1], Nxy)
+    Yg = _np.linspace(0, env['rx_depth'][-1], Nxy)
+    Zg = _np.zeros([len(Yg), len(Xg)])
+    
+    # Bathy
+    rb = _np.array(env['depth'][:,0])
+    zb = _np.array(env['depth'][:,1])
+    
+    # Re-compute map over grid
+    for ii,x in enumerate(Xg): # For all map pixels
+        for jj,y in enumerate(Yg): 
+            
+            if y > _np.interp(x, rb, zb): # If in sediment (interpolation of bathymetry line between samples)
+
+                # Search for the correct value in sediment profile:
+                    
+                # Search the last x update point
+                x_idx = 0
+                while x_idx < len(Xb) and x >= Xb[x_idx]:
+                    x_idx += 1
+                if x_idx > 0 : 
+                    x_idx-=1
+                    
+                # Search the y nearest value
+                idx = 0
+                y_idx = 0
+                diff = 1e30
+                while idx < len(Yb):
+                    if _np.sqrt((y-Yb[idx])**2) < diff:
+                        y_idx = idx
+                        diff  = _np.sqrt((y-Yb[y_idx])**2)
+                    idx += 1
+                    
+                # Record the value
+                Zg[jj,ii] = Zb[y_idx,x_idx]
+                
+            else: # Else it is in water column
+                # Set minimum value
+                Zg[jj,ii] = vmin
+          
+    # Plot
+    Xg, Yg = _np.meshgrid(Xg/1000, Yg)
+    im = ax.pcolormesh(Xg, Yg, Zg, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
+    ax.plot(rb/1000, zb, 'k', linewidth=3)
+    ax.scatter(0, env['tx_depth'], label= "Stars", color= "r", s=500, marker="*") 
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.ax.set_ylabel('Attenuation [dB/$\lambda$]')
+    ax.set_xlabel('Range [km]')
+    ax.set_ylabel('Depth [m]')
+    ax.set_title(f"[ {env['model']} - {Title} ] Attenuation in sediment")
+    ax.invert_yaxis()
+    plt.tight_layout()
+    
+    return fig, ax
+
+def plot_beam(env, Title, vmin=-60, vmax=20, **kwargs):
+    
+    fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+    
+    if env['model'] == 'RAM':
+        ax.plot(_np.linspace(0, 2*_np.pi, 1000), _np.zeros(1000))
+    if env['model'] == 'BELLHOP':
+        ax.plot((env['tx_directionality'][:,0]+180)/360*2*_np.pi-_np.pi, env['tx_directionality'][:,1])
+        
+    ax.set_rlabel_position(-22.5)  # Move radial labels away from plotted line
+    ax.grid(True)
+    ax.set_ylim(vmin, vmax)
+    ax.set_title(f"[ {env['model']} - {Title} ] Source directivity [dB]", va='bottom')
+    
+    return fig, ax
+
+def plot_density(env, Title, vmin=1000, vmax=1750, Nxy=500, **kwargs):
+        
+    fig, ax = plt.subplots()
+            
+    Xb = _np.array(env['bottom_srange'])
+    Yb = _np.array(env['bottom_sdepth']-_np.max(env['depth'][:,1]),ndmin=1)
+    Zb = _np.array(env['bottom_density'],ndmin=2)
+    
+    if env['model'] == 'BELLHOP':
+        Xb = [0, env['rx_range'][-1]]
+        Zb = _np.full((len(Yb),2), _np.mean(Zb))
+    
+    Xg = _np.linspace(0, env['rx_range'][-1], Nxy)
+    Yg = _np.linspace(0, env['rx_depth'][-1], Nxy)
+    Zg = _np.zeros([len(Yg), len(Xg)])
+    
+    # Bathy
+    rb = _np.array(env['depth'][:,0])
+    zb = _np.array(env['depth'][:,1])
+    
+    # Re-compute map over grid
+    for ii,x in enumerate(Xg): # For all map pixels
+        for jj,y in enumerate(Yg): 
+            
+            if y > _np.interp(x, rb, zb): # If in sediment (interpolation of bathymetry line between samples)
+
+                # Search for the correct value in sediment profile:
+                    
+                # Search the last x update point
+                x_idx = 0
+                while x_idx < len(Xb) and x >= Xb[x_idx]:
+                    x_idx += 1
+                if x_idx > 0 : 
+                    x_idx-=1
+                    
+                # Search the y nearest value
+                idx = 0
+                y_idx = 0
+                diff = 1e30
+                while idx < len(Yb):
+                    if _np.sqrt((y-Yb[idx])**2) < diff:
+                        y_idx = idx
+                        diff  = _np.sqrt((y-Yb[y_idx])**2)
+                    idx += 1
+                    
+                # Record the value
+                Zg[jj,ii] = Zb[y_idx,x_idx]
+                
+            else: # Else it is in water column
+                # Set minimum value
+                Zg[jj,ii] = vmin
+          
+    # Plot
+    Xg, Yg = _np.meshgrid(Xg/1000, Yg)
+    im = ax.pcolormesh(Xg, Yg, Zg, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
+    ax.plot(rb/1000, zb, 'k', linewidth=3)
+    ax.scatter(0, env['tx_depth'], label= "Stars", color= "r", s=500, marker="*") 
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.ax.set_ylabel('Density [$g.m^{3}$]')
+    ax.set_xlabel('Range [km]')
+    ax.set_ylabel('Depth [m]')
+    ax.set_title(f"[ {env['model']} - {Title} ] Density in sediment")
+    ax.invert_yaxis()
+    plt.tight_layout()
+    
+    return fig, ax
+
+
+def plot_soundspeed(env, Title, Nxy=500, **kwargs):
+           
+    fig, ax = plt.subplots()
+            
+    X = _np.array(env['soundspeed_range'])
+    Y = _np.array(env['soundspeed'][:,0])
+    Z = _np.array(env['soundspeed'][:,1:])
+    
+    Xb = _np.array(env['bottom_srange'])
+    Yb = _np.array(env['bottom_sdepth']-_np.max(env['depth'][:,1]),ndmin=1)
+    Zb = _np.array(env['bottom_soundspeed'],ndmin=2)
+    
+    if env['model'] == 'BELLHOP':
+        Xb = [0, env['rx_range'][-1]]
+        Zb = _np.full((len(Yb),2), _np.mean(Zb))
+        X = [0, env['rx_range'][-1]]
+        Z = _np.column_stack((_np.mean(Z, axis=1), _np.mean(Z, axis=1)))
+    
+    Xg = _np.linspace(0, env['rx_range'][-1], Nxy)
+    Yg = _np.linspace(0, Y[-1], Nxy)
+    Zg = _np.zeros([len(Yg), len(Xg)])
+    
+    # Bathy
+    rb = _np.array(env['depth'][:,0])
+    zb = _np.array(env['depth'][:,1])
+    
+    # Re-compute map over grid
+    for ii,x in enumerate(Xg): # For all map pixels
+        for jj,y in enumerate(Yg): 
+            
+            if y > _np.interp(x, rb, zb): # If in sediment (interpolation of bathymetry line between samples)
+
+                # Search for the correct value in sediment profile:
+                    
+                # Search the last x update point
+                x_idx = 0
+                while x_idx < len(Xb) and x >= Xb[x_idx]:
+                    x_idx += 1
+                if x_idx > 0 : 
+                    x_idx-=1
+                    
+                # Search the y nearest value
+                idx = 0
+                y_idx = 0
+                diff = 1e30
+                while idx < len(Yb):
+                    if _np.sqrt((y-Yb[idx])**2) < diff:
+                        y_idx = idx
+                        diff  = _np.sqrt((y-Yb[y_idx])**2)
+                    idx += 1
+                    
+                # Record the value
+                Zg[jj,ii] = Zb[y_idx,x_idx]
+                
+            else: # Else it is in water column
+                
+                # Search for the correct value in water column profile:
+                    
+                # Search the last x (range) update point
+                x_idx = 0
+                while x_idx < len(X) and x >= X[x_idx]:
+                    x_idx += 1
+                if x_idx > 0 : 
+                    x_idx-=1
+                    
+                # Search the y (depth) nearest value
+                idx = 0
+                y_idx = 0
+                diff = 1e30
+                while idx < len(Y):
+                    if _np.sqrt((y-Y[idx])**2) < diff:
+                        y_idx = idx
+                        diff  = _np.sqrt((y-Y[y_idx])**2)
+                    idx += 1
+                
+                # Record the value
+                Zg[jj,ii] = Z[y_idx,x_idx]   
+          
+    # Plot
+    Xg, Yg = _np.meshgrid(Xg/1000, Yg)
+    im = ax.pcolormesh(Xg, Yg, Zg, cmap='jet', shading='gouraud')
+    ax.plot(rb/1000, zb, 'k', linewidth=3)
+    ax.scatter(0, env['tx_depth'], label= "Stars", color= "r", s=500, marker="*") 
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.ax.set_ylabel('Sound speed [m/s]')
+    ax.set_xlabel('Range [km]')
+    ax.set_ylabel('Depth[m]')
+    ax.set_title(f"[ {env['model']} - {Title} ] Sound speed profile")
+    ax.invert_yaxis()
+    plt.tight_layout()
+    
+    return fig, ax
     
 def models(env=None, task=None):
     """List available models.
@@ -757,7 +1016,12 @@ class _Bellhop:
         self._print(fh, "'"+env['name']+"'")
         self._print(fh, "%0.6f" % (env['frequency']))
         self._print(fh, "1")
-        svp = env['soundspeed']
+        if _np.size(env['soundspeed'],axis=1) > 2:
+            print(f"[WARN] {env['model']}: Multiple sound profiles not supported, using average value.")
+            mn = _np.mean(env['soundspeed'][:,1:], axis=1)
+            svp = _np.column_stack((env['soundspeed'][:,0], mn))
+        else:
+            svp = env['soundspeed']
         svp_depth = 0.0
         svp_interp = 'S' if env['soundspeed_interp'] == spline else 'C'
         if isinstance(svp, _pd.DataFrame):
@@ -789,8 +1053,17 @@ class _Bellhop:
             self._print(fh, "'A' %0.6f" % (env['bottom_roughness']))
         else:
             self._print(fh, "'A*' %0.6f" % (env['bottom_roughness']))
-            self._create_bty_ati_file(fname_base+'.bty', depth, env['depth_interp'])
-        self._print(fh, "%0.6f %0.6f 0.0 %0.6f %0.6f /" % (max_depth, env['bottom_soundspeed'], env['bottom_density']/1000, env['bottom_absorption']))
+            self._create_bty_ati_file(fname_base+'.bty', depth, env['depth_interp'])  
+        if env['bottom_soundspeed'].ndim > 0:
+            print(f"[WARN] {env['model']}: Multiple bottom soundspeed profiles not supported, using average value.")
+        if env['bottom_density'].ndim > 0:
+            print(f"[WARN] {env['model']}: Multiple bottom density profiles not supported, using average value.")
+        if env['bottom_absorption'].ndim > 0:
+            print(f"[WARN] {env['model']}: Multiple bottom absorption profiles not supported, using average value.")
+        self.bts = _np.mean(env['bottom_soundspeed'])
+        self.btd = _np.mean(env['bottom_density'])
+        self.bta = _np.mean(env['bottom_absorption'])
+        self._print(fh, "%0.6f %0.6f 0.0 %0.6f %0.6f /" % (max_depth, self.bts, self.btd/1000, self.bta))
         self._print_array(fh, env['tx_depth'])
         self._print_array(fh, env['rx_depth'])
         self._print_array(fh, env['rx_range']/1000)
@@ -951,5 +1224,89 @@ class _Bellhop:
                 temp = _np.array(_unpack('f'*2*nrr, f.read(2*nrr*4)))
                 pressure[ird,:] = temp[::2] + 1j*temp[1::2]
         return _pd.DataFrame(pressure, index=pos_r_depth, columns=pos_r_range)
+_models.append(('BELLHOP', _Bellhop))
 
-_models.append(('bellhop', _Bellhop))
+
+class _RAM:
+    
+    def __init__(self):
+        pass
+
+    def supports(self, env=None, task='TL'):
+        
+        if task == 'TL' or task == 'CP':
+            return True    
+        
+        return False
+    
+    def run(self, env, task='TL', debug=False):
+        
+        if env['surface'].any():
+            print(f"[WARN] {env['model']}: Surface not supported, considering flat air/water interface.")
+        
+        if env['tx_directionality'].any():
+            print(f"[WARN] {env['model']}: Beam pattern not supported, using omnidirectionnal instead.")
+            
+        # Initialize RAM environment
+        # ram.PyRAM(freq, zs, zr, z_ss, rp_ss, cw, z_sb, rp_sb, cb, rhob, attn, rbzb, **kwargs)       
+        self.pyram = ram.PyRAM(env['frequency'],
+                           env['tx_depth'],
+                           env['rx_depth'][-1],
+                           _np.array(env['soundspeed'][:,0]),
+                           _np.array(env['soundspeed_range']),
+                           _np.array(env['soundspeed'][:,1:]),
+                           _np.array(env['bottom_sdepth']-_np.max(env['depth'][:,1]),ndmin=1),
+                           _np.array(env['bottom_srange']),
+                           _np.array(env['bottom_soundspeed'],ndmin=2),
+                           _np.array(env['bottom_density'],ndmin=2)/1000,
+                           _np.array(env['bottom_absorption'],ndmin=2),
+                           _np.array((env['depth'][:,0],env['depth'][:,1])).transpose(),
+                           rmax = env['rx_range'][-1],
+                           dr=env['rx_range'][2]-env['rx_range'][1],
+                           dz=env['rx_depth'][2]-env['rx_depth'][1],
+                           zmplt=env['rx_depth'][-1],
+                           c0=_np.mean(env['soundspeed'][:,1])
+                           )
+
+        self.tl_tol  = 1e-2  # Tolerable mean difference in TL (dB) with reference result
+        self.lines   = env['rx_depth']
+        self.columns = env['rx_range']
+        
+        # Run computation
+        results = self.pyram.run()
+        
+        if task == 'TL':
+            # If necessary resize the results grid by adding NaNs
+            if _np.size(results['TL Grid'], axis=0) < len(self.lines):
+                results['TL Grid'] = _np.insert(results['TL Grid'], 0, _np.zeros(_np.size(results['TL Grid'],axis=1)), axis=0)
+                results['TL Grid'][0,:] = _np.nan
+            if _np.size(results['TL Grid'], axis=1) < len(self.columns):
+                results['TL Grid'] = _np.insert(results['TL Grid'], 0, _np.zeros(_np.size(results['TL Grid'],axis=0)), axis=1) 
+                results['TL Grid'][:,0] = _np.nan
+            if _np.size(results['TL Grid'], axis=1) < len(self.columns):
+                results['TL Grid'] = _np.insert(results['TL Grid'], _np.size(results['TL Grid'],axis=1), _np.zeros(_np.size(results['TL Grid'],axis=0)), axis=1)
+                results['TL Grid'][:,-1] = _np.nan
+            
+            # Return data as DataFrame with range and depth as index
+            return pd.DataFrame(10**(-results['TL Grid']/20), index=self.lines, columns=self.columns)
+        
+        if task == 'CP':
+            # If necessary resize the results grid by adding NaNs
+            if _np.size(results['CP Grid'], axis=0) < len(self.lines):
+                results['CP Grid'] = _np.insert(results['CP Grid'], 0, _np.zeros(_np.size(results['CP Grid'],axis=1)), axis=0)
+                results['CP Grid'][0,:] = _np.nan
+            if _np.size(results['CP Grid'], axis=1) < len(self.columns):
+                results['CP Grid'] = _np.insert(results['CP Grid'], 0, _np.zeros(_np.size(results['CP Grid'],axis=0)), axis=1) 
+                results['CP Grid'][:,0] = _np.nan
+            if _np.size(results['CP Grid'], axis=1) < len(self.columns):
+                results['CP Grid'] = _np.insert(results['CP Grid'], _np.size(results['CP Grid'],axis=1), _np.zeros(_np.size(results['CP Grid'],axis=0)), axis=1)
+                results['CP Grid'][:,-1] = _np.nan
+            
+            # Return data as DataFrame with range and depth as index
+            return pd.DataFrame(results['CP Grid'], index=self.lines, columns=self.columns)    
+        
+        return False
+
+# Add model to available models
+_models.append(('RAM', _RAM))
+
