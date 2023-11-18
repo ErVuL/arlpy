@@ -164,18 +164,18 @@ def check_env2d(env):
             max_depth = env['depth']
         if isinstance(env['soundspeed'], _pd.DataFrame):
             assert env['soundspeed'].shape[0] > 3, 'soundspeed profile must have at least 4 points'
-            assert env['soundspeed'].index[0] <= 0, 'First depth in soundspeed array must be 0 m'
-            assert env['soundspeed'].index[-1] >= max_depth, 'Last depth in soundspeed array must be beyond water depth: '+str(max_depth)+' m'
+            assert env['soundspeed_depth'][0] <= 0, 'First depth in soundspeed array must be 0 m'
+            assert env['soundspeed_depth'][-1] >= max_depth, 'Last depth in soundspeed array must be beyond water depth: '+str(max_depth)+' m'
             assert _np.all(_np.diff(env['soundspeed'].index) > 0), 'Soundspeed array must be strictly monotonic in depth'
         elif _np.size(env['soundspeed']) > 1:
             #assert env['soundspeed'].ndim == 2, 'soundspeed must be a scalar or an Nx2 array'
             #assert env['soundspeed'].shape[1] == 2, 'soundspeed must be a scalar or an Nx2 array'
             assert env['soundspeed'].shape[0] > 3, 'soundspeed profile must have at least 4 points'
-            assert env['soundspeed'][0,0] <= 0, 'First depth in soundspeed array must be 0 m'
-            assert env['soundspeed'][-1,0] >= max_depth, 'Last depth in soundspeed array must be beyond water depth: '+str(max_depth)+' m'
-            assert _np.all(_np.diff(env['soundspeed'][:,0]) > 0), 'Soundspeed array must be strictly monotonic in depth'
+            assert env['soundspeed_depth'][0] <= 0, 'First depth in soundspeed array must be 0 m'
+            assert env['soundspeed_depth'][-1] >= max_depth, 'Last depth in soundspeed array must be beyond water depth: '+str(max_depth)+' m'
+            assert _np.all(_np.diff(env['soundspeed_depth']) > 0), 'Soundspeed array must be strictly monotonic in depth'
             assert env['soundspeed_interp'] == spline or env['soundspeed_interp'] == linear, 'Invalid interpolation type: '+str(env['soundspeed_interp'])
-            if not(max_depth in env['soundspeed'][:,0]):
+            if not(max_depth in env['soundspeed_depth']):
                 indlarger = _np.argwhere(env['soundspeed'][:,0]>max_depth)[0][0]
                 if env['soundspeed_interp'] == spline:
                     tck = _interp.splrep(env['soundspeed'][:,0], env['soundspeed'][:,1], s=0)
@@ -623,7 +623,7 @@ def plot_transmission_loss(tloss, env, Title, vmin=-180, vmax=0, **kwargs):
             if y > ylim:
                 tlossplt[jj,ii] = vmax
     
-    if env['model'] == 'BELLHOP':
+    if env['model'] == 'BELLHOP' and env['surface'] is not None :
         for ii,x in enumerate(X): # For all map pixels
             ylim = _np.interp(x, env['surface'][:,0], env['surface'][:,1])
             for jj,y in enumerate(Y):
@@ -632,7 +632,7 @@ def plot_transmission_loss(tloss, env, Title, vmin=-180, vmax=0, **kwargs):
         ax.plot(env['surface'][:,0]/1000, env['surface'][:,1],'b', linewidth=3)
         
     elif env['model'] == 'RAM':
-        ax.plot([0, env['surface'][-1,0]/1000],[0,0],'b', linewidth=3)
+        ax.plot([0, X[-1]/1000],[0,0],'b', linewidth=3)
     
     X,Y = _np.meshgrid(X, Y)
     im1 = ax.pcolormesh(X/1000,Y,tlossplt, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
@@ -648,7 +648,7 @@ def plot_transmission_loss(tloss, env, Title, vmin=-180, vmax=0, **kwargs):
     
     return fig, ax
     
-def plot_absorption(env, Title, vmin=0, vmax=20, Nxy=500, **pyRAM_settings):
+def plot_absorption(env, Title, vmin=0, vmax=20, Nxy=500, **kwargs):
                  
     fig, ax = plt.subplots()
             
@@ -699,7 +699,18 @@ def plot_absorption(env, Title, vmin=0, vmax=20, Nxy=500, **pyRAM_settings):
             else: # Else it is in water column
                 # Set minimum value
                 Zg[jj,ii] = vmin
-          
+
+    # Plot surface if Bellhop
+    if env['model'] == 'BELLHOP' and env['surface'] is not None :
+        for ii,x in enumerate(Xg): # For all map pixels
+            ylim = _np.interp(x, env['surface'][:,0], env['surface'][:,1])
+            for jj,y in enumerate(Yg):
+                if y < ylim:
+                    Zg[jj,ii] = _np.NaN
+        ax.plot(env['surface'][:,0]/1000, env['surface'][:,1],'b', linewidth=3)        
+    elif env['model'] == 'RAM':
+        ax.plot([0, Xg[-1]/1000],[0,0],'b', linewidth=3) 
+        
     # Plot
     Xg, Yg = _np.meshgrid(Xg/1000, Yg)
     im = ax.pcolormesh(Xg, Yg, Zg, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
@@ -719,9 +730,9 @@ def plot_beam(env, Title, vmin=-60, vmax=20, **kwargs):
     
     fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
     
-    if env['model'] == 'RAM':
+    if env['model'] == 'RAM' or env['tx_directionality'] is None:
         ax.plot(_np.linspace(0, 2*_np.pi, 1000), _np.zeros(1000))
-    if env['model'] == 'BELLHOP':
+    elif env['model'] == 'BELLHOP':
         ax.plot((env['tx_directionality'][:,0]+180)/360*2*_np.pi-_np.pi, env['tx_directionality'][:,1])
         
     ax.set_rlabel_position(-22.5)  # Move radial labels away from plotted line
@@ -782,7 +793,18 @@ def plot_density(env, Title, vmin=1000, vmax=1750, Nxy=500, **kwargs):
             else: # Else it is in water column
                 # Set minimum value
                 Zg[jj,ii] = vmin
-          
+
+    # Plot surface if Bellhop
+    if env['model'] == 'BELLHOP' and env['surface'] is not None :
+        for ii,x in enumerate(Xg): # For all map pixels
+            ylim = _np.interp(x, env['surface'][:,0], env['surface'][:,1])
+            for jj,y in enumerate(Yg):
+                if y < ylim:
+                    Zg[jj,ii] = _np.NaN
+        ax.plot(env['surface'][:,0]/1000, env['surface'][:,1],'b', linewidth=3)    
+    elif env['model'] == 'RAM':
+        ax.plot([0, Xg[-1]/1000],[0,0],'b', linewidth=3) 
+        
     # Plot
     Xg, Yg = _np.meshgrid(Xg/1000, Yg)
     im = ax.pcolormesh(Xg, Yg, Zg, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
@@ -804,8 +826,8 @@ def plot_soundspeed(env, Title, Nxy=500, **kwargs):
     fig, ax = plt.subplots()
             
     X = _np.array(env['soundspeed_range'])
-    Y = _np.array(env['soundspeed'][:,0])
-    Z = _np.array(env['soundspeed'][:,1:])
+    Y = _np.array(env['soundspeed_depth'])
+    Z = _np.array(env['soundspeed'])
     
     Xb = _np.array(env['bottom_srange'])
     Yb = _np.array(env['bottom_sdepth']-_np.max(env['depth'][:,1]),ndmin=1)
@@ -876,7 +898,18 @@ def plot_soundspeed(env, Title, Nxy=500, **kwargs):
                 
                 # Record the value
                 Zg[jj,ii] = Z[y_idx,x_idx]   
-          
+     
+    # Plot surface if Bellhop
+    if env['model'] == 'BELLHOP' and env['surface'] is not None :
+        for ii,x in enumerate(Xg): # For all map pixels^
+            ylim = _np.interp(x, env['surface'][:,0], env['surface'][:,1])
+            for jj,y in enumerate(Yg):
+                if y < ylim:
+                    Zg[jj,ii] = _np.NaN
+        ax.plot(env['surface'][:,0]/1000, env['surface'][:,1],'b', linewidth=3)    
+    elif env['model'] == 'RAM':
+        ax.plot([0, Xg[-1]/1000],[0,0],'b', linewidth=3) 
+        
     # Plot
     Xg, Yg = _np.meshgrid(Xg/1000, Yg)
     im = ax.pcolormesh(Xg, Yg, Zg, cmap='jet', shading='gouraud')
@@ -1016,12 +1049,12 @@ class _Bellhop:
         self._print(fh, "'"+env['name']+"'")
         self._print(fh, "%0.6f" % (env['frequency']))
         self._print(fh, "1")
-        if _np.size(env['soundspeed'],axis=1) > 2:
+        if _np.size(env['soundspeed'],axis=1) > 1:
             print(f"[WARN] {env['model']}: Multiple sound profiles not supported, using average value.")
-            mn = _np.mean(env['soundspeed'][:,1:], axis=1)
-            svp = _np.column_stack((env['soundspeed'][:,0], mn))
+            mn = _np.mean(env['soundspeed'], axis=1)
+            svp = _np.column_stack((env['soundspeed_depth'], mn))
         else:
-            svp = env['soundspeed']
+            svp = _np.column_stack((env['soundspeed_depth'], env['soundspeed']))
         svp_depth = 0.0
         svp_interp = 'S' if env['soundspeed_interp'] == spline else 'C'
         if isinstance(svp, _pd.DataFrame):
@@ -1241,10 +1274,10 @@ class _RAM:
     
     def run(self, env, task='TL', debug=False):
         
-        if env['surface'].any():
+        if env['surface'] is not None:
             print(f"[WARN] {env['model']}: Surface not supported, considering flat air/water interface.")
         
-        if env['tx_directionality'].any():
+        if env['tx_directionality'] is not None:
             print(f"[WARN] {env['model']}: Beam pattern not supported, using omnidirectionnal instead.")
             
         # Initialize RAM environment
@@ -1252,9 +1285,9 @@ class _RAM:
         self.pyram = ram.PyRAM(env['frequency'],
                            env['tx_depth'],
                            env['rx_depth'][-1],
-                           _np.array(env['soundspeed'][:,0]),
+                           _np.array(env['soundspeed_depth']),
                            _np.array(env['soundspeed_range']),
-                           _np.array(env['soundspeed'][:,1:]),
+                           _np.array(env['soundspeed']),
                            _np.array(env['bottom_sdepth']-_np.max(env['depth'][:,1]),ndmin=1),
                            _np.array(env['bottom_srange']),
                            _np.array(env['bottom_soundspeed'],ndmin=2),
