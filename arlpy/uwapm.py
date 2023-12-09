@@ -1840,7 +1840,7 @@ def compute_wenz(f, u, rain_rate='none', shipping_level='medium', water_depth='d
     r2 = [0, -0.5232, -0.4255, -0.3825, -0.4258]
     r3 = [0, 0.0335, 0.0277, 0.0251, 0.0277]
 
-    i_rain = {'none': 1, 'light': 2, 'moderate': 3, 'heavy': 4, 'veryheavy': 5}.get(rain_rate, 1)
+    i_rain = {'none': 0, 'light': 1, 'moderate': 2, 'heavy': 3, 'veryheavy': 4}.get(rain_rate, 1)
     fk = f / 1000  # convert to kHz for this equation
     noise_rain = r0[i_rain] + r1[i_rain] * fk + r2[i_rain] * fk**2 + r3[i_rain] * fk**3
 
