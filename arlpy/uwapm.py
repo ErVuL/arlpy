@@ -1829,7 +1829,10 @@ def compute_wenz(f, u, rain_rate='none', shipping_level='medium', water_depth='d
     c2 = 1 if shipping_level == 'low' else 4 if shipping_level == 'medium' else 7 if shipping_level == 'high' else 4
     noise_ship = 76 - 20 * (_np.log10(f) - _np.log10(c1))**2 + 5 * (c2 - 4)
     noise_ship[noise_ship <= 0] = 1
-
+    
+    if shipping_level == 'none':
+        noise_ship =_np.zeros(len(noise_ship))
+            
     # Turbulence noise
     noise_turb = 108.5 - 32.5 * _np.log10(f)
     noise_turb[noise_turb <= 0] = 1
@@ -1882,7 +1885,10 @@ def plot_wenz(Fxx, NL, wind_speed, rain_rate, shipping_level, water_depth, Title
     else:
         # Plot noise levels for different components
         ax.semilogx(Fxx, NL[:, 0], label='Total noise', color='black')
-        ax.semilogx(Fxx, NL[:, 1], label=f'Shipping noise ({shipping_level}, {water_depth} water)', color='blue', linestyle='dashed')
+        if shipping_level != 'none':
+            ax.semilogx(Fxx, NL[:, 1], label=f'Shipping noise ({shipping_level}, {water_depth} water)', color='blue', linestyle='dashed')
+        else:
+            ax.semilogx(Fxx, NL[:, 1], label=f'Shipping noise (none)', color='blue', linestyle='dashed')
         ax.semilogx(Fxx, NL[:, 2], label=f'Wind noise ({wind_speed} kn)', color='green', linestyle='dashed')
         ax.semilogx(Fxx, NL[:, 3], label=f'Rain noise ({rain_rate})', color='orange', linestyle='dashed')
         ax.semilogx(Fxx, NL[:, 4], label='Thermal noise', color='red', linestyle='dashed')
