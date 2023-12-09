@@ -449,477 +449,432 @@ def arrivals_to_impulse_response(arrivals, fs, abs_time=False):
         ir[ndx] = row.arrival_amplitude
     return ir
 
-def plot_ir(ir, env, Title, fs=96000, dB=False, color='blue', **kwargs):
+def plot_ir(ir, env, Title='', fs=96000, dB=False, color='steelblue', **kwargs):
+    """
+    Plots the impulse response.
+
+    Parameters:
+        ir (array): Impulse response.
+        env (dict): Environment definition.
+        Title (str): Title for the plot.
+        fs (int): Sampling frequency in samples per second (default is 96000).
+        dB (bool): True to plot in dB, False for linear scale.
+        color (str): Line color (see `Matplotlib colors <https://matplotlib.org/stable/gallery/color/named_colors.html>`_).
+        **kwargs: Other keyword arguments applicable for `matplotlib.pyplot.stem()`.
+
+    Returns:
+        fig, ax: Figure and axis objects for the plot.
+    """
+
+    # Create the x-axis values based on the length of the impulse response
+    x = _np.arange(len(ir))
     
+    # If dB is True, convert the impulse response to dB
+    if dB:
+        ir = 20 * _np.log10(_np.abs(ir) + _np.finfo(float).eps)
+
+    # Plot the impulse response using stem plot
     fig, ax = plt.subplots()
-    x = [ii for ii in range(len(ir))]
-    ax.stem(x, ir)
+    ax.stem(x, ir, linefmt=color, markerfmt=color, basefmt='k', **kwargs)
     ax.set_xlabel('Sample [S]')
     ax.set_ylabel('Amplitude')
-    ax.set_title(f"[ {env['model']} - {Title} ] Impulse response @ {fs} $S.s^{-1}$")
+    ax.set_title(f"[ {env['model']} - Impulse response @ {fs} S/s ] {Title}")
     ax.grid('all')
+
     return fig, ax
 
-def plot_arrivals(arrivals, env, Title, dB=False, color='blue', **kwargs):
-    """Plots the arrival times and amplitudes.
 
-    :param arrivals: arrivals times (s) and coefficients
-    :param dB: True to plot in dB, False for linear scale
-    :param color: line color (see `Bokeh colors <https://bokeh.pydata.org/en/latest/docs/reference/colors.html>`_)
-
-    Other keyword arguments applicable for `arlpy.plot.plot()` are also supported.
-
-    >>> import arlpy.uwapm as pm
-    >>> env = pm.create_env2d()
-    >>> arrivals = pm.compute_arrivals(env)
-    >>> pm.plot_arrivals(arrivals)
+def plot_arrivals(arrivals, env, Title='', dB=False, color='steelblue', **kwargs):
     """
+    Plots the arrival times and amplitudes.
+
+    Parameters:
+        arrivals (DataFrame): Arrival times (s) and coefficients.
+        env (dict): Environment definition.
+        Title (str): Title for the plot.
+        dB (bool): True to plot in dB, False for linear scale.
+        color (str): Line color (see `Matplotlib colors <https://matplotlib.org/stable/gallery/color/named_colors.html>`_).
+        **kwargs: Other keyword arguments applicable for `matplotlib.pyplot.plot()`.
+
+    Returns:
+        fig, ax: Figure and axis objects for the plot.
+    """
+
     t0 = min(arrivals.time_of_arrival)
     t1 = max(arrivals.time_of_arrival)
-    #oh = _plt.hold()
+
     fig, ax = plt.subplots()
+
     if dB:
-        min_y = 20*_np.log10(_np.max(_np.abs(arrivals.arrival_amplitude)))-60
+        min_y = 20 * _np.log10(_np.max(_np.abs(arrivals.arrival_amplitude))) - 60
         ylabel = 'Amplitude [dB]'
     else:
         ylabel = 'Amplitude'
-        """
-        _plt.plot([t0, t1], [0, 0], xlabel='Arrival time (s)', ylabel=ylabel, color=color, **kwargs)
-        """
         ax.plot([t0, t1], [0, 0], 'r')
         min_y = 0
+
     for _, row in arrivals.iterrows():
         t = row.time_of_arrival.real
         y = _np.abs(row.arrival_amplitude)
+
         if dB:
-            y = max(20*_np.log10(_fi.epsilon+y), min_y)
-        """    
-        _plt.plot([t, t], [min_y, y], xlabel='Arrival time (s)', ylabel=ylabel, ylim=[min_y, min_y+70], color=color, **kwargs)
-    _plt.hold(oh)
-        """
-        ax.stem(t,  y)
+            y = max(20 * _np.log10(_np.finfo(float).eps + y), min_y)
+
+        ax.stem(t, y, linefmt=color, markerfmt=color, basefmt='k')
+
     ax.set_ylabel(ylabel)
-    ax.set_title(f"[ {env['model']} - {Title} ] Arrivals")
+    ax.set_title(f"[ {env['model']} - Arrivals ] {Title}")
     ax.set_xlabel('Arrival time [s]')
     ax.grid('all')
+
     return fig, ax
+
     
-def plot_rays(rays, env, Title, invert_colors=False, **kwargs):
-    """Plots ray paths.
-
-    :param rays: ray paths
-    :param env: environment definition
-    :param invert_colors: False to use black for high intensity rays, True to use white
-
-    If environment definition is provided, it is overlayed over this plot using default
-    parameters for `arlpy.uwapm.plot_env()`.
-
-    Other keyword arguments applicable for `arlpy.plot.plot()` are also supported.
-
-    >>> import arlpy.uwapm as pm
-    >>> env = pm.create_env2d()
-    >>> rays = pm.compute_eigenrays(env)
-    >>> pm.plot_rays(rays, width=1000)
+def plot_rays(rays, env, Title='', invert_colors=False, **kwargs):
     """
+    Plots ray paths.
+
+    Parameters:
+        rays (DataFrame): Ray paths.
+        env (dict): Environment definition.
+        Title (str): Title for the plot.
+        invert_colors (bool): False to use black for high-intensity rays, True to use white.
+
+    Returns:
+        fig, ax: Figure and axis objects for the plot.
+    """
+
+    # Sorting rays by bottom bounces in descending order
     rays = rays.sort_values('bottom_bounces', ascending=False)
+
+    # Determine the maximum amplitude of bottom bounces
     max_amp = _np.max(_np.abs(rays.bottom_bounces)) if len(rays.bottom_bounces) > 0 else 0
+
     if max_amp <= 0:
         max_amp = 1
+
     divisor = 1
     xlabel = 'Range [m]'
     r = []
+
+    # Flatten ray coordinates for determining the range
     for _, row in rays.iterrows():
-        r += list(row.ray[:,0])
-    if max(r)-min(r) > 10000:
+        r += list(row.ray[:, 0])
+
+    if max(r) - min(r) > 10000:
         divisor = 1000
         xlabel = 'Range [km]'
-    """    
-    oh = _plt.hold()
-    """
+
     fig, ax = plt.subplots()
-    
+
     for _, row in rays.iterrows():
         num_bnc = row.bottom_bounces + row.surface_bounces
-        if row.bottom_bounces == 0 and row.surface_bounces==0: 
-            ax.plot(row.ray[:,0]/divisor,row.ray[:,1], color='k', alpha=.5)
+        if row.bottom_bounces == 0 and row.surface_bounces == 0:
+            ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='k', alpha=.5)
         elif num_bnc > 1:
-            ax.plot(row.ray[:,0]/divisor,row.ray[:,1], color='r', alpha=.5)
+            ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='r', alpha=.5)
         elif row.surface_bounces == 1:
-            ax.plot(row.ray[:,0]/divisor,row.ray[:,1], color='b', alpha=.5)
+            ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='b', alpha=.5)
         elif row.bottom_bounces == 1:
-            ax.plot(row.ray[:,0]/divisor,row.ray[:,1], color='saddlebrown', alpha=.5)
+            ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='saddlebrown', alpha=.5)
 
-    ax.plot(env['depth'][:,0]/divisor, env['depth'][:,1],'saddlebrown', linewidth=3)
-    ax.plot(env['surface'][:,0]/divisor, env['surface'][:,1],'b', linewidth=3)
+    ax.plot(env['depth'][:, 0] / divisor, env['depth'][:, 1], 'saddlebrown', linewidth=3)
+    ax.plot(env['surface'][:, 0] / divisor, env['surface'][:, 1], 'b', linewidth=3)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Depth [m]")
-    ax.set_ylim((_np.min(env['surface']), _np.max(env['depth'][:,1])))
-    ax.set_xlim((0, env['rx_range']/divisor))
-    ax.set_title(f"[ {env['model']} - {Title} ] Rays")
-    ax.scatter(0, env['tx_depth'], label= "Source", color= "k", s=250, marker="*")
-    ax.scatter(env['rx_range'], env['rx_depth'], label= "Receiver", color= "k", s=250, marker="o")
+    ax.set_ylim((_np.min(env['surface']), _np.max(env['depth'][:, 1])))
+    ax.set_xlim((0, env['rx_range'] / divisor))
+    ax.set_title(f"[ {env['model']} - Rays ] {Title}")
+    ax.scatter(0, env['tx_depth'], label="Source", color="k", s=250, marker="*")
+    ax.scatter(env['rx_range'], env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
     ax.invert_yaxis()
     ax.grid('all')
-    
+
     return fig, ax
+
+
+def plot_transmission_loss(tloss, env, Title='', vmin=-180, vmax=0, **kwargs):
     """
-        c = _bokeh.colors.RGB(c, c, c)
-        _plt.plot(row.ray[:,0]/divisor, -row.ray[:,1], color=c, xlabel=xlabel, ylabel='Depth (m)', **kwargs)
-    if env is not None:
-        plot_env(env)
-    _plt.hold(oh)
+    Plots transmission loss.
+
+    Parameters:
+        tloss (array): Complex transmission loss.
+        env (dict): Environment definition.
+
+    Returns:
+        fig, ax: Figure and axis objects for the plot.
     """
 
-    
-    
-def plot_transmission_loss(tloss, env, Title, vmin=-180, vmax=0, **kwargs):
-    """Plots transmission loss.
-
-    :param tloss: complex transmission loss
-    :param env: environment definition
-
-    If environment definition is provided, it is overlayed over this plot using default
-    parameters for `arlpy.uwapm.plot_env()`.
-
-    Other keyword arguments applicable for `arlpy.plot.image()` are also supported.
-
-    >>> import arlpy.uwapm as pm
-    >>> import numpy as np
-    >>> env = pm.create_env2d(
-            rx_depth=np.arange(0, 25),
-            rx_range=np.arange(0, 1000),
-            min_angle=-45,
-            max_angle=45
-        )
-    >>> tloss = pm.compute_transmission_loss(env)
-    >>> pm.plot_transmission_loss(tloss, width=1000)
-    """
-    
-    """ Bokeh
-    xr = (min(tloss.columns), max(tloss.columns))
-    yr = (-max(tloss.index), -min(tloss.index))
-    xlabel = 'Range (m)'
-    if xr[1]-xr[0] > 10000:
-        xr = (min(tloss.columns)/1000, max(tloss.columns)/1000)
-        xlabel = 'Range (km)'
-    oh = _plt.hold()
-    _plt.image(20*_np.log10(_fi.epsilon+_np.abs(_np.flipud(_np.array(tloss)))), x=xr, y=yr, xlabel=xlabel, ylabel='Depth (m)', xlim=xr, ylim=yr, **kwargs)
-    if env is not None:
-        plot_env(env, rx_plot=False)
-    _plt.hold(oh)
-    """
-    
-    """ Matplotlib """
     fig, ax = plt.subplots()
     X = env['rx_range']
     Y = env['rx_depth']
 
-    tlossplt = 20*_np.log10(_fi.epsilon+_np.abs(_np.array(tloss)))
-    
-    """ Remove TL in sediment/surface and reduce artifacts """
-    for ii,x in enumerate(X): # For all map pixels
-        ylim = _np.interp(x, env['depth'][:,0], env['depth'][:,1])
-        for jj,y in enumerate(Y):
+    tlossplt = 20 * _np.log10(_np.finfo(float).eps + _np.abs(_np.array(tloss)))
+
+    # Remove TL in sediment/surface
+    for ii, x in enumerate(X):
+        ylim = _np.interp(x, env['depth'][:, 0], env['depth'][:, 1])
+        for jj, y in enumerate(Y):
             if y > ylim:
-                tlossplt[jj,ii] = vmax
-    
-    if env['model'] == 'BELLHOP' and env['surface'] is not None :
-        for ii,x in enumerate(X): # For all map pixels
-            ylim = _np.interp(x, env['surface'][:,0], env['surface'][:,1])
-            for jj,y in enumerate(Y):
+                tlossplt[jj, ii] = vmax
+
+    if env['model'] == 'BELLHOP' and env['surface'] is not None:
+        for ii, x in enumerate(X):
+            ylim = _np.interp(x, env['surface'][:, 0], env['surface'][:, 1])
+            for jj, y in enumerate(Y):
                 if y < ylim:
-                    tlossplt[jj,ii] = _np.NaN
-        ax.plot(env['surface'][:,0]/1000, env['surface'][:,1],'b', linewidth=3)
-        
+                    tlossplt[jj, ii] = _np.NaN
+        ax.plot(env['surface'][:, 0] / 1000, env['surface'][:, 1], 'b', linewidth=3)
+
     elif env['model'] == 'RAM':
-        ax.plot([0, X[-1]/1000],[0,0],'b', linewidth=3)
-    
-    X,Y = _np.meshgrid(X, Y)
-    im1 = ax.pcolormesh(X/1000,Y,tlossplt, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
-    ax.plot(env['depth'][:,0]/1000, env['depth'][:,1],'k', linewidth=3)
-    ax.set_xlim((X[0,0]/1000, X[-1,-1]/1000))
-    ax.set_ylim((Y[0,0], Y[-1,-1]))
+        ax.plot([0, X[-1] / 1000], [0, 0], 'b', linewidth=3)
+
+    X, Y = _np.meshgrid(X, Y)
+    im1 = ax.pcolormesh(X / 1000, Y, tlossplt, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
+    ax.plot(env['depth'][:, 0] / 1000, env['depth'][:, 1], 'k', linewidth=3)
+    ax.set_xlim((X[0, 0] / 1000, X[-1, -1] / 1000))
+    ax.set_ylim((Y[0, 0], Y[-1, -1]))
     ax.set_xlabel('Range [km]')
     ax.set_ylabel('Depth [m]')
-    ax.set_title(f"[ {env['model']} - {Title} ] Propagation Loss @ {env['frequency']} Hz")
+    ax.set_title(f"[ {env['model']} - Propagation Loss @ {env['frequency']} Hz ] {Title}")
     cbar1 = fig.colorbar(im1, ax=ax)
     cbar1.ax.set_ylabel('Loss [dB]')
     ax.invert_yaxis()
-    
+
     return fig, ax
     
-def plot_absorption(env, Title, vmin=0, vmax=20, Nxy=500, **kwargs):
-                 
+def plot_absorption(env, Title='', vmin=0, vmax=20, Nxy=500, **kwargs):
+    """
+    Plots the absorption profile in the environment.
+
+    Parameters:
+        env (dict): Environmental parameters.
+        Title (str): Title for the plot.
+        vmin (float): Minimum value for the absorption color map.
+        vmax (float): Maximum value for the absorption color map.
+        Nxy (int): Number of points in the x and y directions.
+        **kwargs: Additional keyword arguments for customization.
+
+    Returns:
+        fig, ax: Figure and axis objects for the plot.
+    """
+
     fig, ax = plt.subplots()
-            
+
     Xb = _np.array(env['bottom_srange'])
-    Yb = _np.array(env['bottom_sdepth']-_np.max(env['depth'][:,1]),ndmin=1)
-    Zb = _np.array(_np.array(env['bottom_absorption'],ndmin=2))
-    
+    Yb = _np.array(env['bottom_sdepth'] - _np.max(env['depth'][:, 1]), ndmin=1)
+    Zb = _np.array(_np.array(env['bottom_absorption'], ndmin=2))
+
     if env['model'] == 'BELLHOP':
         Xb = [0, env['rx_range'][-1]]
-        Zb = _np.full((len(Yb),2), _np.mean(Zb))
-        
+        Zb = _np.full((len(Yb), 2), _np.mean(Zb))
+
     Xg = _np.linspace(0, env['rx_range'][-1], Nxy)
     Yg = _np.linspace(0, env['rx_depth'][-1], Nxy)
     Zg = _np.zeros([len(Yg), len(Xg)])
-    
-    # Bathy
-    rb = _np.array(env['depth'][:,0])
-    zb = _np.array(env['depth'][:,1])
-    
-    # Re-compute map over grid
-    for ii,x in enumerate(Xg): # For all map pixels
-        for jj,y in enumerate(Yg): 
-            
-            if y > _np.interp(x, rb, zb): # If in sediment (interpolation of bathymetry line between samples)
 
-                # Search for the correct value in sediment profile:
-                    
-                # Search the last x update point
-                x_idx = 0
-                while x_idx < len(Xb) and x >= Xb[x_idx]:
-                    x_idx += 1
-                if x_idx > 0 : 
-                    x_idx-=1
-                    
-                # Search the y nearest value
-                idx = 0
-                y_idx = 0
-                diff = 1e30
-                while idx < len(Yb):
-                    if _np.sqrt((y-Yb[idx])**2) < diff:
-                        y_idx = idx
-                        diff  = _np.sqrt((y-Yb[y_idx])**2)
-                    idx += 1
-                    
-                # Record the value
-                Zg[jj,ii] = Zb[y_idx,x_idx]
-                
-            else: # Else it is in water column
+    # Bathy
+    rb = _np.array(env['depth'][:, 0])
+    zb = _np.array(env['depth'][:, 1])
+
+    # Re-compute map over grid
+    for ii, x in enumerate(Xg):  # For all map pixels
+        for jj, y in enumerate(Yg):
+            if y > _np.interp(x, rb, zb):  # If in sediment (interpolation of bathymetry line between samples)
+                x_idx = _np.argmin(_np.abs(Xb - x))
+                y_idx = _np.argmin(_np.abs(Yb - y))
+                Zg[jj, ii] = Zb[y_idx, x_idx]
+            else:  # Else it is in water column
                 # Set minimum value
-                Zg[jj,ii] = vmin
+                Zg[jj, ii] = vmin
 
     # Plot surface if Bellhop
-    if env['model'] == 'BELLHOP' and env['surface'] is not None :
-        for ii,x in enumerate(Xg): # For all map pixels
-            ylim = _np.interp(x, env['surface'][:,0], env['surface'][:,1])
-            for jj,y in enumerate(Yg):
-                if y < ylim:
-                    Zg[jj,ii] = _np.NaN
-        ax.plot(env['surface'][:,0]/1000, env['surface'][:,1],'b', linewidth=3)        
+    if env['model'] == 'BELLHOP' and env['surface'] is not None:
+        for ii, x in enumerate(Xg):  # For all map pixels
+            ylim = _np.interp(x, env['surface'][:, 0], env['surface'][:, 1])
+            Zg[Yg < ylim, ii] = _np.NaN
+        ax.plot(env['surface'][:, 0]/1000, env['surface'][:, 1], 'b', linewidth=3)
     elif env['model'] == 'RAM':
-        ax.plot([0, Xg[-1]/1000],[0,0],'b', linewidth=3) 
-        
+        ax.plot([0, Xg[-1]/1000], [0, 0], 'b', linewidth=3)
+
     # Plot
     Xg, Yg = _np.meshgrid(Xg/1000, Yg)
     im = ax.pcolormesh(Xg, Yg, Zg, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
     ax.plot(rb/1000, zb, 'k', linewidth=3)
-    ax.scatter(0, env['tx_depth'], label= "Stars", color= "r", s=500, marker="*") 
+    ax.scatter(0, env['tx_depth'], label="Stars", color="r", s=500, marker="*")
     cbar = fig.colorbar(im, ax=ax)
     cbar.ax.set_ylabel('Attenuation [dB/$\lambda$]')
     ax.set_xlabel('Range [km]')
     ax.set_ylabel('Depth [m]')
-    ax.set_title(f"[ {env['model']} - {Title} ] Attenuation in sediment")
+    ax.set_title(f"[ {env['model']} - Attenuation in sediment ] {Title}")
     ax.invert_yaxis()
     plt.tight_layout()
-    
+
     return fig, ax
 
-def plot_beam(env, Title, vmin=-60, vmax=20, **kwargs):
+def plot_beam(env, Title='', vmin=-60, vmax=20, **kwargs):
+    """
+    Plots the beam pattern of the source in the environment.
+
+    Parameters:
+        env (dict): Environmental parameters.
+        Title (str): Title for the plot.
+        vmin (float): Minimum value for the beam pattern color map.
+        vmax (float): Maximum value for the beam pattern color map.
+        **kwargs: Additional keyword arguments for customization.
+
+    Returns:
+        fig, ax: Figure and axis objects for the plot.
+    """
     
     fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
     
     if env['model'] == 'RAM' or env['tx_directionality'] is None:
         ax.plot(_np.linspace(0, 2*_np.pi, 1000), _np.zeros(1000))
     elif env['model'] == 'BELLHOP':
-        ax.plot((env['tx_directionality'][:,0]+180)/360*2*_np.pi-_np.pi, env['tx_directionality'][:,1])
+        ax.plot((env['tx_directionality'][:, 0]+180)/360*2*_np.pi-_np.pi, env['tx_directionality'][:, 1])
         
     ax.set_rlabel_position(-22.5)  # Move radial labels away from plotted line
     ax.grid(True)
     ax.set_ylim(vmin, vmax)
-    ax.set_title(f"[ {env['model']} - {Title} ] Source directivity [dB]", va='bottom')
+    ax.set_title(f"[ {env['model']} - Source directivity [dB] ] {Title}", va='bottom')
     
     return fig, ax
 
+
 def plot_density(env, Title, vmin=1000, vmax=1750, Nxy=500, **kwargs):
-        
+    """
+    Plots the density profile of the sediment in the environment.
+
+    Parameters:
+        env (dict): Environmental parameters.
+        Title (str): Title for the plot.
+        vmin (float): Minimum value for the density color map.
+        vmax (float): Maximum value for the density color map.
+        Nxy (int): Number of points in the x and y directions.
+        **kwargs: Additional keyword arguments for customization.
+
+    Returns:
+        fig, ax: Figure and axis objects for the plot.
+    """
+    
     fig, ax = plt.subplots()
-            
+    
     Xb = _np.array(env['bottom_srange'])
-    Yb = _np.array(env['bottom_sdepth']-_np.max(env['depth'][:,1]),ndmin=1)
-    Zb = _np.array(env['bottom_density'],ndmin=2)
+    Yb = _np.array(env['bottom_sdepth'] - _np.max(env['depth'][:, 1]), ndmin=1)
+    Zb = _np.array(env['bottom_density'], ndmin=2)
     
     if env['model'] == 'BELLHOP':
         Xb = [0, env['rx_range'][-1]]
-        Zb = _np.full((len(Yb),2), _np.mean(Zb))
+        Zb = _np.full((len(Yb), 2), _np.mean(Zb))
     
     Xg = _np.linspace(0, env['rx_range'][-1], Nxy)
     Yg = _np.linspace(0, env['rx_depth'][-1], Nxy)
     Zg = _np.zeros([len(Yg), len(Xg)])
     
     # Bathy
-    rb = _np.array(env['depth'][:,0])
-    zb = _np.array(env['depth'][:,1])
+    rb = _np.array(env['depth'][:, 0])
+    zb = _np.array(env['depth'][:, 1])
     
     # Re-compute map over grid
-    for ii,x in enumerate(Xg): # For all map pixels
-        for jj,y in enumerate(Yg): 
-            
-            if y > _np.interp(x, rb, zb): # If in sediment (interpolation of bathymetry line between samples)
-
-                # Search for the correct value in sediment profile:
-                    
-                # Search the last x update point
-                x_idx = 0
-                while x_idx < len(Xb) and x >= Xb[x_idx]:
-                    x_idx += 1
-                if x_idx > 0 : 
-                    x_idx-=1
-                    
-                # Search the y nearest value
-                idx = 0
-                y_idx = 0
-                diff = 1e30
-                while idx < len(Yb):
-                    if _np.sqrt((y-Yb[idx])**2) < diff:
-                        y_idx = idx
-                        diff  = _np.sqrt((y-Yb[y_idx])**2)
-                    idx += 1
-                    
-                # Record the value
-                Zg[jj,ii] = Zb[y_idx,x_idx]
-                
-            else: # Else it is in water column
+    for ii, x in enumerate(Xg):  # For all map pixels
+        for jj, y in enumerate(Yg):
+            if y > _np.interp(x, rb, zb):  # If in sediment (interpolation of bathymetry line between samples)
+                x_idx = _np.argmin(_np.abs(Xb - x))
+                y_idx = _np.argmin(_np.abs(Yb - y))
+                Zg[jj, ii] = Zb[y_idx, x_idx]
+            else:  # Else it is in water column
                 # Set minimum value
-                Zg[jj,ii] = vmin
+                Zg[jj, ii] = vmin
 
     # Plot surface if Bellhop
-    if env['model'] == 'BELLHOP' and env['surface'] is not None :
-        for ii,x in enumerate(Xg): # For all map pixels
-            ylim = _np.interp(x, env['surface'][:,0], env['surface'][:,1])
-            for jj,y in enumerate(Yg):
-                if y < ylim:
-                    Zg[jj,ii] = _np.NaN
-        ax.plot(env['surface'][:,0]/1000, env['surface'][:,1],'b', linewidth=3)    
+    if env['model'] == 'BELLHOP' and env['surface'] is not None:
+        for ii, x in enumerate(Xg):  # For all map pixels
+            ylim = _np.interp(x, env['surface'][:, 0], env['surface'][:, 1])
+            Zg[Yg < ylim, ii] = _np.nan
+        ax.plot(env['surface'][:, 0]/1000, env['surface'][:, 1], 'b', linewidth=3)
     elif env['model'] == 'RAM':
-        ax.plot([0, Xg[-1]/1000],[0,0],'b', linewidth=3) 
-        
+        ax.plot([0, Xg[-1]/1000], [0, 0], 'b', linewidth=3)
+
     # Plot
     Xg, Yg = _np.meshgrid(Xg/1000, Yg)
     im = ax.pcolormesh(Xg, Yg, Zg, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
     ax.plot(rb/1000, zb, 'k', linewidth=3)
-    ax.scatter(0, env['tx_depth'], label= "Stars", color= "r", s=500, marker="*") 
+    ax.scatter(0, env['tx_depth'], label="Stars", color="r", s=500, marker="*")
     cbar = fig.colorbar(im, ax=ax)
     cbar.ax.set_ylabel('Density [$g.m^{3}$]')
     ax.set_xlabel('Range [km]')
     ax.set_ylabel('Depth [m]')
-    ax.set_title(f"[ {env['model']} - {Title} ] Density in sediment")
+    ax.set_title(f"[ {env['model']} - Density in sediment ] {Title}")
     ax.invert_yaxis()
     plt.tight_layout()
-    
+
     return fig, ax
 
 
-def plot_soundspeed(env, Title, Nxy=500, **kwargs):
-           
+
+def plot_soundspeed(env, Title='', Nxy=500, **kwargs):
+    """
+    Plots the sound speed profile of the environment.
+    
+    Parameters:
+    env (dict): Environmental parameters.
+    Title (str): Title for the plot.
+    Nxy (int): Number of points in the x and y directions.
+    **kwargs: Additional keyword arguments for customization.
+    
+    Returns:
+    fig, ax: Figure and axis objects for the plot.
+    """
+    
     fig, ax = plt.subplots()
             
-    X = _np.array(env['soundspeed_range'])
-    Y = _np.array(env['soundspeed_depth'])
-    Z = _np.array(env['soundspeed'])
+    X, Y, Z = _np.array(env['soundspeed_range']), _np.array(env['soundspeed_depth']), _np.array(env['soundspeed'])
     
-    Xb = _np.array(env['bottom_srange'])
-    Yb = _np.array(env['bottom_sdepth']-_np.max(env['depth'][:,1]),ndmin=1)
-    Zb = _np.array(env['bottom_soundspeed'],ndmin=2)
+    Xb, Yb, Zb = _np.array(env['bottom_srange']), _np.array(env['bottom_sdepth']-_np.max(env['depth'][:,1]),ndmin=1), _np.array(env['bottom_soundspeed'],ndmin=2)
     
     if env['model'] == 'BELLHOP':
-        Xb = [0, env['rx_range'][-1]]
-        Zb = _np.full((len(Yb),2), _np.mean(Zb))
-        X = [0, env['rx_range'][-1]]
-        Z = _np.column_stack((_np.mean(Z, axis=1), _np.mean(Z, axis=1)))
+        Xb, Zb = [0, env['rx_range'][-1]], _np.full((len(Yb), 2), _np.mean(Zb))
+        X, Z = [0, env['rx_range'][-1]], _np.column_stack((_np.mean(Z, axis=1), _np.mean(Z, axis=1)))
     
     Xg = _np.linspace(0, env['rx_range'][-1], Nxy)
     Yg = _np.linspace(0, Y[-1], Nxy)
     Zg = _np.zeros([len(Yg), len(Xg)])
     
     # Bathy
-    rb = _np.array(env['depth'][:,0])
-    zb = _np.array(env['depth'][:,1])
+    rb, zb = _np.array(env['depth'][:,0]), _np.array(env['depth'][:,1])
     
     # Re-compute map over grid
-    for ii,x in enumerate(Xg): # For all map pixels
-        for jj,y in enumerate(Yg): 
-            
-            if y > _np.interp(x, rb, zb): # If in sediment (interpolation of bathymetry line between samples)
-
-                # Search for the correct value in sediment profile:
-                    
-                # Search the last x update point
-                x_idx = 0
-                while x_idx < len(Xb) and x >= Xb[x_idx]:
-                    x_idx += 1
-                if x_idx > 0 : 
-                    x_idx-=1
-                    
-                # Search the y nearest value
-                idx = 0
-                y_idx = 0
-                diff = 1e30
-                while idx < len(Yb):
-                    if _np.sqrt((y-Yb[idx])**2) < diff:
-                        y_idx = idx
-                        diff  = _np.sqrt((y-Yb[y_idx])**2)
-                    idx += 1
-                    
-                # Record the value
-                Zg[jj,ii] = Zb[y_idx,x_idx]
-                
-            else: # Else it is in water column
-                
-                # Search for the correct value in water column profile:
-                    
-                # Search the last x (range) update point
-                x_idx = 0
-                while x_idx < len(X) and x >= X[x_idx]:
-                    x_idx += 1
-                if x_idx > 0 : 
-                    x_idx-=1
-                    
-                # Search the y (depth) nearest value
-                idx = 0
-                y_idx = 0
-                diff = 1e30
-                while idx < len(Y):
-                    if _np.sqrt((y-Y[idx])**2) < diff:
-                        y_idx = idx
-                        diff  = _np.sqrt((y-Y[y_idx])**2)
-                    idx += 1
-                
-                # Record the value
-                Zg[jj,ii] = Z[y_idx,x_idx]   
+    for ii, x in enumerate(Xg):
+        for jj, y in enumerate(Yg):
+            if y > _np.interp(x, rb, zb):  # If in sediment (interpolation of bathymetry line between samples)
+                y_idx = _np.argmin(_np.abs(Yb - y))
+                x_idx = _np.argmin(_np.abs(Xb - x))
+                Zg[jj, ii] = Zb[y_idx, x_idx]
+            else:  # Else it is in water column
+                y_idx = _np.argmin(_np.abs(Y - y))
+                x_idx = _np.argmin(_np.abs(X - x))
+                Zg[jj, ii] = Z[y_idx, x_idx]
      
     # Plot surface if Bellhop
-    if env['model'] == 'BELLHOP' and env['surface'] is not None :
-        for ii,x in enumerate(Xg): # For all map pixels^
+    if env['model'] == 'BELLHOP' and env['surface'] is not None:
+        for ii, x in enumerate(Xg):
             ylim = _np.interp(x, env['surface'][:,0], env['surface'][:,1])
-            for jj,y in enumerate(Yg):
-                if y < ylim:
-                    Zg[jj,ii] = _np.NaN
-        ax.plot(env['surface'][:,0]/1000, env['surface'][:,1],'b', linewidth=3)    
+            Zg[Yg < ylim, ii] = _np.nan
+        ax.plot(env['surface'][:,0]/1000, env['surface'][:,1], 'b', linewidth=3)    
     elif env['model'] == 'RAM':
-        ax.plot([0, Xg[-1]/1000],[0,0],'b', linewidth=3) 
+        ax.plot([0, Xg[-1]/1000], [0, 0], 'b', linewidth=3) 
         
     # Plot
     Xg, Yg = _np.meshgrid(Xg/1000, Yg)
     im = ax.pcolormesh(Xg, Yg, Zg, cmap='jet', shading='gouraud')
     ax.plot(rb/1000, zb, 'k', linewidth=3)
-    ax.scatter(0, env['tx_depth'], label= "Stars", color= "r", s=500, marker="*") 
+    ax.scatter(0, env['tx_depth'], label="Stars", color="r", s=500, marker="*") 
     cbar = fig.colorbar(im, ax=ax)
     cbar.ax.set_ylabel('Sound speed [m/s]')
     ax.set_xlabel('Range [km]')
-    ax.set_ylabel('Depth[m]')
-    ax.set_title(f"[ {env['model']} - {Title} ] Sound speed profile")
+    ax.set_ylabel('Depth [m]')
+    ax.set_title(f"[ {env['model']} - Sound speed profile ] {Title}")
     ax.invert_yaxis()
     plt.tight_layout()
     
@@ -1050,7 +1005,7 @@ class _Bellhop:
         self._print(fh, "%0.6f" % (env['frequency']))
         self._print(fh, "1")
         if _np.size(env['soundspeed'],axis=1) > 1:
-            print(f"[WARN] {env['model']}: Multiple sound profiles not supported, using average value.")
+            print(f"[INFO] {env['model']}: Multiple sound profiles not supported, using average value.")
             mn = _np.mean(env['soundspeed'], axis=1)
             svp = _np.column_stack((env['soundspeed_depth'], mn))
         else:
@@ -1088,11 +1043,11 @@ class _Bellhop:
             self._print(fh, "'A*' %0.6f" % (env['bottom_roughness']))
             self._create_bty_ati_file(fname_base+'.bty', depth, env['depth_interp'])  
         if env['bottom_soundspeed'].ndim > 0:
-            print(f"[WARN] {env['model']}: Multiple bottom soundspeed profiles not supported, using average value.")
+            print(f"[INFO] {env['model']}: Multiple bottom soundspeed profiles not supported, using average value.")
         if env['bottom_density'].ndim > 0:
-            print(f"[WARN] {env['model']}: Multiple bottom density profiles not supported, using average value.")
+            print(f"[INFO] {env['model']}: Multiple bottom density profiles not supported, using average value.")
         if env['bottom_absorption'].ndim > 0:
-            print(f"[WARN] {env['model']}: Multiple bottom absorption profiles not supported, using average value.")
+            print(f"[INFO] {env['model']}: Multiple bottom absorption profiles not supported, using average value.")
         self.bts = _np.mean(env['bottom_soundspeed'])
         self.btd = _np.mean(env['bottom_density'])
         self.bta = _np.mean(env['bottom_absorption'])
@@ -1261,24 +1216,57 @@ _models.append(('BELLHOP', _Bellhop))
 
 
 class _RAM:
+    """
+    A class representing the RAM model for underwater acoustic propagation.
+
+    Attributes:
+        pyram: RAM model instance.
+        tl_tol (float): Tolerable mean difference in TL (dB) with reference result.
+        lines (numpy.ndarray): Array representing depths for computation.
+        columns (numpy.ndarray): Array representing ranges for computation.
+
+    Methods:
+        __init__(): Initializes the RAM model instance.
+        supports(env=None, task='TL'): Checks if the RAM model supports a specific task for the given environment.
+        run(env, task='TL', debug=False): Runs the RAM computation for a specified task and environment.
+    """
     
     def __init__(self):
         pass
 
     def supports(self, env=None, task='TL'):
+        """
+        Checks if the RAM model supports the specified task for the given environment.
         
+        Parameters:
+        env (dict): Environmental parameters.
+        task (str): Task identifier ('TL' for Transmission Loss, 'CP' for Cepstral Peak).
+        
+        Returns:
+        bool: True if the task is supported, False otherwise.
+        """
         if task == 'TL' or task == 'CP':
             return True    
         
         return False
     
     def run(self, env, task='TL', debug=False):
+        """
+        Runs the RAM computation for the specified task and environment.
         
+        Parameters:
+            env (dict): Environmental parameters.
+            task (str): Task identifier ('TL' for Transmission Loss, 'CP' for Cepstral Peak).
+            debug (bool): Debugging flag.
+        
+        Returns:
+            pd.DataFrame or bool: Resulting data as a DataFrame if successful, False otherwise.
+        """
         if env['surface'] is not None:
-            print(f"[WARN] {env['model']}: Surface not supported, considering flat air/water interface.")
+            print(f"[INFO] {env['model']}: Surface not supported, considering flat air/water interface.")
         
         if env['tx_directionality'] is not None:
-            print(f"[WARN] {env['model']}: Beam pattern not supported, using omnidirectionnal instead.")
+            print(f"[INFO] {env['model']}: Beam pattern not supported, using omnidirectionnal instead.")
             
         # Initialize RAM environment
         # ram.PyRAM(freq, zs, zr, z_ss, rp_ss, cw, z_sb, rp_sb, cb, rhob, attn, rbzb, **kwargs)       
@@ -1343,3 +1331,249 @@ class _RAM:
 # Add model to available models
 _models.append(('RAM', _RAM))
 
+
+def plot_recwPSD(Fxx, Pxx, maxval=2**24-1, vpk=3, sh=-205, gain=0, Title='', **kwargs):
+    """
+    Plot Welch Power Spectral Density (PSD) of a recorded signal.
+
+    Parameters:
+    - Fxx: Frequency vector of the Welch periodogram.
+    - Pxx: Welch periodogram computed with the recorded signal.
+    - maxval: Recorded signal maximum limit value (e.g., 2**24-1 for a 24-bit signal). Default is 2**24-1.
+    - vpk: Electrical voltage corresponding to maxval. Default is 3.
+    - sh: Hydrophone sensitivity in dB re V/uPa. Default is -205.
+    - gain: Preamplification gain in dB. Default is 0.
+    - Title: Title for the plot. Default is an empty string.
+    - **kwargs: Additional keyword arguments to pass to the plot.
+
+    Returns:
+    - fig: Matplotlib figure.
+    - ax: Matplotlib axis.
+
+    """
+    
+    fig, ax = plt.subplots()
+    ax.plot(Fxx, 10*_np.log10(Pxx)+20*_np.log10(vpk/maxval)-sh-gain, **kwargs)
+    ax.set_xlabel('Frequency [Hz]')
+    ax.set_ylabel('Level [dB re 1$\mu Pa / \sqrt{Hz}$]')
+    ax.set_title(f"[ WELCH - Power Spectral Density ] {Title}")
+    ax.invert_yaxis()
+    
+    return fig, ax
+
+
+def plot_PSD(Fxx, Lvl_dB, Title='', **kwargs):
+    """
+    Plot Power Spectral Density (PSD).
+
+    Parameters:
+    - Fxx: Frequency vector of the PSD.
+    - Lvl_dB: PSD expressed in dB re 1uPa/vHz.
+    - Title: Title for the plot. Default is an empty string.
+    - **kwargs: Additional keyword arguments to pass to the plot.
+
+    Returns:
+    - fig: Matplotlib figure.
+    - ax: Matplotlib axis.
+
+    Code adapted from the original version by [Original Authors].
+    """
+    
+    fig, ax = plt.subplots()
+    ax.plot(Fxx, Lvl_dB, **kwargs)
+    ax.set_xlabel('Frequency [Hz]')
+    ax.set_ylabel('Level [dB re 1$\mu Pa / \sqrt{Hz}$]')
+    ax.set_title(f"[ Power Spectral Density ] {Title}")
+    ax.invert_yaxis()
+    
+    return fig, ax
+    
+
+
+def compute_windnoise(f, u, water_depth='deep', sumOnly=False):
+    """
+    Calculates wind-based noise (in dB re uPa) with adjustment for shallow water based on Piggot (1964).
+    Adapted from IDL code originally by Dan Hutt, rewritten by Vic Young,
+    and obtained through Sean Pecknold.
+    Any mistakes propagated could have been theirs.
+
+    Parameters:
+        f (_np.ndarray or float): Single frequency or vector of frequencies (Hz). Assumes a 1-Hz band for a single frequency.
+        u (float): Wind speed (knots).
+        water_depth (str): 'shallow' or 'deep' (default: 'deep').
+
+    Optional Parameters:
+        sumOnly (bool): If True, the noise is summed across frequency bands. Default is False.
+                       In this case, the calculation is still valid for non-constant bandwidth -
+                       band limits are assumed to be halfway between input frequencies.
+
+    Returns:
+        NL (_np.ndarray): Vector containing the noise (dB per muPa^2/Hz) at frequencies f.
+                         If sumOnly is True, the output is the wind noise summed across the band.
+
+    Code translated from "A simple yet practical ambient noise model"
+    by Cristina D. S. Tollefsen and Sean Pecknold.
+    """
+    
+    # This all breaks down if u == 0 so account for that
+    if u == 0:
+        NL = _np.zeros_like(f)
+    else:
+        n2 = f.size
+        f = _np.array(f).flatten()  # Make sure f is a 1D array
+        if sumOnly:
+            f2 = _np.concatenate(([0], f, 2 * f[-1] - f[-2]))
+            df = (f2[2:] - f2[:-2]) / 2
+        else:
+            df = _np.ones_like(f)
+
+        # Bookkeeping:
+        # Some constants
+        f_wind = 2000  # Cutoff for wind noise section
+        s1w = 1.5  # Constant in wind calcs
+        s2w = -5.0  # Constant in wind calc
+        a = -25  # Curve melding exponent
+        slope = s2w * (0.1 / _np.log10(2))  # Slope at high freq
+        NL = _np.zeros_like(f)
+
+        # Do the wind part for f <= 2000 Hz
+        if water_depth == 'shallow':
+            cst = 45
+        elif water_depth == 'deep':
+            cst = 42
+
+        i_wind = f <= f_wind
+        f_temp = f[i_wind] if _np.any(i_wind) else _np.array([2000])  # Arbitrary hack
+
+        # These confusing letters were taken directly from the old code
+        f0w = 770 - 100 * _np.log10(u)
+        L0w = cst + 20 * _np.log10(u) - 17 * _np.log10(f0w / 770)
+        L1w = L0w + (s1w / _np.log10(2)) * _np.log10(f_temp / f0w)
+        L2w = L0w + (s2w / _np.log10(2)) * _np.log10(f_temp / f0w)
+        Lw = L1w * (1 + (L1w / L2w) ** (-a)) ** (1 / a)
+        temp_noise_dist = 10 ** (Lw / 10)
+
+        if _np.any(i_wind):
+            NL[i_wind] = temp_noise_dist * df[i_wind]
+
+        # Meld with a sensible line at freqs greater than 2000 Hz
+        if _np.any(~i_wind):
+            prop_const = temp_noise_dist[-1] / f_temp[-1] ** slope
+            NL[~i_wind] = prop_const * f[~i_wind] ** slope * df[~i_wind]
+
+        NL = 10 * _np.log10(NL)
+
+        if n2 != 1:
+            NL = NL.reshape((n2,))
+
+    return NL
+
+
+
+def compute_wenz(f, u, shipping_level='medium', water_depth='deep', rain_rate='none', totalOnly=False):
+    """
+    Calculates the noise level (in dB re uPa) based on five components:
+    (1) Shipping noise (Wenz, 1962)
+    (2) Wind noise (Merklinger, 1979, and Piggott, 1964)
+    (3) Rain noise (Torres and Costa, 2019)
+    (4) Thermal noise (Mellen, 1952)
+    (5) Turbulence noise (Nichols and Bradley, 2016)
+
+    Parameters:
+        f (_np.ndarray or float): Single frequency or vector of frequencies (Hz). Assumes a 1-Hz band for a single frequency.
+        u (float): Wind speed (knots).
+        shipping_level (str): 'low', 'medium', or 'high' (default: 'medium').
+        water_depth (str): 'shallow' or 'deep' (default: 'deep').
+        rain_rate (str): 'none', 'light', 'moderate', 'heavy', or 'veryheavy' (default: 'none').
+        totalOnly (bool): False to get all noises separately, including the total; True to get only the total.
+
+    Returns:
+        NL (_np.ndarray): Column vector containing the noise (dB per muPa^2/Hz) at frequencies f. 
+        If totalOnly is True, NL includes [total, noise_ship, noise_wind, noise_rain, noise_therm, noise_turb].
+
+    Code translated from "A simple yet practical ambient noise model"
+    by Cristina D. S. Tollefsen and Sean Pecknold.
+    """
+    
+    f = _np.array(f).flatten()
+
+    # Thermal noise
+    noise_therm = -75.0 + 20.0 * _np.log10(f)
+    noise_therm[noise_therm <= 0] = 1
+
+    # Wind noise
+    noise_wind = compute_windnoise(f, u, water_depth)
+
+    # Shipping noise
+    c1 = 30 if water_depth == 'deep' else 65 if water_depth == 'shallow' else 30
+    c2 = 1 if shipping_level == 'low' else 4 if shipping_level == 'medium' else 7 if shipping_level == 'high' else 4
+    noise_ship = 76 - 20 * (_np.log10(f) - _np.log10(c1))**2 + 5 * (c2 - 4)
+    noise_ship[noise_ship <= 0] = 1
+
+    # Turbulence noise
+    noise_turb = 108.5 - 32.5 * _np.log10(f)
+    noise_turb[noise_turb <= 0] = 1
+
+    # Rain rate noise
+    r0 = [0, 51.0769, 61.5358, 65.1107, 74.3464]
+    r1 = [0, 1.4687, 1.0147, 0.8226, 1.0131]
+    r2 = [0, -0.5232, -0.4255, -0.3825, -0.4258]
+    r3 = [0, 0.0335, 0.0277, 0.0251, 0.0277]
+
+    i_rain = {'none': 1, 'light': 2, 'moderate': 3, 'heavy': 4, 'veryheavy': 5}.get(rain_rate, 1)
+    fk = f / 1000  # convert to kHz for this equation
+    noise_rain = r0[i_rain] + r1[i_rain] * fk + r2[i_rain] * fk**2 + r3[i_rain] * fk**3
+
+    # Only good up to about 7 kHz, so meld with a sensible line above that
+    # Technique borrowed from wind-driven noise
+    slope = -5.0 * (0.1 / _np.log10(2))  # slope at high freq
+    ind = _np.where(f < 7000)[0][-1]
+    temp_noise = 10**(noise_rain[ind] / 10)
+    prop_const = temp_noise / f[ind]**slope
+    noise_rain[f > 7000] = 10 * _np.log10(prop_const * f[f > 7000]**slope)
+
+    # Sum
+    if totalOnly:
+        NL = 10 * _np.log10(10**(noise_therm / 10) + 10**(noise_wind / 10) + 10**(noise_ship / 10) + 10**(noise_turb / 10) + 10**(noise_rain / 10))
+    else:
+        total = 10 * _np.log10(10**(noise_therm / 10) + 10**(noise_wind / 10) + 10**(noise_ship / 10) + 10**(noise_turb / 10) + 10**(noise_rain / 10))
+        NL = _np.column_stack((total, noise_ship, noise_wind, noise_rain, noise_therm, noise_turb))
+
+    return NL
+
+
+
+def plot_wenz(Fxx, NL, Title=''):
+    """
+    Plot noise levels estimated with the WENZ model.
+
+    Parameters:
+        Fxx (array): Frequency vector.
+        NL (array): Noise levels in dB re 1uPa calculated for different components.
+
+    Returns:
+        fig, ax: Matplotlib figure and axis objects.
+    """
+    fig, ax = plt.subplots()
+
+    if NL.shape[1] == 1:
+        # If only total noise is provided, plot it
+        ax.semilogx(Fxx, NL, label='Total noise', color='black')
+    else:
+        # Plot noise levels for different components
+        ax.semilogx(Fxx, NL[:, 0], label='Total noise', color='black')
+        ax.semilogx(Fxx, NL[:, 1], label='Shipping noise', color='blue', linestyle='dashed')
+        ax.semilogx(Fxx, NL[:, 2], label='Wind noise', color='green', linestyle='dashed')
+        ax.semilogx(Fxx, NL[:, 3], label='Rain noise', color='orange', linestyle='dashed')
+        ax.semilogx(Fxx, NL[:, 4], label='Thermal noise', color='red', linestyle='dashed')
+        ax.semilogx(Fxx, NL[:, 5], label='Turbulence noise', color='purple', linestyle='dashed')
+
+    ax.set_xlabel('Frequency [Hz]')
+    ax.set_ylabel('Noise Level [dB re 1$\mu$Pa]')
+    ax.set_title(f'[ WENZ - Noise Level Estimation ] {Title}')
+    ax.set_xlim((Fxx[0], Fxx[-1]))
+    ax.set_ylim((6, 146))  # Adjusted y-axis limits for better visibility
+    ax.legend()
+    ax.grid(True)
+
+    return fig, ax

@@ -463,3 +463,6 @@ def detect_impulses(x, fs, k=10, tdist=1e-3):
     distance = int(tdist*fs)
     ind_imp, properties = _sig.find_peaks(env, height=height, distance=distance)
     return ind_imp, properties["peak_heights"]
+
+
+    
