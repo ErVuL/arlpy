@@ -1353,10 +1353,11 @@ def plot_recwPSD(Fxx, Pxx, maxval=2**24-1, vpk=3, sh=-205, gain=0, Title='', **k
     """
     
     fig, ax = plt.subplots()
-    ax.plot(Fxx, 10*_np.log10(Pxx)+20*_np.log10(vpk/maxval)-sh-gain, **kwargs)
+    ax.semilogx(Fxx, 10*_np.log10(Pxx)+20*_np.log10(vpk/maxval)-sh-gain, **kwargs)
     ax.set_xlabel('Frequency [Hz]')
     ax.set_ylabel('Level [dB re 1$\mu Pa / \sqrt{Hz}$]')
     ax.set_title(f"[ WELCH - Power Spectral Density ] {Title}")
+    ax.grid(True)
     ax.invert_yaxis()
     
     return fig, ax
@@ -1380,10 +1381,11 @@ def plot_PSD(Fxx, Lvl_dB, Title='', **kwargs):
     """
     
     fig, ax = plt.subplots()
-    ax.plot(Fxx, Lvl_dB, **kwargs)
+    ax.semilogx(Fxx, Lvl_dB, **kwargs)
     ax.set_xlabel('Frequency [Hz]')
     ax.set_ylabel('Level [dB re 1$\mu Pa / \sqrt{Hz}$]')
     ax.set_title(f"[ Power Spectral Density ] {Title}")
+    ax.grid(True)
     ax.invert_yaxis()
     
     return fig, ax
