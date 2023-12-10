@@ -1804,9 +1804,9 @@ def compute_wenz(f, u, rain_rate='none', water_depth='deep', shipping_level='med
     Parameters:
         f (_np.ndarray or float): Single frequency or vector of frequencies (Hz). Assumes a 1-Hz band for a single frequency.
         u (float): Wind speed (knots).
-        shipping_level (str): 'low', 'medium', or 'high' (default: 'medium').
+        shipping_level (str): 'no', 'low', 'medium', or 'high' (default: 'medium').
         water_depth (str): 'shallow' or 'deep' (default: 'deep').
-        rain_rate (str): 'none', 'light', 'moderate', 'heavy', or 'veryheavy' (default: 'none').
+        rain_rate (str): 'no', 'light', 'moderate', 'heavy', or 'veryheavy' (default: 'none').
         totalOnly (bool): False to get all noises separately, including the total; True to get only the total.
 
     Returns:
@@ -1830,7 +1830,7 @@ def compute_wenz(f, u, rain_rate='none', water_depth='deep', shipping_level='med
     c1 = 30 if water_depth == 'deep' else 65 if water_depth == 'shallow' else 30
     c2 = 1 if shipping_level == 'low' else 4 if shipping_level == 'medium' else 7 if shipping_level == 'high' else 4
     
-    if shipping_level != 'none':
+    if shipping_level != 'no':
         noise_ship = 76 - 20 * (_np.log10(f) - _np.log10(c1))**2 + 5 * (c2 - 4)
         noise_ship[noise_ship <= 0] = 1
     else:
@@ -1846,7 +1846,7 @@ def compute_wenz(f, u, rain_rate='none', water_depth='deep', shipping_level='med
     r2 = [0, -0.5232, -0.4255, -0.3825, -0.4258]
     r3 = [0, 0.0335, 0.0277, 0.0251, 0.0277]
 
-    i_rain = {'none': 0, 'light': 1, 'moderate': 2, 'heavy': 3, 'veryheavy': 4}.get(rain_rate, 1)
+    i_rain = {'no': 0, 'light': 1, 'moderate': 2, 'heavy': 3, 'veryheavy': 4}.get(rain_rate, 1)
     fk = f / 1000  # convert to kHz for this equation
     noise_rain = r0[i_rain] + r1[i_rain] * fk + r2[i_rain] * fk**2 + r3[i_rain] * fk**3
 
@@ -1888,9 +1888,9 @@ def plot_wenz(Fxx, NL, wind_speed, rain_rate, water_depth, shipping_level, Title
     else:
         # Plot noise levels for different components
         ax.semilogx(Fxx, NL[:, 0], label=f'Total noise ({water_depth} water)', color='black')
-        ax.semilogx(Fxx, NL[:, 1], label=f'Shipping noise ({shipping_level})', color='blue', linestyle='dashed')
+        ax.semilogx(Fxx, NL[:, 1], label=f'Shipping noise ({shipping_level} traffic)', color='blue', linestyle='dashed')
         ax.semilogx(Fxx, NL[:, 2], label=f'Wind noise ({wind_speed} kn)', color='green', linestyle='dashed')
-        ax.semilogx(Fxx, NL[:, 3], label=f'Rain noise ({rain_rate})', color='orange', linestyle='dashed')
+        ax.semilogx(Fxx, NL[:, 3], label=f'Rain noise ({rain_rate} rain)', color='orange', linestyle='dashed')
         ax.semilogx(Fxx, NL[:, 4], label='Thermal noise', color='red', linestyle='dashed')
         ax.semilogx(Fxx, NL[:, 5], label='Turbulence noise', color='purple', linestyle='dashed')
 
