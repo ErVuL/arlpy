@@ -111,6 +111,8 @@ def create_env2d(**kv):
         'bottom_srange': [0],           # m
         'bottom_sdepth': [0],           # m
         'surface': None,                # surface profile
+        'bdryTopOpt': 'NSF',            # Top boundary condition
+        'bdryBotOpt': 'NSF',            # Bottom boundary condition
         'surface_interp': linear,       # curvilinear/linear
         'tx_depth': 5,                  # m
         'tx_directionality': None,      # [(deg, dB)...]
@@ -122,7 +124,6 @@ def create_env2d(**kv):
         'max_angle': 80,                # deg
         'nbeams': 0,                    # number of beams (0 = auto)
         'nmedia': 2,                    # number of medias
-        'option': 'NSF'                 # oalib fortran code option (cf. pdf docs)
     }
     for k, v in kv.items():
         if k not in env.keys():
@@ -416,21 +417,25 @@ def compute_transmission_loss(env, tx_depth_ndx=0, mode=coherent, model=None, de
     >>> pm.plot_transmission_loss(tloss, width=1000)
     """
     env = check_env2d(env)
+    
+    
     if mode not in [coherent, incoherent, semicoherent]:
         raise ValueError('Unknown transmission loss mode: '+mode)
+        
+    if env['model'] == 'BELLHOP':
+        pass
+    if env['model'] == 'RAM':
+        mode='TL'
+        pass
+    if env['model'] == 'KRAKEN':
+        pass
+        
     if _np.size(env['tx_depth']) > 1:
         env = env.copy()
         env['tx_depth'] = env['tx_depth'][tx_depth_ndx]
     (model_name, model_process) = _select_model(env, mode, env['model'])
     if debug:
         print('[DEBUG] Model: '+model_name)
-    
-    if env['model'] == 'BELLHOP':
-        pass
-    if env['model'] == 'RAM':
-        mode = 'TL'
-    if env['model'] == 'KRAKEN':
-        pass
 
     return model_process.run(env, mode, debug)
 
@@ -1013,6 +1018,7 @@ class _Bellhop:
         self._print(fh, "'"+env['name']+"'")
         self._print(fh, "%0.6f" % (env['frequency']))
         self._print(fh, "1")
+
         if _np.size(env['soundspeed'],axis=1) > 1:
             print(f"[INFO] {env['model']}: Multiple sound profiles not supported, using average value.")
             mn = _np.mean(env['soundspeed'], axis=1)
@@ -1308,20 +1314,11 @@ class _Kraken:
         fname_base = fname[:-4]
         self._print(fh, "'"+env['name']+"'")
         self._print(fh, "%0.6f" % (env['frequency']))
-        self._print(fh, f"{env['nmedia']}"+ " \t \t \t ! NMedia \r\n")
-        self._print(fh, f"'{env['option']}'" + ' \t \t \t ! Option \r\n')
+        self._print(fh, "%d" % (env['nmedia']))
+        self._print(fh, "%s" % (env['bdryTopOpt']))
+        self._print(fh, "%d\t%0.6f\t%0.6f" % (len(env['rx_range'])*len(env['rx_depth']), 0.0, env['rx_depth'][-1]))
         
-        if ( env['option'][0] == 'A' ): # analytic boundary
-            self._print(fh, "'"+env['name']+"'",+ \
-                        '{:6.2f}'.format(env['ssp'].depth[0]) + \
-                        ' {:6.2f}'.format(bdry.Top.hs.alphaR) + \
-                        ' {:6.2f}'.format(bdry.Top.hs.betaR) + \
-                        ' {:6.2g}'.format(bdry.Top.hs.rho) + \
-                        ' {:6.2f}'.format(bdry.Top.hs.alphaI) + \
-                        ' {:6.2f}'.format(bdry.Top.hs.betaI) + \
-                        '  \t ! upper halfspace \r\n')
 
-        
         if _np.size(env['soundspeed'],axis=1) > 1:
             print(f"[INFO] {env['model']}: Multiple sound profiles not supported, using average value.")
             mn = _np.mean(env['soundspeed'], axis=1)
@@ -1884,7 +1881,7 @@ def plot_wenz(Fxx, NL, wind_speed, rain_rate, water_depth, shipping_level, Title
 
     if NL.shape[1] == 1:
         # If only total noise is provided, plot it
-        ax.semilogx(Fxx, NL, label=f'Total noise ({water_depth} water)', color='black')
+        ax.semilogx(Fxx, NL, label=f'Total noise ({water_depth} water, {shipping_level} traffic, {wind_speed} kn, {rain_rate} rain)', color='black')
     else:
         # Plot noise levels for different components
         ax.semilogx(Fxx, NL[:, 0], label=f'Total noise ({water_depth} water)', color='black')
