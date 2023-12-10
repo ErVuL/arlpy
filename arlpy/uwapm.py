@@ -1761,9 +1761,11 @@ def compute_windnoise(f, u, water_depth='deep', sumOnly=False):
             cst = 45
         elif water_depth == 'deep':
             cst = 42
-
+        else:
+            cst = 42 # default
+            
         i_wind = f <= f_wind
-        f_temp = f[i_wind] if _np.any(i_wind) else _np.array([2000])  # Arbitrary hack
+        f_temp = f[i_wind] if _np.any(i_wind) else _np.array([2000])  # so that it doesn’t crash if only f > 2000 are entered, admittedly this is a total arbitrary hack
 
         # These confusing letters were taken directly from the old code
         f0w = 770 - 100 * _np.log10(u)
@@ -1790,7 +1792,7 @@ def compute_windnoise(f, u, water_depth='deep', sumOnly=False):
 
 
 
-def compute_wenz(f, u, rain_rate='none', shipping_level='medium', water_depth='deep', totalOnly=False):
+def compute_wenz(f, u, rain_rate='none', water_depth='deep', shipping_level='medium', totalOnly=False):
     """
     Calculates the noise level (in dB re uPa) based on five components:
     (1) Shipping noise (Wenz, 1962)
@@ -1827,12 +1829,13 @@ def compute_wenz(f, u, rain_rate='none', shipping_level='medium', water_depth='d
     # Shipping noise
     c1 = 30 if water_depth == 'deep' else 65 if water_depth == 'shallow' else 30
     c2 = 1 if shipping_level == 'low' else 4 if shipping_level == 'medium' else 7 if shipping_level == 'high' else 4
-    noise_ship = 76 - 20 * (_np.log10(f) - _np.log10(c1))**2 + 5 * (c2 - 4)
-    noise_ship[noise_ship <= 0] = 1
     
-    if shipping_level == 'none':
-        noise_ship =_np.zeros(len(noise_ship))
-            
+    if shipping_level != 'none':
+        noise_ship = 76 - 20 * (_np.log10(f) - _np.log10(c1))**2 + 5 * (c2 - 4)
+        noise_ship[noise_ship <= 0] = 1
+    else:
+        noise_ship = _np.zeros_like(f)
+     
     # Turbulence noise
     noise_turb = 108.5 - 32.5 * _np.log10(f)
     noise_turb[noise_turb <= 0] = 1
@@ -1866,7 +1869,7 @@ def compute_wenz(f, u, rain_rate='none', shipping_level='medium', water_depth='d
 
 
 
-def plot_wenz(Fxx, NL, wind_speed, rain_rate, shipping_level, water_depth, Title=''):
+def plot_wenz(Fxx, NL, wind_speed, rain_rate, water_depth, shipping_level, Title=''):
     """
     Plot noise levels estimated with the WENZ model.
 
@@ -1881,14 +1884,11 @@ def plot_wenz(Fxx, NL, wind_speed, rain_rate, shipping_level, water_depth, Title
 
     if NL.shape[1] == 1:
         # If only total noise is provided, plot it
-        ax.semilogx(Fxx, NL, label='Total noise', color='black')
+        ax.semilogx(Fxx, NL, label=f'Total noise ({water_depth} water)', color='black')
     else:
         # Plot noise levels for different components
-        ax.semilogx(Fxx, NL[:, 0], label='Total noise', color='black')
-        if shipping_level != 'none':
-            ax.semilogx(Fxx, NL[:, 1], label=f'Shipping noise ({shipping_level}, {water_depth} water)', color='blue', linestyle='dashed')
-        else:
-            ax.semilogx(Fxx, NL[:, 1], label=f'Shipping noise (none)', color='blue', linestyle='dashed')
+        ax.semilogx(Fxx, NL[:, 0], label=f'Total noise ({water_depth} water)', color='black')
+        ax.semilogx(Fxx, NL[:, 1], label=f'Shipping noise ({shipping_level})', color='blue', linestyle='dashed')
         ax.semilogx(Fxx, NL[:, 2], label=f'Wind noise ({wind_speed} kn)', color='green', linestyle='dashed')
         ax.semilogx(Fxx, NL[:, 3], label=f'Rain noise ({rain_rate})', color='orange', linestyle='dashed')
         ax.semilogx(Fxx, NL[:, 4], label='Thermal noise', color='red', linestyle='dashed')
