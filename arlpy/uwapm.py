@@ -33,12 +33,6 @@ import pyram.PyRAM as ram
 import pandas as pd
 from struct import unpack
 
-
-"""
-import arlpy.plot as _plt
-import arlpy.bokeh as _bokeh
-"""
-
 # constants
 linear = 'linear'
 spline = 'spline'
@@ -48,6 +42,8 @@ arrivals = 'arrivals'
 eigenrays = 'eigenrays'
 rays = 'rays'
 coherent = 'coherent'
+modes = 'modes'
+TL = 'TL'
 incoherent = 'incoherent'
 semicoherent = 'semicoherent'
 
@@ -421,21 +417,41 @@ def compute_transmission_loss(env, tx_depth_ndx=0, mode=coherent, model=None, de
     """
     env = check_env2d(env)
     
-    
-    if mode not in [coherent, incoherent, semicoherent]:
-        raise ValueError('Unknown transmission loss mode: '+mode)
+    if env['model'] == 'BELLHOP':
+        if mode not in [coherent, incoherent, semicoherent]:
+            print('[WARN] BELLHOP: Unknown transmission loss mode: '+mode+', using coherent as default.')
+            mode = coherent
         
     if env['model'] == 'BELLHOP':
         pass
     if env['model'] == 'RAM':
-        mode='TL'
+        mode = TL
         pass
     if env['model'] == 'KRAKEN':
+        mode = TL
         pass
         
     if _np.size(env['tx_depth']) > 1:
         env = env.copy()
         env['tx_depth'] = env['tx_depth'][tx_depth_ndx]
+    (model_name, model_process) = _select_model(env, mode, env['model'])
+    if debug:
+        print('[DEBUG] Model: '+model_name)
+        
+def compute_modes(env, debug=False):
+    """
+    Compute modes.
+
+    :param env: environment definition
+    :param debug: generate debug information for propagation model
+    :returns: modes
+
+    """
+    env = check_env2d(env)
+
+    if env['model'] == 'KRAKEN':
+        mode = modes
+        
     (model_name, model_process) = _select_model(env, mode, env['model'])
     if debug:
         print('[DEBUG] Model: '+model_name)
@@ -1382,8 +1398,8 @@ class _Kraken:
     def run(self, env, task, debug=False):
         
         taskmap = {
-            coherent:     ['C', self._load_modes],
-            incoherent:   ['I', self._load_modes]
+            TL:           ['', self._load_shd],
+            modes:        ['', self._load_modes]
         }
         fname_base = self._create_env_file(env, taskmap[task][0])
         results = None
@@ -1392,6 +1408,10 @@ class _Kraken:
             if err is not None:
                 print(err)
             else:
+                if self._field(fname_base):
+                    err = self._check_error(fname_base)
+                    if err is not None:
+                        print(err)
                 try:
                     results = taskmap[task][1](fname_base)
                 except FileNotFoundError:
@@ -1416,6 +1436,15 @@ class _Kraken:
         except OSError:
             return False
         return True
+    
+    def _field(self, fname):
+        try:
+            _proc.run(f'field.exe {fname}', 
+                      stderr=_proc.STDOUT, stdout=_proc.PIPE,
+                      shell=True)
+        except OSError:
+            return False
+        return True        
 
     def _unlink(self, f):
         try:
@@ -1551,7 +1580,7 @@ class _Kraken:
             pass
         return err
 
-    def _load_modes(self, fname_base, **kwargs):
+    def _load_modes(self, fname_base, freq=0, modes=[0,1,2,3,4,5], **kwargs):
         
         '''
          Read the modes produced by KRAKEN
