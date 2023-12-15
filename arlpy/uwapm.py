@@ -31,6 +31,8 @@ from sys import float_info as _fi
 import matplotlib.pyplot as plt
 import pyram.PyRAM as ram
 import pandas as pd
+from struct import unpack
+
 
 """
 import arlpy.plot as _plt
@@ -41,6 +43,7 @@ import arlpy.bokeh as _bokeh
 linear = 'linear'
 spline = 'spline'
 curvilinear = 'curvilinear'
+analytic = 'analytic'
 arrivals = 'arrivals'
 eigenrays = 'eigenrays'
 rays = 'rays'
@@ -111,8 +114,8 @@ def create_env2d(**kv):
         'bottom_srange': [0],           # m
         'bottom_sdepth': [0],           # m
         'surface': None,                # surface profile
-        'bdryTopOpt': 'NSF',            # Top boundary condition
-        'bdryBotOpt': 'NSF',            # Bottom boundary condition
+        'topBdry': 'V',                 # V for Vacuum, ... (cf. docs => OPT(2:2))
+        'botBdry': 'A',                 # A for analytic, ... (cf. docs)
         'surface_interp': linear,       # curvilinear/linear
         'tx_depth': 5,                  # m
         'tx_directionality': None,      # [(deg, dB)...]
@@ -1018,7 +1021,6 @@ class _Bellhop:
         self._print(fh, "'"+env['name']+"'")
         self._print(fh, "%0.6f" % (env['frequency']))
         self._print(fh, "1")
-
         if _np.size(env['soundspeed'],axis=1) > 1:
             print(f"[INFO] {env['model']}: Multiple sound profiles not supported, using average value.")
             mn = _np.mean(env['soundspeed'], axis=1)
@@ -1079,6 +1081,7 @@ class _Bellhop:
         self._print(fh, "%0.6f %0.6f /" % (env['min_angle'], env['max_angle']))
         self._print(fh, "0.0 %0.6f %0.6f" % (1.01*max_depth, 1.01*_np.max(env['rx_range'])/1000))
         _os.close(fh)
+        
         return fname_base
 
     def _create_bty_ati_file(self, filename, depth, interp):
@@ -1229,6 +1232,136 @@ class _Bellhop:
         return _pd.DataFrame(pressure, index=pos_r_depth, columns=pos_r_range)
 _models.append(('BELLHOP', _Bellhop))
 
+
+class HS:
+    def __init__(self, alphaR=_np.array([]), betaR=_np.array([]), rho=_np.array([]), alphaI=_np.array([]), betaI=_np.array([])):
+        self.alphaR = _np.array(alphaR)
+        self.betaR = _np.array(betaR)
+        self.rho = _np.array(rho)
+        self.alphaI = _np.array(alphaI)
+        self.betaI = _np.array(betaI)
+        
+class BotBndry:
+    def __init__(self, Opt, Hs, depth=[], betaI=[0]):
+        self.Opt = Opt # 'A' for analytic or 'CVW' for interpolated ssp
+        self.hs = Hs
+
+class TopBndry:
+    def __init__(self, Opt, depth=[]):
+        self.Opt = Opt
+        self.cp = None
+        self.cs = None
+        self.rho = None 
+
+class Modes:
+    def __init__(self, **kwargs):
+        self.M = kwargs['M']
+        self.k = kwargs['modes_k']
+        self.z = _np.array(kwargs['z'])
+        self.phi = kwargs['modes_phi']
+        self.top = kwargs['top']
+        self.bot = kwargs['bot']
+        self.N = kwargs['N'] 
+        self.Nfreq = kwargs['Nfreq']
+        self.Nmedia = kwargs['Nmedia']
+        self.depth = kwargs['depth']
+        self.rho = kwargs['rho']
+        self.freqvec = kwargs['freqVec']
+        self.init_dict = kwargs
+        self.num_modes = self.M # easier to remember
+
+    def get_excited_modes(self, sd, threshold):
+        '''
+        return an array of modes that are excited by a source at sd meters depth
+        threshold 
+        
+        also populate some structures in moded caled excited_phi and excited_k
+
+        '''
+        if sd not in self.z:
+            raise ValueError("sd not in the depth array, are you sure it's the right depth you're passing?")
+        depth_ind = [i for i in range(len(self.z)) if self.z[i] == sd][0]
+        vals = self.phi[depth_ind,:]
+        const = _np.max(abs(vals)) 
+        filtered_inds = [i for i in range(len(self.k)) if abs(self.phi[depth_ind, i]) / const > threshold]
+        self.excited_phi = self.phi[:, filtered_inds]
+        self.excited_k = self.k[filtered_inds]
+        return self.excited_phi, self.excited_k
+
+    def get_source_depth_ind(self, sd):
+        """
+        sd is an int 
+        """
+        tol = 1e-2
+        sind = [i for i in range(len(self.z)) if abs(self.z[i]-sd) < tol]
+        if len(sind) == 0 :
+            raise ValueError("sd not in the depth array, are you sure it's the right depth you're passing?")
+        else:
+            self.sind = sind[0]
+        return  self.sind
+
+    def remove_source_pos(self, sd):
+        """
+        Take the source at sd from the mode matrix
+        Initiate a new attribute to hold the source
+        modal value
+        """
+        sind = self.get_source_depth_ind(sd)
+        new_pos_len = len(self.z) - 1
+        new_phi = _np.zeros((new_pos_len, self.num_modes), dtype=self.phi.dtype)
+        new_phi[:sind, :] = self.phi[:sind, :]
+        new_phi[sind:,:] = self.phi[sind+1:,:]
+        self.phi = new_phi
+        new_z = _np.zeros((new_pos_len), dtype=self.z.dtype)
+        new_z[:sind] = self.z[:sind]
+        new_z[sind:] = self.z[sind+1:]
+        self.z = new_z
+        self.source_strength = self.phi[sind,:]
+        return 
+            
+    def get_source_strength(self, sd):
+        """
+        Get the value of each mode at the source depth sd (meters)
+        Initialize new attribute for the source strength
+        """
+        sind = self.get_source_depth_ind(sd)
+        vals = self.phi[sind,:]
+        self.source_strength = vals
+        return  vals
+
+    def get_receiver_modes(self, zr):
+        """
+        zr is array like 
+        """
+        tol = 1e-3
+        r_inds = [i for i in range(len(self.z)) if _np.min(abs(self.z[i]-zr)) < tol]
+        receiver_modes = self.phi[r_inds, :]
+        self.receiver_modes = receiver_modes
+        return receiver_modes
+
+    def get_source_excitation(self, zs):
+        """
+        For case where there is a track, there may be multiple repeats in zs
+        """
+        tol = 1e-3
+        r_inds = [_np.argmin(abs(zs[i] - self.z)) for i in range(len(zs))]
+        strength_modes = self.phi[r_inds, :]
+        self.strength_modes = strength_modes
+        return strength_modes
+        
+
+    def plot(self):
+        figs = []
+        if self.M > 5:
+            for i in range(self.M):
+                fig = plt.figure(i)
+                plt.plot(self.phi[:,i], -self.z)
+                figs.append(fig)
+        return figs
+
+    def __repr__(self):
+        return 'Modes object with ' + str(self.M) + ' distinct modes'
+
 class _Kraken:
 
     def __init__(self):
@@ -1241,19 +1374,16 @@ class _Kraken:
         _os.close(fh)
         fname_base = fname[:-4]
         self._unlink(fname_base+'.env')
-        rv = self._bellhop(fname_base)
+        rv = self._kraken(fname_base)
         self._unlink(fname_base+'.prt')
         self._unlink(fname_base+'.log')
         return rv
 
     def run(self, env, task, debug=False):
+        
         taskmap = {
-            arrivals:     ['A', self._load_arrivals],
-            eigenrays:    ['E', self._load_rays],
-            rays:         ['R', self._load_rays],
-            coherent:     ['C', self._load_shd],
-            incoherent:   ['I', self._load_shd],
-            semicoherent: ['S', self._load_shd]
+            coherent:     ['C', self._load_modes],
+            incoherent:   ['I', self._load_modes]
         }
         fname_base = self._create_env_file(env, taskmap[task][0])
         results = None
@@ -1265,20 +1395,17 @@ class _Kraken:
                 try:
                     results = taskmap[task][1](fname_base)
                 except FileNotFoundError:
-                    print('[WARN] KRAKEN: fortran execution did not generate expected output file')
+                    print('[ERROR] KRAKEN: Fortran execution did not generate expected output file !')
+                    self._unlink(fname_base+'.env')
+                    self._unlink(fname_base+'.mod')
+                    self._unlink(fname_base+'.shd')
         if debug:
             print('[DEBUG] KRAKEN: Working files: '+fname_base+'.*')
         else:
             self._unlink(fname_base+'.env')
-            self._unlink(fname_base+'.bty')
-            self._unlink(fname_base+'.ssp')
-            self._unlink(fname_base+'.ati')
-            self._unlink(fname_base+'.sbp')
-            self._unlink(fname_base+'.prt')
-            self._unlink(fname_base+'.log')
-            self._unlink(fname_base+'.arr')
-            self._unlink(fname_base+'.ray')
+            self._unlink(fname_base+'.mod')
             self._unlink(fname_base+'.shd')
+
         return results
 
     def _kraken(self, *args):
@@ -1315,10 +1442,7 @@ class _Kraken:
         self._print(fh, "'"+env['name']+"'")
         self._print(fh, "%0.6f" % (env['frequency']))
         self._print(fh, "%d" % (env['nmedia']))
-        self._print(fh, "%s" % (env['bdryTopOpt']))
-        self._print(fh, "%d\t%0.6f\t%0.6f" % (len(env['rx_range'])*len(env['rx_depth']), 0.0, env['rx_depth'][-1]))
-        
-
+                
         if _np.size(env['soundspeed'],axis=1) > 1:
             print(f"[INFO] {env['model']}: Multiple sound profiles not supported, using average value.")
             mn = _np.mean(env['soundspeed'], axis=1)
@@ -1326,59 +1450,58 @@ class _Kraken:
         else:
             svp = _np.column_stack((env['soundspeed_depth'], env['soundspeed']))
         svp_depth = 0.0
-        svp_interp = 'S' if env['soundspeed_interp'] == spline else 'C'
-        if isinstance(svp, _pd.DataFrame):
-            svp_depth = svp.index[-1]
-            if len(svp.columns) > 1:
-                svp_interp = 'Q'
-            else:
-                svp = _np.hstack((_np.array([svp.index]).T, _np.asarray(svp)))
-        if env['surface'] is None:
-            self._print(fh, "'%cVWT'" % svp_interp)
-        else:
-            self._print(fh, "'%cVWT*'" % svp_interp)
-            self._create_bty_ati_file(fname_base+'.ati', env['surface'], env['surface_interp'])
+         
+        if env['soundspeed_interp'] == spline:
+            svp_interp = 'S'
+        elif env['soundspeed_interp'] == linear:
+            svp_interp = 'C' # or N ?
+        elif env['soundspeed_interp'] == curvilinear:
+            svp_interp = 'N' # or C ?
+        elif env['soundspeed_interp'] == analytic:
+            svp_interp = 'A'
+                          
+        self._print(fh, "'%c%cWT'" % (svp_interp, env['topBdry']))
+        
         #max depth should be the depth of the acoustic domain, which can be deeper than the max depth bathymetry
         max_depth = env['depth'] if _np.size(env['depth']) == 1 else max(_np.max(env['depth'][:,1]), svp_depth)
-        self._print(fh, "1 0.0 %0.6f" % (max_depth))
+        self._print(fh, "%d 0.0 %0.6f" % (len(env['rx_range']),max_depth))
         if _np.size(svp) == 1:
             self._print(fh, "0.0 %0.6f /" % (svp))
             self._print(fh, "%0.6f %0.6f /" % (max_depth, svp))
-        elif svp_interp == 'Q':
-            for j in range(svp.shape[0]):
-                self._print(fh, "%0.6f %0.6f /" % (svp.index[j], svp.iloc[j,0]))
-            self._create_ssp_file(fname_base+'.ssp', svp)
         else:
             for j in range(svp.shape[0]):
                 self._print(fh, "%0.6f %0.6f /" % (svp[j,0], svp[j,1]))
         depth = env['depth']
         if _np.size(depth) == 1:
-            self._print(fh, "'A' %0.6f" % (env['bottom_roughness']))
+            self._print(fh, "'%c' %0.6f" % (env['botBdry'],env['bottom_roughness']))
         else:
-            self._print(fh, "'A*' %0.6f" % (env['bottom_roughness']))
-            self._create_bty_ati_file(fname_base+'.bty', depth, env['depth_interp'])  
+            print("[INFO] KRAKEN: Range dependent bathymetry not supported, using average value.")
+            print("[WARN] KRAKEN: Bottom roughness maybe wrong in .env file !")
+            self._print(fh, "'%c' %0.6f" % (env['botBdry'],env['bottom_roughness']))    
+            
         if env['bottom_soundspeed'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom soundspeed profiles not supported, using average value.")
         if env['bottom_density'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom density profiles not supported, using average value.")
         if env['bottom_absorption'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom absorption profiles not supported, using average value.")
+        
         self.bts = _np.mean(env['bottom_soundspeed'])
         self.btd = _np.mean(env['bottom_density'])
         self.bta = _np.mean(env['bottom_absorption'])
         self._print(fh, "%0.6f %0.6f 0.0 %0.6f %0.6f /" % (max_depth, self.bts, self.btd/1000, self.bta))
-        self._print_array(fh, env['tx_depth'])
-        self._print_array(fh, env['rx_depth'])
-        self._print_array(fh, env['rx_range']/1000)
-        if env['tx_directionality'] is None:
-            self._print(fh, "'"+taskcode+"'")
-        else:
-            self._print(fh, "'"+taskcode+" *'")
-            self._create_sbp_file(fname_base+'.sbp', env['tx_directionality'])
-        self._print(fh, "%d" % (env['nbeams']))
-        self._print(fh, "%0.6f %0.6f /" % (env['min_angle'], env['max_angle']))
-        self._print(fh, "0.0 %0.6f %0.6f" % (1.01*max_depth, 1.01*_np.max(env['rx_range'])/1000))
+        
+        self._print(fh, "%0.6f %0.6f" %(0, _np.max(env['soundspeed']))) # C0 min and max
+        
+        self._print(fh, "%0.6f" %(env['rx_range'][-1]/1000)) # Max range in km 
+
+        self._print(fh, "%d" %(1))                    # Number of sources depth
+        self._print(fh, "%0.6f" %(env['tx_depth']))   # Source depths
+        self._print(fh, "%d" %(len(env['rx_depth']))) # Number of receiver depths
+        self._print(fh, "%0.6f %0.6f /" %(env['rx_depth'][0], env['rx_depth'][-1]))        # Receiver depths
+                
         _os.close(fh)
+        print_file_content(fname_base+'.env')
         return fname_base
 
     def _create_bty_ati_file(self, filename, depth, interp):
@@ -1428,83 +1551,198 @@ class _Kraken:
             pass
         return err
 
-    def _load_arrivals(self, fname_base):
-        with open(fname_base+'.arr', 'rt') as f:
-            hdr = f.readline()
-            if hdr.find('2D') >= 0:
-                freq = self._readf(f, (float,))
-                tx_depth_info = self._readf(f, (int,), float)
-                tx_depth_count = tx_depth_info[0]
-                tx_depth = tx_depth_info[1:]
-                assert tx_depth_count == len(tx_depth)
-                rx_depth_info = self._readf(f, (int,), float)
-                rx_depth_count = rx_depth_info[0]
-                rx_depth = rx_depth_info[1:]
-                assert rx_depth_count == len(rx_depth)
-                rx_range_info = self._readf(f, (int,), float)
-                rx_range_count = rx_range_info[0]
-                rx_range = rx_range_info[1:]
-                assert rx_range_count == len(rx_range)
-            else:
-                freq, tx_depth_count, rx_depth_count, rx_range_count = self._readf(hdr, (float, int, int, int))
-                tx_depth = self._readf(f, (float,)*tx_depth_count)
-                rx_depth = self._readf(f, (float,)*rx_depth_count)
-                rx_range = self._readf(f, (float,)*rx_range_count)
-            arrivals = []
-            for j in range(tx_depth_count):
-                f.readline()
-                for k in range(rx_depth_count):
-                    for m in range(rx_range_count):
-                        count = int(f.readline())
-                        for n in range(count):
-                            data = self._readf(f, (float, float, float, float, float, float, int, int))
-                            arrivals.append(_pd.DataFrame({
-                                'tx_depth_ndx': [j],
-                                'rx_depth_ndx': [k],
-                                'rx_range_ndx': [m],
-                                'tx_depth': [tx_depth[j]],
-                                'rx_depth': [rx_depth[k]],
-                                'rx_range': [rx_range[m]],
-                                'arrival_number': [n],
-                                # 'arrival_amplitude': [data[0]*_np.exp(1j * data[1]* _np.pi/180)],
-                                'arrival_amplitude': [data[0] * _np.exp( -1j * (_np.deg2rad(data[1]) + freq[0] * 2 * _np.pi * (data[3] * 1j +  data[2])))],
-                                'time_of_arrival': [data[2]],
-                                'complex_time_of_arrival': [data[2] + 1j*data[3]],
-                                'angle_of_departure': [data[4]],
-                                'angle_of_arrival': [data[5]],
-                                'surface_bounces': [data[6]],
-                                'bottom_bounces': [data[7]]
-                            }, index=[len(arrivals)+1]))
-        return _pd.concat(arrivals)
+    def _load_modes(self, fname_base, **kwargs):
+        
+        '''
+         Read the modes produced by KRAKEN
+         usage:
+         keys are 'fname', 'freq', 'modes'
+        'fname' and 'freq' are mandatory, 'modes' is if you only want a subset of modes
+            [ Modes ] = read_modes_bin( filename, modes )
+         filename is without the extension, which is assumed to be '.moA'
+         freq is the frequency (involved for broadband runs)
+           (you can use freq=0 if there is only one frequency)
+         modes is an optional vector of mode indices
 
-    def _load_rays(self, fname_base):
-        with open(fname_base+'.ray', 'rt') as f:
-            f.readline()
-            f.readline()
-            f.readline()
-            f.readline()
-            f.readline()
-            f.readline()
-            f.readline()
-            rays = []
-            while True:
-                s = f.readline()
-                if s is None or len(s.strip()) == 0:
-                    break
-                a = float(s)
-                pts, sb, bb = self._readf(f, (int, int, int))
-                ray = _np.empty((pts, 2))
-                for k in range(pts):
-                    ray[k,:] = self._readf(f, (float, float))
-                rays.append(_pd.DataFrame({
-                    'angle_of_departure': [a],
-                    'surface_bounces': [sb],
-                    'bottom_bounces': [bb],
-                    'ray': [ray]
-                }))
-        return _pd.concat(rays)
+         derived from readKRAKEN.m    Feb 12, 1996 Aaron Thode
+
+         Translated to python by Hunter Akins 2019
+
+         Modes.M          number of modes
+         Modes.k          wavenumbers
+         Modes.z          sample depths for modes
+         Modes.phi        modes
+
+         Modes.Top.bc
+         Modes.Top.cp
+         Modes.Top.cs
+         Modes.Top.rho
+         Modes.Top.depth
+
+         Modes.Bot.bc
+         Modes.Bot.cp
+         Modes.Bot.cs
+         Modes.Bot.rho
+         Modes.Bot.depth
+
+         Modes.N          Number of depth points in each medium
+         Modes.Mater      Material type of each medium (acoustic or elastic)
+         Modes.Nfreq      Number of frequencies
+         Modes.Nmedia     Number of media
+         Modes.depth      depths of interfaces
+         Modes.rho        densities in each medium
+         Modes.freqVec    vector of frequencies for which the modes were calculated
+        '''
+
+        filename = fname_base+'.mod'
+
+        if _os.path.exists(filename):
+            print(f"[INFO] KRAKEN: The .mod file exists at {filename}.")
+        else:
+            print(f"[ERROR] KRAKEN: The .mod file does not exist at {filename} !")
+    
+        if 'freq' in kwargs.keys():
+            freq = kwargs['freq']
+        if 'modes' in kwargs.keys():
+            modes = kwargs['modes']
+        with open(filename, 'rb') as f:
+            iRecProfile = 1;   # (first time only)
+            
+            lrecl     = 4*unpack('<I', f.read(4))[0];     #record length in bytes
+
+            rec = iRecProfile - 1;
+
+            f.seek(rec * lrecl + 4) # do I need to do this ?
+
+            title    = unpack('80s', f.read(80))
+            Nfreq  = unpack('<I', f.read(4))[0]
+            Nmedia = unpack('<I', f.read(4))[0]
+            Ntot = unpack('<l', f.read(4))[0]
+            Nmat = unpack('<l', f.read(4))[0]
+            N = []
+            Mater = []
+
+
+            if Ntot < 0:
+                return
+
+            # N and Mater
+            rec   = iRecProfile;
+            f.seek(rec * lrecl); # reposition to next level
+            for Medium in range(Nmedia):
+               N.append(unpack('<I', f.read(4))[0])
+               Mater.append(unpack('8s', f.read(8))[0])
+
+
+            # depth and density
+            rec = iRecProfile + 1
+            f.seek(rec * lrecl)
+            bulk        = unpack('f'*2*Nmedia, f.read(4*2*Nmedia))
+            depth = [bulk[i] for i in range(0,2*Nmedia,2)]
+            rho = [bulk[i+1] for i in range(0,2*Nmedia,2)]
+
+            # frequencies
+            rec = iRecProfile + 2;
+            f.seek(rec * lrecl);
+            freqVec = unpack('d', f.read(8))[0]
+            freqVec = _np.array(freqVec)
+
+            # z
+            rec = iRecProfile + 3
+            f.seek(rec * lrecl)
+            z = unpack('f'*Ntot, f.read(Ntot*4))
+
+            # read in the modes
+
+            # identify the index of the frequency closest to the user-specified value
+            freqdiff = abs(freqVec - freq );
+            freq_index = _np.argmin( freqdiff );
+
+            # number of modes, m
+            iRecProfile = iRecProfile + 4;
+            rec = iRecProfile;
+
+            # skip through the mode file to get to the chosen frequency
+            for ifreq in range(freq_index+1):
+                f.seek(rec * lrecl);
+                M = unpack('l', f.read(8))[0]
+           
+               
+               # advance to the next frequency
+                if ( ifreq < freq_index ):
+                    iRecProfile = iRecProfile + 2 + M + 1 + _np.floor( ( 2 * M - 1 ) / lrecl );   # advance to next profile
+                    rec = iRecProfile;
+                    f.seek(rec * lrecl)
+
+            if 'modes' not in kwargs.keys():
+                modes = _np.linspace(0, M-1, M, dtype=int);    # read all modes if the user didn't specify
+
+            # Top and bottom halfspace info
+
+            # Top
+            rec = iRecProfile + 1
+            f.seek(rec * lrecl)
+            top_bc    = unpack('c', f.read(1))[0]
+            cp        = unpack('ff', f.read(8))
+            top_cp    = complex( cp[ 0 ], cp[ 1 ] )
+            cs        = unpack('ff', f.read(8))
+            top_cs    = complex( cs[ 1 ], cs[ 1 ] )
+            top_rho   = unpack('f', f.read(4))[0]
+            top_depth = unpack('f', f.read(4))[0]
+        
+            top_hs = HS(alphaR=top_cp.real, alphaI=top_cp.imag, betaR=top_cs.real, betaI=top_cs.imag)
+            top = TopBndry(top_bc, depth=top_depth)  
+
+            # Bottom
+            bot_bc    = unpack('c', f.read(1))[0]
+            cp        = unpack('ff', f.read(8))
+            bot_cp    = complex( cp[ 0 ], cp[ 1 ] )
+            cs        = unpack('ff', f.read(8))
+            bot_cs    = complex( cs[ 1 ], cs[ 1 ] )
+            bot_rho   = unpack('f', f.read(4))[0]
+            bot_depth = unpack('f', f.read(4))[0]
+      
+            bot_hs = HS(alphaR=bot_cp.real, alphaI=bot_cp.imag, betaR=bot_cs.real, betaI=bot_cs.imag)
+            bot = BotBndry(bot_bc, bot_hs, depth=bot_depth)  
+
+            rec = iRecProfile
+            f.seek(rec * lrecl)
+            # if there are modes, read them
+            if ( M == 0 ):
+               modes_phi = []
+               modes_k   = []
+            else:
+                modes_phi = _np.zeros((Nmat, len( modes )),dtype=_np.complex128)   # number of modes
+               
+                for ii in range(len(modes)):
+                    rec = iRecProfile + 2 + int(modes[ ii ])
+                    f.seek(rec * lrecl)
+                    phi = unpack('f'*2*Nmat, f.read(2*Nmat*4)) # Data is read columwise
+                    #t0 = time.time()
+                    phi = _np.array(phi)
+                    phir = phi[::2]
+                    phii = phi[1::2]
+                    #print('aray cast time', time.time()-t0)
+                    #t0 = time.time()
+                    #phir = np.array([phi[i] for i in range(0,2*Nmat,2)])
+                    #phii = np.array([phi[i+1] for i in range(0,2*Nmat,2)])
+                    #print('aray list time', time.time()-t0)
+                    modes_phi[ :, ii ] = phir + complex(0, 1)*phii;
+               
+                rec = iRecProfile + 2 + M;
+                f.seek(rec * lrecl)
+                k    = unpack('f'*2*M, f.read(4*2*M))
+                kr = _np.array([k[i] for i in range(0,2*M,2)])
+                ki = _np.array([k[i+1] for i in range(0,2*M,2)])
+                modes_k = kr+ complex(0,1) * ki
+                modes_k = _np.array([modes_k[i] for i in modes], dtype=_np.complex128)  # take the subset that the user specified
+
+        input_dict = {'M':M, 'modes_k': modes_k, 'z':z, 'modes_phi':modes_phi, 'top':top, 'bot':bot, 'N':N, 'Mater':Mater, 'Nfreq': Nfreq, 'Nmedia': Nmedia, 'depth':depth, 'rho':rho, 'freqVec':freqVec}
+        modes = Modes(**input_dict)
+        return modes
 
     def _load_shd(self, fname_base):
+        print_file_content(fname_base+'.shd')
         with open(fname_base+'.shd', 'rb') as f:
             recl, = _unpack('i', f.read(4))
             title = str(f.read(80))
@@ -1527,9 +1765,11 @@ class _Kraken:
                 temp = _np.array(_unpack('f'*2*nrr, f.read(2*nrr*4)))
                 pressure[ird,:] = temp[::2] + 1j*temp[1::2]
         return _pd.DataFrame(pressure, index=pos_r_depth, columns=pos_r_range)
+    
 _models.append(('KRAKEN', _Kraken))
 
 
+        
 class _RAM:
     """
     A class representing the RAM model for underwater acoustic propagation.
@@ -1747,11 +1987,11 @@ def compute_windnoise(f, u, water_depth='deep', sumOnly=False):
         # Bookkeeping:
         # Some constants
         f_wind = 2000  # Cutoff for wind noise section
-        s1w = 1.5  # Constant in wind calcs
-        s2w = -5.0  # Constant in wind calc
-        a = -25  # Curve melding exponent
-        slope = s2w * (0.1 / _np.log10(2))  # Slope at high freq
-        NL = _np.zeros_like(f)
+        s1w    = 1.5   # Constant in wind calcs
+        s2w    = -5.0  # Constant in wind calc
+        a      = -25   # Curve melding exponent
+        slope  = s2w * (0.1 / _np.log10(2))  # Slope at high freq
+        NL     = _np.zeros_like(f)
 
         # Do the wind part for f <= 2000 Hz
         if water_depth == 'shallow':
@@ -1765,11 +2005,11 @@ def compute_windnoise(f, u, water_depth='deep', sumOnly=False):
         f_temp = f[i_wind] if _np.any(i_wind) else _np.array([2000])  # so that it doesn’t crash if only f > 2000 are entered, admittedly this is a total arbitrary hack
 
         # These confusing letters were taken directly from the old code
-        f0w = 770 - 100 * _np.log10(u)
-        L0w = cst + 20 * _np.log10(u) - 17 * _np.log10(f0w / 770)
-        L1w = L0w + (s1w / _np.log10(2)) * _np.log10(f_temp / f0w)
-        L2w = L0w + (s2w / _np.log10(2)) * _np.log10(f_temp / f0w)
-        Lw = L1w * (1 + (L1w / L2w) ** (-a)) ** (1 / a)
+        f0w             = 770 - 100 * _np.log10(u)
+        L0w             = cst + 20 * _np.log10(u) - 17 * _np.log10(f0w / 770)
+        L1w             = L0w + (s1w / _np.log10(2)) * _np.log10(f_temp / f0w)
+        L2w             = L0w + (s2w / _np.log10(2)) * _np.log10(f_temp / f0w)
+        Lw              = L1w * (1 + (L1w / L2w) ** (-a)) ** (1 / a)
         temp_noise_dist = 10 ** (Lw / 10)
 
         if _np.any(i_wind):
@@ -1777,7 +2017,7 @@ def compute_windnoise(f, u, water_depth='deep', sumOnly=False):
 
         # Meld with a sensible line at freqs greater than 2000 Hz
         if _np.any(~i_wind):
-            prop_const = temp_noise_dist[-1] / f_temp[-1] ** slope
+            prop_const  = temp_noise_dist[-1] / f_temp[-1] ** slope
             NL[~i_wind] = prop_const * f[~i_wind] ** slope * df[~i_wind]
 
         NL = 10 * _np.log10(NL)
@@ -1812,29 +2052,43 @@ def compute_wenz(f, u, rain_rate='none', water_depth='deep', shipping_level='med
 
     Code translated from "A simple yet practical ambient noise model"
     by Cristina D. S. Tollefsen and Sean Pecknold.
+    
+    Table 1-1. Beaufort Wind Force and Sea State Numbers Vs Wind Speed
+               ("AMBIENT NOISE IN THE SEA" R.J.URICK, 1984)
+                                             Wind Speed
+    Beaufort Number     Sea State       Knots       Meters/Sec
+    0                   0               <1          0 - 0.2
+    1                   1/2             1 - 3       0.3 - 1.5
+    2                   1               4 - 6       1.6 - 3.3
+    3                   2               7 - 10      3.4 - 5.4
+    4                   3               11 - 16     5.5 - 7.9
+    5                   4               17 - 21     8.0 - 10.7
+    6                   5               22 - 27     10.8 - 13.8
+    7                   6               28 - 33     13.9 - 17.1
+    8                   6               34 - 40     17.2 - 20.7
     """
     
     f = _np.array(f).flatten()
 
     # Thermal noise
-    noise_therm = -75.0 + 20.0 * _np.log10(f)
+    noise_therm                   = -75.0 + 20.0 * _np.log10(f)
     noise_therm[noise_therm <= 0] = 1
 
     # Wind noise
     noise_wind = compute_windnoise(f, u, water_depth)
 
     # Shipping noise
-    c1 = 30 if water_depth == 'deep' else 65 if water_depth == 'shallow' else 30
-    c2 = 1 if shipping_level == 'low' else 4 if shipping_level == 'medium' else 7 if shipping_level == 'high' else 4
+    c1 = 30 if water_depth == 'deep'   else 65 if water_depth == 'shallow'   else 30
+    c2 = 1  if shipping_level == 'low' else 4  if shipping_level == 'medium' else 7  if shipping_level == 'high' else 4
     
     if shipping_level != 'no':
-        noise_ship = 76 - 20 * (_np.log10(f) - _np.log10(c1))**2 + 5 * (c2 - 4)
+        noise_ship                  = 76 - 20 * (_np.log10(f) - _np.log10(c1))**2 + 5 * (c2 - 4)
         noise_ship[noise_ship <= 0] = 1
     else:
         noise_ship = _np.zeros_like(f)
      
     # Turbulence noise
-    noise_turb = 108.5 - 32.5 * _np.log10(f)
+    noise_turb                  = 108.5 - 32.5 * _np.log10(f)
     noise_turb[noise_turb <= 0] = 1
 
     # Rain rate noise
@@ -1843,16 +2097,16 @@ def compute_wenz(f, u, rain_rate='none', water_depth='deep', shipping_level='med
     r2 = [0, -0.5232, -0.4255, -0.3825, -0.4258]
     r3 = [0, 0.0335, 0.0277, 0.0251, 0.0277]
 
-    i_rain = {'no': 0, 'light': 1, 'moderate': 2, 'heavy': 3, 'veryheavy': 4}.get(rain_rate, 1)
-    fk = f / 1000  # convert to kHz for this equation
+    i_rain     = {'no': 0, 'light': 1, 'moderate': 2, 'heavy': 3, 'veryheavy': 4}.get(rain_rate, 1)
+    fk         = f / 1000  # convert to kHz for this equation
     noise_rain = r0[i_rain] + r1[i_rain] * fk + r2[i_rain] * fk**2 + r3[i_rain] * fk**3
 
     # Only good up to about 7 kHz, so meld with a sensible line above that
     # Technique borrowed from wind-driven noise
-    slope = -5.0 * (0.1 / _np.log10(2))  # slope at high freq
-    ind = _np.where(f < 7000)[0][-1]
-    temp_noise = 10**(noise_rain[ind] / 10)
-    prop_const = temp_noise / f[ind]**slope
+    slope                = -5.0 * (0.1 / _np.log10(2))  # slope at high freq
+    ind                  = _np.where(f < 7000)[0][-1]
+    temp_noise           = 10**(noise_rain[ind] / 10)
+    prop_const           = temp_noise / f[ind]**slope
     noise_rain[f > 7000] = 10 * _np.log10(prop_const * f[f > 7000]**slope)
 
     # Sum
@@ -1860,7 +2114,7 @@ def compute_wenz(f, u, rain_rate='none', water_depth='deep', shipping_level='med
         NL = 10 * _np.log10(10**(noise_therm / 10) + 10**(noise_wind / 10) + 10**(noise_ship / 10) + 10**(noise_turb / 10) + 10**(noise_rain / 10))
     else:
         total = 10 * _np.log10(10**(noise_therm / 10) + 10**(noise_wind / 10) + 10**(noise_ship / 10) + 10**(noise_turb / 10) + 10**(noise_rain / 10))
-        NL = _np.column_stack((total, noise_ship, noise_wind, noise_rain, noise_therm, noise_turb))
+        NL    = _np.column_stack((total, noise_ship, noise_wind, noise_rain, noise_therm, noise_turb))
 
     return NL
 
@@ -1900,3 +2154,18 @@ def plot_wenz(Fxx, NL, wind_speed, rain_rate, water_depth, shipping_level, Title
     ax.grid(True)
 
     return fig, ax
+
+def print_file_content(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            content = file.read()
+            print("================================================================================================")
+            print(f"Content of the file: '{file_path}'.")
+            print("================================================================================================")
+            print(f"{content}")
+            print("================================================================================================")
+
+    except FileNotFoundError:
+        print(f"Error: The file '{file_path}' does not exist.")
+    except Exception as e:
+        print(f"Error: An unexpected error occurred: {e}")
