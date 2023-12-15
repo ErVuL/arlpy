@@ -421,19 +421,15 @@ def compute_transmission_loss(env, tx_depth_ndx=0, mode=coherent, model=None, de
         if mode not in [coherent, incoherent, semicoherent]:
             print('[WARN] BELLHOP: Unknown transmission loss mode: '+mode+', using coherent as default.')
             mode = coherent
-        
-    if env['model'] == 'BELLHOP':
-        pass
     if env['model'] == 'RAM':
         mode = TL
-        pass
     if env['model'] == 'KRAKEN':
         mode = TL
-        pass
         
     if _np.size(env['tx_depth']) > 1:
         env = env.copy()
         env['tx_depth'] = env['tx_depth'][tx_depth_ndx]
+        
     (model_name, model_process) = _select_model(env, mode, env['model'])
     if debug:
         print('[DEBUG] Model: '+model_name)
@@ -1398,7 +1394,7 @@ class _Kraken:
     def run(self, env, task, debug=False):
         
         taskmap = {
-            TL:           ['', self._load_shd],
+            TL:           ['C', self._load_shd],
             modes:        ['', self._load_modes]
         }
         fname_base = self._create_env_file(env, taskmap[task][0])
@@ -1818,7 +1814,7 @@ class _RAM:
     def __init__(self):
         pass
 
-    def supports(self, env=None, task='TL'):
+    def supports(self, env=None, task=TL):
         """
         Checks if the RAM model supports the specified task for the given environment.
         
@@ -1829,9 +1825,11 @@ class _RAM:
         Returns:
         bool: True if the task is supported, False otherwise.
         """
-        if task == 'TL' or task == 'CP':
+        if task == TL or task == 'CP':
             return True    
-        
+        else:
+            print("[ERROR] KRAKEN: Unknown mode: {task} !")
+            
         return False
     
     def run(self, env, task='TL', debug=False):
@@ -1851,7 +1849,7 @@ class _RAM:
         
         if env['tx_directionality'] is not None:
             print(f"[INFO] {env['model']}: Beam pattern not supported, using omnidirectionnal instead.")
-            
+
         # Initialize RAM environment
         # ram.PyRAM(freq, zs, zr, z_ss, rp_ss, cw, z_sb, rp_sb, cb, rhob, attn, rbzb, **kwargs)       
         self.pyram = ram.PyRAM(env['frequency'],
@@ -1880,7 +1878,7 @@ class _RAM:
         # Run computation
         results = self.pyram.run()
         
-        if task == 'TL':
+        if task == TL:
             # If necessary resize the results grid by adding NaNs
             if _np.size(results['TL Grid'], axis=0) < len(self.lines):
                 results['TL Grid'] = _np.insert(results['TL Grid'], 0, _np.zeros(_np.size(results['TL Grid'],axis=1)), axis=0)
