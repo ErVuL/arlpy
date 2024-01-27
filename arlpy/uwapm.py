@@ -30,21 +30,20 @@ from struct import unpack as _unpack
 from sys import float_info as _fi
 import matplotlib.pyplot as plt
 import pyram.PyRAM as ram
-import pandas as pd
 from struct import unpack
 
 # constants
-linear = 'linear'
-spline = 'spline'
-curvilinear = 'curvilinear'
-analytic = 'analytic'
-arrivals = 'arrivals'
-eigenrays = 'eigenrays'
-rays = 'rays'
-coherent = 'coherent'
-modes = 'modes'
-TL = 'TL'
-incoherent = 'incoherent'
+linear       = 'linear'
+spline       = 'spline'
+curvilinear  = 'curvilinear'
+analytic     = 'analytic'
+arrivals     = 'arrivals'
+eigenrays    = 'eigenrays'
+rays         = 'rays'
+coherent     = 'coherent'
+modes        = 'modes'
+TL           = 'TL'
+incoherent   = 'incoherent'
 semicoherent = 'semicoherent'
 
 
@@ -107,8 +106,8 @@ def create_env2d(**kv):
         'bottom_density': 1600,         # kg/m^3
         'bottom_absorption': 0.1,       # dB/wavelength
         'bottom_roughness': 0,          # m (rms)
-        'bottom_srange': [0],           # m
-        'bottom_sdepth': [0],           # m
+        'bottom_srange': [0],           # m (bottom settings range)
+        'bottom_sdepth': [0],           # m (bottom settings depth)
         'surface': None,                # surface profile
         'topBdry': 'V',                 # V for Vacuum, ... (cf. docs => OPT(2:2))
         'botBdry': 'A',                 # A for analytic, ... (cf. docs)
@@ -414,7 +413,8 @@ def compute_transmission_loss(env, tx_depth_ndx=0, mode=coherent, model=None, de
     >>> env = pm.create_env2d()
     >>> tloss = pm.compute_transmission_loss(env, mode=pm.incoherent)
     >>> pm.plot_transmission_loss(tloss, width=1000)
-    """
+    """    
+    
     env = check_env2d(env)
     
     if env['model'] == 'BELLHOP':
@@ -425,14 +425,16 @@ def compute_transmission_loss(env, tx_depth_ndx=0, mode=coherent, model=None, de
         mode = TL
     if env['model'] == 'KRAKEN':
         mode = TL
-        
+    
     if _np.size(env['tx_depth']) > 1:
         env = env.copy()
         env['tx_depth'] = env['tx_depth'][tx_depth_ndx]
-        
+
     (model_name, model_process) = _select_model(env, mode, env['model'])
     if debug:
         print('[DEBUG] Model: '+model_name)
+        
+    return model_process.run(env, mode, debug)
         
 def compute_modes(env, debug=False):
     """
@@ -451,7 +453,7 @@ def compute_modes(env, debug=False):
     (model_name, model_process) = _select_model(env, mode, env['model'])
     if debug:
         print('[DEBUG] Model: '+model_name)
-
+ 
     return model_process.run(env, mode, debug)
 
 def arrivals_to_impulse_response(arrivals, fs, abs_time=False):
@@ -1242,6 +1244,7 @@ class _Bellhop:
                 temp = _np.array(_unpack('f'*2*nrr, f.read(2*nrr*4)))
                 pressure[ird,:] = temp[::2] + 1j*temp[1::2]
         return _pd.DataFrame(pressure, index=pos_r_depth, columns=pos_r_range)
+    
 _models.append(('BELLHOP', _Bellhop))
 
 
@@ -1832,7 +1835,7 @@ class _RAM:
             
         return False
     
-    def run(self, env, task='TL', debug=False):
+    def run(self, env, task=TL, debug=False):
         """
         Runs the RAM computation for the specified task and environment.
         
@@ -1849,6 +1852,7 @@ class _RAM:
         
         if env['tx_directionality'] is not None:
             print(f"[INFO] {env['model']}: Beam pattern not supported, using omnidirectionnal instead.")
+
 
         # Initialize RAM environment
         # ram.PyRAM(freq, zs, zr, z_ss, rp_ss, cw, z_sb, rp_sb, cb, rhob, attn, rbzb, **kwargs)       
@@ -1891,7 +1895,7 @@ class _RAM:
                 results['TL Grid'][:,-1] = _np.nan
             
             # Return data as DataFrame with range and depth as index
-            return pd.DataFrame(10**(-results['TL Grid']/20), index=self.lines, columns=self.columns)
+            return _pd.DataFrame(10**(-results['TL Grid']/20), index=self.lines, columns=self.columns)
         
         if task == 'CP':
             # If necessary resize the results grid by adding NaNs
@@ -1906,7 +1910,7 @@ class _RAM:
                 results['CP Grid'][:,-1] = _np.nan
             
             # Return data as DataFrame with range and depth as index
-            return pd.DataFrame(results['CP Grid'], index=self.lines, columns=self.columns)    
+            return _pd.DataFrame(results['CP Grid'], index=self.lines, columns=self.columns)    
         
         return False
 
