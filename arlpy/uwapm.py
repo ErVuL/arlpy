@@ -32,23 +32,46 @@ import matplotlib.pyplot as plt
 import pyram.PyRAM as ram
 from struct import unpack
 
-# constants
+
+## Constants and models definition
+###############################################################################
+
+# @todo     Check if there is differences between linear/c-linear/n2-linear/spline, and remove useless definition !
+
+# Interpolation methods
 linear       = 'linear'
 spline       = 'spline'
 curvilinear  = 'curvilinear'
+c_linear     = 'c-linear'
+n2_linear    = 'n2-linear'
 analytic     = 'analytic'
+
+# Kraken modes and options
+modes        = 'modes'
+TL           = 'TL'
+
+# Bellhop modes and options
+incoherent   = 'incoherent'
+semicoherent = 'semicoherent'
+coherent     = 'coherent'
 arrivals     = 'arrivals'
 eigenrays    = 'eigenrays'
 rays         = 'rays'
-coherent     = 'coherent'
-modes        = 'modes'
-TL           = 'TL'
-incoherent   = 'incoherent'
-semicoherent = 'semicoherent'
+
+# Boundary condition
+rigid           = 'rigid'
+vacuum          = 'vacuum'
+acousto_elastic = 'acousto-elastic'
+file            = 'file'
+soft_boss       = 'soft-boss'
+hard_boss       = 'hard-boss'
 
 
 # models (in order of preference)
 _models = []
+
+# Objects definition
+###############################################################################
 
 def create_env2d(**kv):
     """Create a new 2D underwater environment.
@@ -109,8 +132,8 @@ def create_env2d(**kv):
         'bottom_srange': [0],           # m (bottom settings range)
         'bottom_sdepth': [0],           # m (bottom settings depth)
         'surface': None,                # surface profile
-        'topBdry': 'V',                 # V for Vacuum, ... (cf. docs => OPT(2:2))
-        'botBdry': 'A',                 # A for analytic, ... (cf. docs)
+        'topBdry': 'vacuum',            # (cf. docs => OPT(2:2))
+        'botBdry': 'rigid',             # (cf. docs => (6) )
         'surface_interp': linear,       # curvilinear/linear
         'tx_depth': 5,                  # m
         'tx_directionality': None,      # [(deg, dB)...]
@@ -130,6 +153,7 @@ def create_env2d(**kv):
     env = check_env2d(env)
     return env
 
+# @todo     Update assert for each model.
 def check_env2d(env):
     """Check the validity of a 2D underwater environment definition.
 
@@ -152,7 +176,7 @@ def check_env2d(env):
             assert env['surface'][0,0] <= 0, 'First range in surface array must be 0 m'
             assert env['surface'][-1,0] >= max_range, 'Last range in surface array must be beyond maximum range: '+str(max_range)+' m'
             assert _np.all(_np.diff(env['surface'][:,0]) > 0), 'surface array must be strictly monotonic in range'
-            assert env['surface_interp'] == curvilinear or env['surface_interp'] == linear, 'Invalid interpolation type: '+str(env['surface_interp'])
+            # assert env['surface_interp'] == curvilinear or env['surface_interp'] == linear, 'Invalid interpolation type: '+str(env['surface_interp'])
         if _np.size(env['depth']) > 1:
             assert env['depth'].ndim == 2, 'depth must be a scalar or an Nx2 array'
             assert env['depth'].shape[1] == 2, 'depth must be a scalar or an Nx2 array'
@@ -175,7 +199,7 @@ def check_env2d(env):
             assert env['soundspeed_depth'][0] <= 0, 'First depth in soundspeed array must be 0 m'
             assert env['soundspeed_depth'][-1] >= max_depth, 'Last depth in soundspeed array must be beyond water depth: '+str(max_depth)+' m'
             assert _np.all(_np.diff(env['soundspeed_depth']) > 0), 'Soundspeed array must be strictly monotonic in depth'
-            assert env['soundspeed_interp'] == spline or env['soundspeed_interp'] == linear, 'Invalid interpolation type: '+str(env['soundspeed_interp'])
+            #assert env['soundspeed_interp'] == spline or env['soundspeed_interp'] == linear, 'Invalid interpolation type: '+str(env['soundspeed_interp'])
             if not(max_depth in env['soundspeed_depth']):
                 indlarger = _np.argwhere(env['soundspeed'][:,0]>max_depth)[0][0]
                 if env['soundspeed_interp'] == spline:
@@ -987,7 +1011,7 @@ class _Bellhop:
                 except FileNotFoundError:
                     print('[WARN] Bellhop did not generate expected output file')
         if debug:
-            print('[DEBUG] Bellhop working files: '+fname_base+'.*')
+            print('[DEBUG] Bellhop working files: '+fname_base+'.*.')
         else:
             self._unlink(fname_base+'.env')
             self._unlink(fname_base+'.bty')
@@ -1400,7 +1424,7 @@ class _Kraken:
             TL:           ['C', self._load_shd],
             modes:        ['', self._load_modes]
         }
-        fname_base = self._create_env_file(env, taskmap[task][0])
+        fname_base = self._create_env_file(env, taskmap[task][0], debug=debug)
         results = None
         if self._kraken(fname_base):
             err = self._check_error(fname_base)
@@ -1419,7 +1443,7 @@ class _Kraken:
                     self._unlink(fname_base+'.mod')
                     self._unlink(fname_base+'.shd')
         if debug:
-            print('[DEBUG] KRAKEN: Working files: '+fname_base+'.*')
+            print('[DEBUG] KRAKEN: Working files: '+fname_base+'.*.')
         else:
             self._unlink(fname_base+'.env')
             self._unlink(fname_base+'.mod')
@@ -1464,13 +1488,34 @@ class _Kraken:
                 self._print(fh, "%0.6f " % (j), newline=False)
             self._print(fh, "/")
 
-    def _create_env_file(self, env, taskcode):
+    def _create_env_file(self, env, taskcode, debug = 0, **kwargs):
         fh, fname = _mkstemp(suffix='.env')
         fname_base = fname[:-4]
         self._print(fh, "'"+env['name']+"'")
         self._print(fh, "%0.6f" % (env['frequency']))
         self._print(fh, "%d" % (env['nmedia']))
                 
+        if env['soundspeed_interp'] == spline:
+            svp_interp = 'S'
+        elif env['soundspeed_interp'] == c_linear:
+            svp_interp = 'C' 
+        elif env['soundspeed_interp'] == n2_linear:
+            svp_interp = 'N'
+        elif env['soundspeed_interp'] == analytic:
+            svp_interp = 'A'
+          
+        # @todo     Add all boundary conditions.
+        if env['topBdry'] == rigid:
+            topBdry = 'R'
+        elif env['topBdry'] == vacuum:
+            topBdry = 'V' 
+        else:
+            print('[WARN] KRAKEN: Unknown top boundary condition, using vacuum instead !')
+            topBdry = 'V'
+            
+        # @todo     Manage thorp attenuation option.  
+        self._print(fh, "'%c%cWT'" % (svp_interp, topBdry))
+        
         if _np.size(env['soundspeed'],axis=1) > 1:
             print(f"[INFO] {env['model']}: Multiple sound profiles not supported, using average value.")
             mn = _np.mean(env['soundspeed'], axis=1)
@@ -1478,20 +1523,14 @@ class _Kraken:
         else:
             svp = _np.column_stack((env['soundspeed_depth'], env['soundspeed']))
         svp_depth = 0.0
-         
-        if env['soundspeed_interp'] == spline:
-            svp_interp = 'S'
-        elif env['soundspeed_interp'] == linear:
-            svp_interp = 'C' # or N ?
-        elif env['soundspeed_interp'] == curvilinear:
-            svp_interp = 'N' # or C ?
-        elif env['soundspeed_interp'] == analytic:
-            svp_interp = 'A'
-                          
-        self._print(fh, "'%c%cWT'" % (svp_interp, env['topBdry']))
         
         #max depth should be the depth of the acoustic domain, which can be deeper than the max depth bathymetry
-        max_depth = env['depth'] if _np.size(env['depth']) == 1 else max(_np.max(env['depth'][:,1]), svp_depth)
+        if _np.size(env['depth']) != 1:
+            print("[INFO] KRAKEN: Range dependent bathymetry not supported, using average value.")
+            max_depth = max(_np.mean(env['depth'][:,1]), svp_depth)
+        else:
+            max_depth = env['depth']
+            
         self._print(fh, "%d 0.0 %0.6f" % (len(env['rx_range']),max_depth))
         if _np.size(svp) == 1:
             self._print(fh, "0.0 %0.6f /" % (svp))
@@ -1499,38 +1538,51 @@ class _Kraken:
         else:
             for j in range(svp.shape[0]):
                 self._print(fh, "%0.6f %0.6f /" % (svp[j,0], svp[j,1]))
-        depth = env['depth']
-        if _np.size(depth) == 1:
-            self._print(fh, "'%c' %0.6f" % (env['botBdry'],env['bottom_roughness']))
+        
+        # @todo     Add all boundary conditions.
+        if env['botBdry'] == rigid:
+            botBdry = 'R'
+        elif env['botBdry'] == vacuum:
+            botBdry = 'V' 
+        elif env['botBdry'] == analytic:
+            botBdry = 'A' 
         else:
-            print("[INFO] KRAKEN: Range dependent bathymetry not supported, using average value.")
-            print("[WARN] KRAKEN: Bottom roughness maybe wrong in .env file !")
-            self._print(fh, "'%c' %0.6f" % (env['botBdry'],env['bottom_roughness']))    
+            print('[WARN] KRAKEN: Unknown bottom boundary condition, using perfectly rigid instead !')
+            botBdry = 'R'
+
+        self._print(fh, "'%c' %0.6f" % (botBdry, env['bottom_roughness']))    
+  
             
         if env['bottom_soundspeed'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom soundspeed profiles not supported, using average value.")
+            self.bts = _np.mean(env['bottom_soundspeed'])
+            
         if env['bottom_density'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom density profiles not supported, using average value.")
+            self.btd = _np.mean(env['bottom_density'])
+            
         if env['bottom_absorption'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom absorption profiles not supported, using average value.")
-        
-        self.bts = _np.mean(env['bottom_soundspeed'])
-        self.btd = _np.mean(env['bottom_density'])
-        self.bta = _np.mean(env['bottom_absorption'])
-        self._print(fh, "%0.6f %0.6f 0.0 %0.6f %0.6f /" % (max_depth, self.bts, self.btd/1000, self.bta))
-        
-        self._print(fh, "%0.6f %0.6f" %(0, _np.max(env['soundspeed']))) # C0 min and max
-        
-        self._print(fh, "%0.6f" %(env['rx_range'][-1]/1000)) # Max range in km 
-
-        self._print(fh, "%d" %(1))                    # Number of sources depth
-        self._print(fh, "%0.6f" %(env['tx_depth']))   # Source depths
-        self._print(fh, "%d" %(len(env['rx_depth']))) # Number of receiver depths
+            self.bta = _np.mean(env['bottom_absorption'])
+    
+        # @todo    Not sure if this condition is required !
+        if env['botBdry'] == analytic:
+            self._print(fh, "%0.6f %0.6f 0.0 %0.6f %0.6f /" % (max_depth, self.bts, self.btd/1000, self.bta))
+            
+        self._print(fh, "%0.6f %0.6f" %(0, _np.max(env['soundspeed'])))                    # C0 min and max
+        self._print(fh, "%0.6f" %(env['rx_range'][-1]/1000))                               # Max range in km 
+        self._print(fh, "%d" %(1))                                                         # Number of sources depth
+        self._print(fh, "%0.6f" %(env['tx_depth']))                                        # Source depths
+        self._print(fh, "%d" %(len(env['rx_depth'])))                                      # Number of receiver depths
         self._print(fh, "%0.6f %0.6f /" %(env['rx_depth'][0], env['rx_depth'][-1]))        # Receiver depths
                 
         _os.close(fh)
-        print_file_content(fname_base+'.env')
+        if debug:
+            print_file_content(fname_base+'.env')
+            
         return fname_base
+
+    # @todo     Remove useless file creation.
 
     def _create_bty_ati_file(self, filename, depth, interp):
         with open(filename, 'wt') as f:
@@ -1579,7 +1631,7 @@ class _Kraken:
             pass
         return err
 
-    def _load_modes(self, fname_base, freq=0, modes=[0,1,2,3,4,5], **kwargs):
+    def _load_modes(self, fname_base, debug = 0, freq=0, modes=[0,1,2,3,4,5], **kwargs):
         
         '''
          Read the modes produced by KRAKEN
@@ -1624,16 +1676,21 @@ class _Kraken:
 
         filename = fname_base+'.mod'
 
-        if _os.path.exists(filename):
-            print(f"[INFO] KRAKEN: The .mod file exists at {filename}.")
-        else:
+        if debug:
+            if _os.path.exists(filename):
+                print(f"[DEBUG] KRAKEN: The .mod file exists at {filename}.")
+                
+        if not _os.path.exists(filename):
             print(f"[ERROR] KRAKEN: The .mod file does not exist at {filename} !")
     
         if 'freq' in kwargs.keys():
             freq = kwargs['freq']
+            
         if 'modes' in kwargs.keys():
             modes = kwargs['modes']
+            
         with open(filename, 'rb') as f:
+                        
             iRecProfile = 1;   # (first time only)
             
             lrecl     = 4*unpack('<I', f.read(4))[0];     #record length in bytes
@@ -1695,7 +1752,6 @@ class _Kraken:
                 f.seek(rec * lrecl);
                 M = unpack('l', f.read(8))[0]
            
-               
                # advance to the next frequency
                 if ( ifreq < freq_index ):
                     iRecProfile = iRecProfile + 2 + M + 1 + _np.floor( ( 2 * M - 1 ) / lrecl );   # advance to next profile
@@ -1769,9 +1825,17 @@ class _Kraken:
         modes = Modes(**input_dict)
         return modes
 
-    def _load_shd(self, fname_base):
-        print_file_content(fname_base+'.shd')
+    def _load_shd(self, fname_base, debug = 0, **kwargs):
+        
+        if debug:
+            if _os.path.exists(fname_base):
+                print(f"[DEBUG] KRAKEN: The .shd file exists at {fname_base}.")
+                
+        if not _os.path.exists(fname_base):
+            print(f"[ERROR] KRAKEN: The .shd file does not exist at {fname_base} !")
+            
         with open(fname_base+'.shd', 'rb') as f:
+            print("SHD file open !")
             recl, = _unpack('i', f.read(4))
             title = str(f.read(80))
             f.seek(4*recl, 0)
@@ -2197,6 +2261,6 @@ def print_file_content(file_path):
             print("================================================================================================")
 
     except FileNotFoundError:
-        print(f"Error: The file '{file_path}' does not exist.")
+        print(f"[ERROR] Unable to print file, '{file_path}' does not exist.")
     except Exception as e:
-        print(f"Error: An unexpected error occurred: {e}")
+        print(f"[ERROR] An unexpected error occurred during print file: {e}")
