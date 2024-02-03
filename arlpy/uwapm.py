@@ -27,11 +27,18 @@ from scipy import interpolate as _interp
 import pandas as _pd
 from tempfile import mkstemp as _mkstemp
 from struct import unpack as _unpack
-from sys import float_info as _fi
 import matplotlib.pyplot as plt
 import pyram.PyRAM as ram
 from struct import unpack
+import os 
+from matplotlib import rc
 
+# Add acoustic toolbox path to Python path
+os.environ['PATH'] = os.environ['PATH'].replace(':/opt/build/at/bin', '')+":/opt/build/at/bin"
+
+# Configure LaTeX for matplotlib
+rc('font',**{'family':'sans-serif','sans-serif':['Helvetica'],'size':16})
+rc('text', usetex=True)
 
 ## Constants and models definition
 ###############################################################################
@@ -535,6 +542,7 @@ def plot_ir(ir, env, Title='', fs=96000, dB=False, color='steelblue', **kwargs):
     ax.set_ylabel('Amplitude')
     ax.set_title(f"[ {env['model']} - Impulse response @ {fs} S/s ] {Title}")
     ax.grid('all')
+    plt.show()
 
     return fig, ax
 
@@ -581,6 +589,7 @@ def plot_arrivals(arrivals, env, Title='', dB=False, color='steelblue', **kwargs
     ax.set_title(f"[ {env['model']} - Arrivals ] {Title}")
     ax.set_xlabel('Arrival time [s]')
     ax.grid('all')
+    plt.show()
 
     return fig, ax
 
@@ -644,7 +653,8 @@ def plot_rays(rays, env, Title='', invert_colors=False, **kwargs):
     ax.scatter(env['rx_range'], env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
     ax.invert_yaxis()
     ax.grid('all')
-
+    plt.show()
+    
     return fig, ax
 
 
@@ -695,7 +705,8 @@ def plot_transmission_loss(tloss, env, Title='', vmin=-180, vmax=0, **kwargs):
     cbar1 = fig.colorbar(im1, ax=ax)
     cbar1.ax.set_ylabel('Loss [dB]')
     ax.invert_yaxis()
-
+    plt.show()
+    
     return fig, ax
     
 def plot_absorption(env, Title='', vmin=0, vmax=20, Nxy=500, **kwargs):
@@ -764,6 +775,7 @@ def plot_absorption(env, Title='', vmin=0, vmax=20, Nxy=500, **kwargs):
     ax.set_title(f"[ {env['model']} - Attenuation in sediment ] {Title}")
     ax.invert_yaxis()
     plt.tight_layout()
+    plt.show()
 
     return fig, ax
 
@@ -793,6 +805,8 @@ def plot_beam(env, Title='', vmin=-60, vmax=20, **kwargs):
     ax.grid(True)
     ax.set_ylim(vmin, vmax)
     ax.set_title(f"[ {env['model']} - Source directivity [dB] ] {Title}", va='bottom')
+    plt.tight_layout()
+    plt.show()
     
     return fig, ax
 
@@ -863,12 +877,13 @@ def plot_density(env, Title, vmin=1000, vmax=1750, Nxy=500, **kwargs):
     ax.set_title(f"[ {env['model']} - Density in sediment ] {Title}")
     ax.invert_yaxis()
     plt.tight_layout()
+    plt.show()
 
     return fig, ax
 
 
 
-def plot_soundspeed(env, Title='', Nxy=500, **kwargs):
+def plot_soundspeed_map(env, Title='', Nxy=500, **kwargs):
     """
     Plots the sound speed profile of the environment.
     
@@ -932,6 +947,7 @@ def plot_soundspeed(env, Title='', Nxy=500, **kwargs):
     ax.set_title(f"[ {env['model']} - Sound speed profile ] {Title}")
     ax.invert_yaxis()
     plt.tight_layout()
+    plt.show()
     
     return fig, ax
     
@@ -2009,6 +2025,7 @@ def plot_recwPSD(Fxx, Pxx, maxval=2**24-1, vpk=3, sh=-205, gain=0, Title='', **k
     ax.set_title(f"[ WELCH - Power Spectral Density ] {Title}")
     ax.grid(True)
     ax.invert_yaxis()
+    plt.show()
     
     return fig, ax
 
@@ -2037,6 +2054,7 @@ def plot_PSD(Fxx, Lvl_dB, Title='', **kwargs):
     ax.set_title(f"[ Power Spectral Density ] {Title}")
     ax.grid(True)
     ax.invert_yaxis()
+    plt.show()
     
     return fig, ax
     
@@ -2247,7 +2265,8 @@ def plot_wenz(Fxx, NL, wind_speed, rain_rate, water_depth, shipping_level, Title
     ax.set_ylim((6, 146))  # Adjusted y-axis limits for better visibility
     ax.legend()
     ax.grid(True)
-
+    plt.show()
+    
     return fig, ax
 
 def print_file_content(file_path):
