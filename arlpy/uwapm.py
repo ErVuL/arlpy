@@ -74,6 +74,8 @@ _models = []
 
 # Objects definition
 ###############################################################################
+   
+# @todo     create and manage env3d for 3 dimensionnal problem
 
 def create_env2d(**kv):
     """Create a new 2D underwater environment.
@@ -84,7 +86,7 @@ def create_env2d(**kv):
     """
     env = {
         'name': 'arlpy',
-        'type': '2D',                   # 2D/3D
+        'type': '2D',                   # 2D only
         'model': 'BELLHOP',             # Model: BELLHOP, KRAKEN, RAM
         'frequency': 25000,             # Source frequency in Hz
         'soundspeed': 1500,             # m/s
@@ -513,6 +515,7 @@ def plot_ir(ir, env, Title='', fs=96000, dB=False, color='steelblue', **kwargs):
     ax.set_ylabel('Amplitude')
     ax.set_title(f"[ {env['model']} - Impulse response @ {fs} S/s ] {Title}")
     ax.grid('all')
+    plt.tight_layout()
     plt.show()
 
     return fig, ax
@@ -560,6 +563,7 @@ def plot_arrivals(arrivals, env, Title='', dB=False, color='steelblue', **kwargs
     ax.set_title(f"[ {env['model']} - Arrivals ] {Title}")
     ax.set_xlabel('Arrival time [s]')
     ax.grid('all')
+    plt.tight_layout()
     plt.show()
 
     return fig, ax
@@ -624,6 +628,7 @@ def plot_rays(rays, env, Title='', invert_colors=False, **kwargs):
     ax.scatter(env['rx_range'], env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
     ax.invert_yaxis()
     ax.grid('all')
+    plt.tight_layout()
     plt.show()
     
     return fig, ax
@@ -676,6 +681,7 @@ def plot_transmission_loss(tloss, env, Title='', vmin=-180, vmax=0, **kwargs):
     cbar1 = fig.colorbar(im1, ax=ax)
     cbar1.ax.set_ylabel('Loss [dB]')
     ax.invert_yaxis()
+    plt.tight_layout()
     plt.show()
     
     return fig, ax
@@ -1864,6 +1870,7 @@ class _RAM:
         supports(env=None, task='TL'): Checks if the RAM model supports a specific task for the given environment.
         run(env, task='TL', debug=False): Runs the RAM computation for a specified task and environment.
     """
+    # @todo     Understand and manage CP task
     
     def __init__(self):
         pass
@@ -1996,6 +2003,7 @@ def plot_recwPSD(Fxx, Pxx, maxval=2**24-1, vpk=3, sh=-205, gain=0, Title='', **k
     ax.set_title(f"[ WELCH - Power Spectral Density ] {Title}")
     ax.grid(True)
     ax.invert_yaxis()
+    plt.tight_layout()
     plt.show()
     
     return fig, ax
@@ -2025,6 +2033,7 @@ def plot_PSD(Fxx, Lvl_dB, Title='', **kwargs):
     ax.set_title(f"[ Power Spectral Density ] {Title}")
     ax.grid(True)
     ax.invert_yaxis()
+    plt.tight_layout()
     plt.show()
     
     return fig, ax
@@ -2236,6 +2245,7 @@ def plot_wenz(Fxx, NL, wind_speed, rain_rate, water_depth, shipping_level, Title
     ax.set_ylim((6, 146))  # Adjusted y-axis limits for better visibility
     ax.legend()
     ax.grid(True)
+    plt.tight_layout()
     plt.show()
     
     return fig, ax
