@@ -2,21 +2,16 @@
 #
 # Copyright (c) 2018, Mandar Chitre
 #
-# This file is part of arlpy which is released under Simplified BSD License.
+# This file is initially part of arlpy which is released under Simplified BSD License.
 # See file LICENSE or go to http://www.opensource.org/licenses/BSD-3-Clause
 # for full license details.
 #
+# Some code have been modified and added by Theo Bertet.
+# 
 ##############################################################################
 
-"""Underwater acoustic propagation modeling toolbox.
-
-This toolbox currently uses the Bellhop acoustic propagation model. For this model
-to work, the `acoustic toolbox <https://oalib-acoustics.org/>`_
-must be installed on your computer and `bellhop.exe` should be in your PATH.
-
-.. sidebar:: Sample Jupyter notebook
-
-    For usage examples of this toolbox, see `Bellhop notebook <_static/bellhop.html>`_.
+"""
+Underwater acoustic propagation modeling toolbox.
 """
 
 import os as _os
