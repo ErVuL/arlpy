@@ -79,44 +79,8 @@ def create_env2d(**kv):
     """Create a new 2D underwater environment.
 
     A basic environment is created with default values. To see all the parameters
-    available and their default values:
-
-    >>> import arlpy.uwapm as pm
-    >>> env = pm.create_env2d()
-    >>> pm.print_env(env)
-
-    The environment parameters may be changed by passing keyword arguments
-    or modified later using a dictionary notation:
-
-    >>> import arlpy.uwapm as pm
-    >>> env = pm.create_env2d(depth=40, soundspeed=1540)
-    >>> pm.print_env(env)
-    >>> env['depth'] = 25
-    >>> env['bottom_soundspeed'] = 1800
-    >>> pm.print_env(env)
-
-    The default environment has a constant sound speed. A depth dependent sound speed
-    profile be provided as a Nx2 array of (depth, sound speed):
-
-    >>> import arlpy.uwapm as pm
-    >>> env = pm.create_env2d(depth=20, soundspeed=[[0,1540], [5,1535], [10,1535], [20,1530]])
-
-    A range-and-depth dependent sound speed profile can be provided as a Pandas frame:
-
-    >>> import arlpy.uwapm as pm
-    >>> import pandas as pd
-    >>> ssp2 = pd.DataFrame({
-              0: [1540, 1530, 1532, 1533],     # profile at 0 m range
-            100: [1540, 1535, 1530, 1533],     # profile at 100 m range
-            200: [1530, 1520, 1522, 1525] },   # profile at 200 m range
-            index=[0, 10, 20, 30])             # depths of the profile entries in m
-    >>> env = pm.create_env2d(depth=20, soundspeed=ssp2)
-
-    The default environment has a constant water depth. A range dependent bathymetry
-    can be provided as a Nx2 array of (range, water depth):
-
-    >>> import arlpy.uwapm as pm
-    >>> env = pm.create_env2d(depth=[[0,20], [300,10], [500,18], [1000,15]])
+    available and their default values. The environment parameters may be changed 
+    by passing keyword arguments or modified later using a dictionary notation.
     """
     env = {
         'name': 'arlpy',
@@ -131,11 +95,9 @@ def create_env2d(**kv):
         'bottom_density': 1600,         # kg/m^3
         'bottom_absorption': 0.1,       # dB/wavelength
         'bottom_roughness': 0,          # m (rms)
-        'bottom_srange': [0],           # m (bottom settings range)
-        'bottom_sdepth': [0],           # m (bottom settings depth)
+        'bottom_srange': [0],           # m (bottom settings range for density absorption and roughness)
+        'bottom_sdepth': [0],           # m (bottom settings depth for density absorption and roughness)
         'surface': None,                # surface profile
-        'topBdry': 'vacuum',            # (cf. docs => OPT(2:2))
-        'botBdry': 'rigid',             # (cf. docs => (6) )
         'surface_interp': linear,       # curvilinear/linear
         'tx_depth': 5,                  # m
         'tx_directionality': None,      # [(deg, dB)...]
@@ -147,6 +109,19 @@ def create_env2d(**kv):
         'max_angle': 80,                # deg
         'nbeams': 0,                    # number of beams (0 = auto)
         'nmedia': 2,                    # number of medias
+        
+        # Kraken specific settings
+        
+        ## Boundary conditions
+        'top_Bdry': 'vacuum',            # (cf. docs => OPT(2:2))
+        'bottom_Bdry': 'rigid',          # (cf. docs => (6) )
+        
+        ## Top halfspace proprieties
+        'top_PwaveSpeed': 2000,          # m/s
+        'top_SwaveSpeed': 2000,          # m/s
+        'top_density': 10,               # g/cm3
+        'top_PwaveAttenuation': 100,     # dB/wavelength
+        'top_SwaveAttenuation': 200,     # dB/wavelength
     }
     for k, v in kv.items():
         if k not in env.keys():
