@@ -85,8 +85,8 @@ def create_env2d(**kv):
     env = {
         'name': 'arlpy',
         'type': '2D',                   # 2D/3D
-        'model': 'BELLHOP',             # Model
-        'frequency': 25000,             # Hz
+        'model': 'BELLHOP',             # Model: BELLHOP, KRAKEN, RAM
+        'frequency': 25000,             # Source frequency in Hz
         'soundspeed': 1500,             # m/s
         'soundspeed_range': [0],        # m
         'soundspeed_depth': [0],        # m
@@ -111,12 +111,13 @@ def create_env2d(**kv):
         'nmedia': 2,                    # number of medias
         
         # Kraken specific settings
+        ##########################
         
-        ## Boundary conditions
+        # Boundary conditions
         'top_Bdry': 'vacuum',            # (cf. docs => OPT(2:2))
         'bottom_Bdry': 'rigid',          # (cf. docs => (6) )
         
-        ## Top halfspace proprieties
+        # Top halfspace proprieties only for acousto-elastic boundary condition
         'top_PwaveSpeed': 2000,          # m/s
         'top_SwaveSpeed': 2000,          # m/s
         'top_density': 10,               # g/cm3
