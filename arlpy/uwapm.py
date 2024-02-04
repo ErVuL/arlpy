@@ -66,7 +66,9 @@ vacuum          = 'vacuum'
 acousto_elastic = 'acousto-elastic'
 file            = 'file'
 soft_boss       = 'soft-boss'
+soft_boss_amp   = 'soft-boss-amp'
 hard_boss       = 'hard-boss'
+hard_boss_amp   = 'hard-boss-amp'
 
 
 # models (in order of preference)
@@ -86,45 +88,54 @@ def create_env2d(**kv):
     """
     env = {
         'name': 'arlpy',
-        'type': '2D',                   # 2D only
-        'model': 'BELLHOP',             # Model: BELLHOP, KRAKEN, RAM
-        'frequency': 25000,             # Source frequency in Hz
-        'soundspeed': 1500,             # m/s
-        'soundspeed_range': [0],        # m
-        'soundspeed_depth': [0],        # m
-        'soundspeed_interp': spline,    # spline/linear
-        'bottom_soundspeed': 1600,      # m/s
-        'bottom_density': 1600,         # kg/m^3
-        'bottom_absorption': 0.1,       # dB/wavelength
-        'bottom_roughness': 0,          # m (rms)
-        'bottom_srange': [0],           # m (bottom settings range for density absorption and roughness)
-        'bottom_sdepth': [0],           # m (bottom settings depth for density absorption and roughness)
-        'surface': None,                # surface profile
-        'surface_interp': linear,       # curvilinear/linear
-        'tx_depth': 5,                  # m
-        'tx_directionality': None,      # [(deg, dB)...]
-        'rx_depth': 10,                 # m
-        'rx_range': 1000,               # m
-        'depth': 25,                    # m
-        'depth_interp': linear,         # curvilinear/linear
-        'min_angle': -80,               # deg
-        'max_angle': 80,                # deg
-        'nbeams': 0,                    # number of beams (0 = auto)
-        'nmedia': 2,                    # number of medias
+        'type': '2D',                    # 2D only
+        'model': 'BELLHOP',              # Model: BELLHOP, KRAKEN, RAM
+        'frequency': 25000,              # Source frequency in Hz
+        'soundspeed': 1500,              # m/s
+        'soundspeed_range': [0],         # m
+        'soundspeed_depth': [0],         # m
+        'soundspeed_interp': spline,     # spline/linear
+        'bottom_soundspeed': 1600,       # m/s
+        'bottom_density': 1600,          # kg/m^3
+        'bottom_attenuation': 0.1,        # dB/wavelength
+        'bottom_srange': [0],            # m (bottom settings range for density absorption and roughness)
+        'bottom_sdepth': [0],            # m (bottom settings depth for density absorption and roughness)
+        'surface': None,                 # surface profile
+        'surface_interp': linear,        # curvilinear/linear
+        'tx_depth': 5,                   # m
+        'tx_directionality': None,       # [(deg, dB)...]
+        'rx_depth': 10,                  # m
+        'rx_range': 1000,                # m
+        'depth': 25,                     # m
+        'depth_interp': linear,          # curvilinear/linear
+        'min_angle': -80,                # deg
+        'max_angle': 80,                 # deg
+        'nbeams': 0,                     # number of beams (0 = auto)
+        'nmedia': 2,                     # number of medias
         
         # Kraken specific settings
         ##########################
         
         # Boundary conditions
-        'top_Bdry': 'vacuum',            # (cf. docs => OPT(2:2))
-        'bottom_Bdry': 'rigid',          # (cf. docs => (6) )
+        'top_boundary': 'vacuum',        # OPT(2:2)
+        'bottom_boundary': 'rigid',      # (6)
         
-        # Top halfspace proprieties only for acousto-elastic boundary condition
-        'top_PwaveSpeed': 2000,          # m/s
-        'top_SwaveSpeed': 2000,          # m/s
-        'top_density': 10,               # g/cm3
-        'top_PwaveAttenuation': 100,     # dB/wavelength
-        'top_SwaveAttenuation': 200,     # dB/wavelength
+        # Top halfspace proprieties only for acousto-elastic top boundary condition (4a)
+        'top_PwaveSpeed': 2000,          # m/s (CPT)
+        'top_SwaveSpeed': 2000,          # m/s (CST)
+        'top_density': 10,               # g/cm3 (RHOT)
+        'top_PwaveAttenuation': 100,     # dB/wavelength (APT)
+        'top_SwaveAttenuation': 200,     # dB/wavelength (AST)
+        
+        # Twersky scatter parameters for soft/hard-boss Twersky top boundary condition only (4c)
+        'bump_density': 10,              # ridges/km (BUMDEN)
+        'principal_radius1': 1,          # m (ETA)
+        'principal_radius2': 3,          # m (XI)
+        
+        # Medium info (5) => (cf nmedia, bottom_density, )
+        'bottom_roughness_interface': 0, # m (rms)
+        
+        
     }
     for k, v in kv.items():
         if k not in env.keys():
@@ -1482,63 +1493,127 @@ class _Kraken:
             self._print(fh, "/")
 
     def _create_env_file(self, env, taskcode, debug = 0, **kwargs):
+        
         fh, fname = _mkstemp(suffix='.env')
         fname_base = fname[:-4]
+        
+        # Max depth should be the depth of the acoustic domain, which can be deeper than the max depth bathymetry
+        ssp_depth = 0.0
+        if _np.size(env['depth']) != 1:
+            print("[INFO] KRAKEN: Range dependent bathymetry not supported, using average value.")
+            max_depth = max(_np.mean(env['depth'][:,1]), ssp_depth)
+        else:
+            max_depth = env['depth']
+        
+        # Title
         self._print(fh, "'"+env['name']+"'")
+        
+        # Freq
         self._print(fh, "%0.6f" % (env['frequency']))
+        
+        # Nmedia
         self._print(fh, "%d" % (env['nmedia']))
-                
+        
+        # Option (1:1) SSP interp      
         if env['soundspeed_interp'] == spline:
-            svp_interp = 'S'
+            ssp_interp = 'S'
         elif env['soundspeed_interp'] == c_linear:
-            svp_interp = 'C' 
+            ssp_interp = 'C' 
         elif env['soundspeed_interp'] == n2_linear:
-            svp_interp = 'N'
+            ssp_interp = 'N'
         elif env['soundspeed_interp'] == analytic:
-            svp_interp = 'A'
+            ssp_interp = 'A'
           
+        # Option (2:2) Top boundary condition
         # @todo     Add all boundary conditions.
-        if env['topBdry'] == rigid:
+        if env['top_boundary'] == rigid:
             topBdry = 'R'
-        elif env['topBdry'] == vacuum:
+        elif env['top_boundary'] == vacuum:
             topBdry = 'V' 
+        elif env['top_boundary'] == acousto_elastic:
+            topBdry = 'A' 
+        elif env['top_boundary'] == file:
+            print('[WARN] KRAKEN: Top boundary condition only available with KRAKENC, using vacuum instead !') 
+            topBdry = 'V' 
+        elif env['top_boundary'] == soft_boss:
+            topBdry = 'S' 
+        elif env['top_boundary'] == hard_boss:
+            topBdry = 'H' 
+        elif env['top_boundary'] == soft_boss_amp:
+            topBdry = 'T' 
+        elif env['top_boundary'] == hard_boss_amp:
+            topBdry = 'I' 
         else:
             print('[WARN] KRAKEN: Unknown top boundary condition, using vacuum instead !')
             topBdry = 'V'
             
+        # Option (3:3) Attenuation units
+        # @todo     Manage all attenuation units, quality factor and Thorp attenuation
+        attnUnits = 'W' # dB/wavelength
+        
+        # Option (4:4)
+        ThorpFormula = ''
+        
+        # Option (5:5)
+        # KRAKENC only
+        
+        # All options string
         # @todo     Manage thorp attenuation option.  
-        self._print(fh, "'%c%cWT'" % (svp_interp, topBdry))
+        self._print(fh, "'%c%c%c%c'" % (ssp_interp, topBdry, attnUnits, ThorpFormula))
         
-        if _np.size(env['soundspeed'],axis=1) > 1:
-            print(f"[INFO] {env['model']}: Multiple sound profiles not supported, using average value.")
-            mn = _np.mean(env['soundspeed'], axis=1)
-            svp = _np.column_stack((env['soundspeed_depth'], mn))
-        else:
-            svp = _np.column_stack((env['soundspeed_depth'], env['soundspeed']))
-        svp_depth = 0.0
+        # Top boundary extra line (4a) or (4c)            
+        if topBdry == 'A':
+            self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (max_depth, env['top_PwaveSpeed'], env['top_SwaveSpeed'], env['top_density'], env['top_PwaveAttenuation'], env['top_SwaveAttenuation']))
+        elif topBdry == 'F' or topBdry == 'I':
+            self._print(fh, "%0.6f %0.6f %0.6f" % (env['bump_density'], env['principal_radius1'], env['principal_radius2']))
         
-        #max depth should be the depth of the acoustic domain, which can be deeper than the max depth bathymetry
-        if _np.size(env['depth']) != 1:
-            print("[INFO] KRAKEN: Range dependent bathymetry not supported, using average value.")
-            max_depth = max(_np.mean(env['depth'][:,1]), svp_depth)
-        else:
-            max_depth = env['depth']
+        # Medium info (5)
+        # @todo     Manage manual NMESH ?
+        # @todo     Add bottom_idepth for interface depth to use with roughness ?
+        # @todo     Continue here !
+        
+        for media in range(env['nmedia']): # len(bottom_idepth ?)
+
+            # Water as first media
+            if media == 0: 
+                
+                nmesh  = 0 # Automatic mesh points calculation
+                sigma  = 0 # ??
+                z_nssp = 0 # max_depth ??
+                
+                self._print(fh, "%d %0.6f %0.6f" % (nmesh, sigma, z_nssp))
+                
+                # Sound speed profile (5a)
+                if _np.size(env['soundspeed'],axis=1) > 1:
+                    print(f"[INFO] {env['model']}: Multiple sound profiles not supported, using average value.")
+                    mn = _np.mean(env['soundspeed'], axis=1)
+                    ssp = _np.column_stack((env['soundspeed_depth'], mn))
+                else:
+                    ssp = _np.column_stack((env['soundspeed_depth'], env['soundspeed']))
+                
+                if ssp_interp != 'A':
+                    pass
+                
+            # Other bottom medium
+            else:
+                pass
             
         self._print(fh, "%d 0.0 %0.6f" % (len(env['rx_range']),max_depth))
-        if _np.size(svp) == 1:
-            self._print(fh, "0.0 %0.6f /" % (svp))
-            self._print(fh, "%0.6f %0.6f /" % (max_depth, svp))
+        if _np.size(ssp) == 1:
+            self._print(fh, "0.0 %0.6f /" % (ssp))
+            self._print(fh, "%0.6f %0.6f /" % (max_depth, ssp))
         else:
-            for j in range(svp.shape[0]):
-                self._print(fh, "%0.6f %0.6f /" % (svp[j,0], svp[j,1]))
+            for j in range(ssp.shape[0]):
+                self._print(fh, "%0.6f %0.6f /" % (ssp[j,0], ssp[j,1]))
         
-        # @todo     Add all boundary conditions.
-        if env['botBdry'] == rigid:
+        # @todo     Manage all boundary conditions.
+        if env['bottom_boundary'] == rigid:
             botBdry = 'R'
-        elif env['botBdry'] == vacuum:
+        elif env['bottom_boundary'] == vacuum:
             botBdry = 'V' 
-        elif env['botBdry'] == analytic:
-            botBdry = 'A' 
+        elif env['bottom_boundary'] == analytic:
+            print('[WARN] KRAKEN: Not yet supported bottom boundary condition, using perfectly rigid instead !')
+            botBdry = 'R' 
         else:
             print('[WARN] KRAKEN: Unknown bottom boundary condition, using perfectly rigid instead !')
             botBdry = 'R'
@@ -1559,7 +1634,7 @@ class _Kraken:
             self.bta = _np.mean(env['bottom_absorption'])
     
         # @todo    Not sure if this condition is required !
-        if env['botBdry'] == analytic:
+        if env['top_boundary'] == analytic:
             self._print(fh, "%0.6f %0.6f 0.0 %0.6f %0.6f /" % (max_depth, self.bts, self.btd/1000, self.bta))
             
         self._print(fh, "%0.6f %0.6f" %(0, _np.max(env['soundspeed'])))                    # C0 min and max
