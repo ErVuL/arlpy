@@ -455,7 +455,7 @@ def compute_transmission_loss(env, tx_depth_ndx=0, mode=coherent, model=None, de
     
     if env['model'] == 'BELLHOP':
         if mode not in [coherent, incoherent, semicoherent]:
-            print('[WARN] BELLHOP: Unknown transmission loss mode: '+mode+', using coherent as default.')
+            print('[WARNING] BELLHOP: Unknown transmission loss mode: '+mode+', using coherent as default.')
             mode = coherent
     if env['model'] == 'RAM':
         mode = TL
@@ -1034,7 +1034,7 @@ class _Bellhop:
                 try:
                     results = taskmap[task][1](fname_base)
                 except FileNotFoundError:
-                    print('[WARN] Bellhop did not generate expected output file')
+                    print('[WARNING] Bellhop did not generate expected output file')
         if debug:
             print('[DEBUG] Bellhop working files: '+fname_base+'.*.')
         else:
@@ -1401,7 +1401,7 @@ class bellhop:
         
         # Debug print
         if debug:
-            print('[DBG] BELLHOP: Working files: '+fname_base+'.')
+            print('[DEBUG] BELLHOP: Working files: '+fname_base+'.')
         
         # Compute TL
         if self._bellhop(fname_base):
@@ -1461,7 +1461,7 @@ class bellhop:
                 try:
                     results = taskmap[task][1](fname_base)
                 except FileNotFoundError:
-                    print('[WARN] BELLHOP: Fortran execution did not generate expected output file !')
+                    print('[WARNING] BELLHOP: Fortran execution did not generate expected output file !')
         if debug:
             print('[DEBUG] BELLHOP: Working files: '+fname_base+'.*.')
         else:
@@ -1534,12 +1534,12 @@ class bellhop:
         
         # Option (1:1) SSP interp      
         if self.env['soundspeed'].ndim == 2 and self.env['soundspeed_interp'] != quadrilatteral:
-            print('[WARN] BELLHOP: Range dependant SSP require quadrilatteral sound speed interpolation !')
-            print('[WARN] BELLHOP: Quadrilatteral interpolation used instead of the selected one !')
+            print('[WARNING] BELLHOP: Range dependant SSP require quadrilatteral sound speed interpolation !')
+            print('[WARNING] BELLHOP: Quadrilatteral interpolation used instead of the selected one !')
             ssp_interp = 'Q'
         elif self.env['soundspeed'].ndim == 1 and self.env['soundspeed_interp'] == quadrilatteral:
-            print('[WARN] BELLHOP: Quadrilatteral interpollation is for range dependant SSP !')
-            print('[WARN] BELLHOP: C-linear interpolation used instead of the selected one !')
+            print('[WARNING] BELLHOP: Quadrilatteral interpollation is for range dependant SSP !')
+            print('[WARNING] BELLHOP: C-linear interpolation used instead of the selected one !')
             ssp_interp = 'C'
         elif self.env['soundspeed'].ndim == 2 and self.env['soundspeed_interp'] == quadrilatteral:
             ssp_interp = 'Q'
@@ -1552,7 +1552,7 @@ class bellhop:
         elif self.env['soundspeed_interp'] == analytic:
             #ssp_interp = 'A'   
             # @todo
-            print('[WARN] BELLHOP: Analytic SSP interpolation not yet coded, using C-linear instead !')
+            print('[WARNING] BELLHOP: Analytic SSP interpolation not yet coded, using C-linear instead !')
             ssp_interp = 'C' 
         elif self.env['soundspeed_interp'] == hermite:
             ssp_interp = 'P'
@@ -1568,7 +1568,7 @@ class bellhop:
         elif self.env['top_boundary'] == file:
             #topBdry = 'F'
             # @todo
-            print('[WARN] BELLHOP: Top boundary condition from file not yet coded, using vacuum instead !')
+            print('[WARNING] BELLHOP: Top boundary condition from file not yet coded, using vacuum instead !')
             topBdry = 'V' 
         
         # Option (3:3) Attenuation units
@@ -1581,7 +1581,7 @@ class bellhop:
         elif self.env['attn_unit'] == dB_meter_fScaled:
             #attnUnit = 'm' 
             # @todo
-            print('[WARN] BELLHOP: Attenuation unit in dB/m scaled with frequency not yet coded, using dB/m instead !')
+            print('[WARNING] BELLHOP: Attenuation unit in dB/m scaled with frequency not yet coded, using dB/m instead !')
             attnUnit = 'M'   
         elif self.env['attn_unit'] == dB_kmHz:
             attnUnit = 'F'
@@ -1599,12 +1599,12 @@ class bellhop:
         elif self.env['volume_attn'] == Francois_Garrison:
             #vAttn = 'F'
             # @todo
-            print('[WARN] BELLHOP: Francois Garrison attenuation formula not yet coded, using Thorp formula instead !')
+            print('[WARNING] BELLHOP: Francois Garrison attenuation formula not yet coded, using Thorp formula instead !')
             vAttn = 'T'
         elif self.env['volume_attn'] == boilogical:
             #vAttn = 'B'
             # @todo
-            print('[WARN] BELLHOP: Biological attenuation formula not yet coded, using Thorp formula instead !')
+            print('[WARNING] BELLHOP: Biological attenuation formula not yet coded, using Thorp formula instead !')
             vAttn = 'T'
         
         # Option (5:5) Altimetry option
@@ -1644,17 +1644,17 @@ class bellhop:
         elif self.env['bottom_boundary'] == file:
             #botBdry = 'F'
             # @todo 
-            print('[WARN] BELLHOP: File bottom boundary condition not yet coded, using perfectly rigid instead !')
+            print('[WARNING] BELLHOP: File bottom boundary condition not yet coded, using perfectly rigid instead !')
             botBdry = 'R'
         elif self.env['bottom_boundary'] == grain_size:
             #botBdry = 'G'   
             # @todo 
-            print('[WARN] BELLHOP: Grain size bottom boundary condition not yet coded, using perfectly rigid instead !')
+            print('[WARNING] BELLHOP: Grain size bottom boundary condition not yet coded, using perfectly rigid instead !')
             botBdry = 'R'
         elif self.env['bottom_boundary'] == precalculated:
             #botBdry = 'P'   
             # @todo
-            print('[WARN] BELLHOP: Precalculated bottom boundary condition not yet coded, using perfectly rigid instead !')
+            print('[WARNING] BELLHOP: Precalculated bottom boundary condition not yet coded, using perfectly rigid instead !')
             botBdry = 'R'
         
         # Bottom options string
@@ -2123,7 +2123,7 @@ class _Kraken:
         elif env['top_boundary'] == hard_boss_amp:
             topBdry = 'I' 
         else:
-            print('[WARN] KRAKEN: Unknown top boundary condition, using vacuum instead !')
+            print('[WARNING] KRAKEN: Unknown top boundary condition, using vacuum instead !')
             topBdry = 'V'
             
         # Option (3:3) Attenuation units
@@ -2194,10 +2194,10 @@ class _Kraken:
         elif env['bottom_boundary'] == vacuum:
             botBdry = 'V' 
         elif env['bottom_boundary'] == analytic:
-            print('[WARN] KRAKEN: Not yet supported bottom boundary condition, using perfectly rigid instead !')
+            print('[WARNING] KRAKEN: Not yet supported bottom boundary condition, using perfectly rigid instead !')
             botBdry = 'R' 
         else:
-            print('[WARN] KRAKEN: Unknown bottom boundary condition, using perfectly rigid instead !')
+            print('[WARNING] KRAKEN: Unknown bottom boundary condition, using perfectly rigid instead !')
             botBdry = 'R'
 
         self._print(fh, "'%c' %0.6f" % (botBdry, env['bottom_roughness']))    
