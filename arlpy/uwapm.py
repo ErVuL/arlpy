@@ -85,6 +85,8 @@ rigid             = 'rigid'
 vacuum            = 'vacuum'
 acousto_elastic   = 'acousto-elastic'
 file              = 'file'
+grain_size        = 'grain size'
+precalculated     = 'precalculated'
 soft_boss         = 'soft-boss'     # Kraken only
 soft_boss_amp     = 'soft-boss-amp' # Kraken only
 hard_boss         = 'hard-boss'     # Kraken only
@@ -133,11 +135,8 @@ def create_env2d(**kv):
         'min_angle': -80,                # deg
         'max_angle': 80,                 # deg
         'nbeams': 0,                     # number of beams (0 = auto)
-        'nmedia': 2,                     # number of medias
-        
-        # Kraken specific settings
-        ##########################
-        
+        'nmedia': 1,                     # number of medias
+                
         # Boundary conditions
         'top_boundary': 'vacuum',        # OPT(2:2)
         'bottom_boundary': 'rigid',      # (6)
@@ -1323,9 +1322,9 @@ class bellhop:
             'frequency': 25000,              # Source frequency in Hz
             'soundspeed': 1500,              # m/s
             'soundspeed_depth': [0],         # m
+            'soundspeed_range': [0],         # m
             'soundspeed_interp': spline,     # spline/linear
             'bottom_soundspeed': 1600,       # m/s
-            'bottom_density': 1600,          # kg/m^3
             'bottom_absorption': 0.1,        # dB/wavelength
             'bottom_roughness': 0,           # m (rms)
             'bottom_srange': [0],            # m (bottom settings range for density absorption and roughness)
@@ -1343,7 +1342,24 @@ class bellhop:
             'min_angle': -90,                # deg
             'max_angle': 90,                 # deg
             'nbeams': 0,                     # number of beams (0 = auto)
-            'nmedia': 1
+            'top_boundary': vacuum,
+            'bottom_boundary': rigid,
+            
+            ## Acouso-elastic boundary condition
+            
+            # Top
+            'top_PwaveSpeed': 2000,          # m/s (CPT)
+            'top_SwaveSpeed': 2000,          # m/s (CST)
+            'top_density': 10,               # g/cm3 (RHOT)
+            'top_PwaveAttenuation': 100,     # attn_unit (APT)
+            'top_SwaveAttenuation': 200,     # attn_unit (AST)
+            
+            # Bottom
+            'bottom_PwaveSpeed': 2000,       # m/s (CPB)
+            'bottom_SwaveSpeed': 2000,       # m/s (CSB)
+            'bottom_density': 10,            # g/cm3 (RHOB)
+            'bottom_PwaveAttenuation': 100,  # attn_unit (APB)
+            'bottom_SwaveAttenuation': 200,  # attn_unit (ASB)
         }
         
         # Associate items
@@ -1378,14 +1394,14 @@ class bellhop:
         elif self.env['mode'] == semicoherent:
             taskcode = 'S'
         else:
-            raise Exception("Bellhop mode not known !")
+            raise Exception("[ERROR] BELLHOP: Mode not known !")
            
         # Generate temporary env file and get base name used for all temporary files
-        fname_base = self._create_env_file(self.env, taskcode)
+        fname_base = self._create_env_file(taskcode, debug=debug)
         
         # Debug print
         if debug:
-            print('[DBG] Bellhop working files: '+fname_base+'.')
+            print('[DBG] BELLHOP: Working files: '+fname_base+'.')
         
         # Compute TL
         if self._bellhop(fname_base):
@@ -1396,7 +1412,7 @@ class bellhop:
                 try:
                     self.transmission_loss = self._load_shd(fname_base)
                 except FileNotFoundError:
-                    raise FileNotFoundError('Bellhop fortran execution did not generate expected output file !')
+                    raise FileNotFoundError('BELLHOP: Fortran execution did not generate expected output file !')
         
         # Delete temporary generated files
         self._unlink_all(fname_base)     
@@ -1445,9 +1461,9 @@ class bellhop:
                 try:
                     results = taskmap[task][1](fname_base)
                 except FileNotFoundError:
-                    print('[WARN] Bellhop did not generate expected output file')
+                    print('[WARN] BELLHOP: Fortran execution did not generate expected output file !')
         if debug:
-            print('[DEBUG] Bellhop working files: '+fname_base+'.*.')
+            print('[DEBUG] BELLHOP: Working files: '+fname_base+'.*.')
         else:
             self._unlink(fname_base+'.env')
             self._unlink(fname_base+'.bty')
@@ -1502,7 +1518,7 @@ class bellhop:
                 self._print(fh, "%0.6f " % (j), newline=False)
             self._print(fh, "/")
 
-    def _create_env_file(self, taskcode):
+    def _create_env_file(self, taskcode, debug=False, **kwargs):
         
         fh, fname = _mkstemp(suffix='.env')
         fname_base = fname[:-4]
@@ -1514,16 +1530,16 @@ class bellhop:
         self._print(fh, "%0.6f" % (self.env['frequency']))
         
         # Nmedia
-        self._print(fh, "%d" % (self.env['nmedia']))
+        self._print(fh, "%d" % (1)) # Bellhop is limited to one media and ignore this parameter
         
         # Option (1:1) SSP interp      
         if self.env['soundspeed'].ndim == 2 and self.env['soundspeed_interp'] != quadrilatteral:
-            print('[WARN] Bellhop: Range dependant SSP require quadrilatteral sound speed interpolation !')
-            print('[WARN] Bellhop: Quadrilatteral interpolation used instead of the selected one !')
+            print('[WARN] BELLHOP: Range dependant SSP require quadrilatteral sound speed interpolation !')
+            print('[WARN] BELLHOP: Quadrilatteral interpolation used instead of the selected one !')
             ssp_interp = 'Q'
         elif self.env['soundspeed'].ndim == 1 and self.env['soundspeed_interp'] == quadrilatteral:
-            print('[WARN] Bellhop: Quadrilatteral interpollation is for range dependant SSP !')
-            print('[WARN] Bellhop: C-linear interpolation used instead of the selected one !')
+            print('[WARN] BELLHOP: Quadrilatteral interpollation is for range dependant SSP !')
+            print('[WARN] BELLHOP: C-linear interpolation used instead of the selected one !')
             ssp_interp = 'C'
         elif self.env['soundspeed'].ndim == 2 and self.env['soundspeed_interp'] == quadrilatteral:
             ssp_interp = 'Q'
@@ -1534,7 +1550,10 @@ class bellhop:
         elif self.env['soundspeed_interp'] == n2_linear:
             ssp_interp = 'N'
         elif self.env['soundspeed_interp'] == analytic:
-            ssp_interp = 'A'
+            #ssp_interp = 'A'   
+            # @todo
+            print('[WARN] BELLHOP: Analytic SSP interpolation not yet coded, using C-linear instead !')
+            ssp_interp = 'C' 
         elif self.env['soundspeed_interp'] == hermite:
             ssp_interp = 'P'
         
@@ -1547,7 +1566,9 @@ class bellhop:
         elif self.env['top_boundary'] == acousto_elastic:
             topBdry = 'A' 
         elif self.env['top_boundary'] == file:
-            print('[WARN] Bellhop: Top boundary condition from file not yet coded, using vacuum instead !')
+            #topBdry = 'F'
+            # @todo
+            print('[WARN] BELLHOP: Top boundary condition from file not yet coded, using vacuum instead !')
             topBdry = 'V' 
         
         # Option (3:3) Attenuation units
@@ -1558,7 +1579,10 @@ class bellhop:
         elif self.env['attn_unit'] == dB_meter:
             attnUnit = 'M'        
         elif self.env['attn_unit'] == dB_meter_fScaled:
-            attnUnit = 'm' 
+            #attnUnit = 'm' 
+            # @todo
+            print('[WARN] BELLHOP: Attenuation unit in dB/m scaled with frequency not yet coded, using dB/m instead !')
+            attnUnit = 'M'   
         elif self.env['attn_unit'] == dB_kmHz:
             attnUnit = 'F'
         elif self.env['attn_unit'] == quality_factor:
@@ -1569,16 +1593,18 @@ class bellhop:
         # Option (4:4) Added volume attenuation
         # @todo     Manage Francois Garrison and biological attenuation
         if self.env['volume_attn'] == None:
-            vAttn = ''
+            vAttn = ' '
         elif self.env['volume_attn'] == Thorp:
             vAttn = 'T'
         elif self.env['volume_attn'] == Francois_Garrison:
             #vAttn = 'F'
-            print('[WARN] Bellhop: Francois Garrison attenuation formula not yet coded, using Thorp formula instead !')
+            # @todo
+            print('[WARN] BELLHOP: Francois Garrison attenuation formula not yet coded, using Thorp formula instead !')
             vAttn = 'T'
         elif self.env['volume_attn'] == boilogical:
             #vAttn = 'B'
-            print('[WARN] Bellhop: Biological attenuation formula not yet coded, using Thorp formula instead !')
+            # @todo
+            print('[WARN] BELLHOP: Biological attenuation formula not yet coded, using Thorp formula instead !')
             vAttn = 'T'
         
         # Option (5:5) Altimetry option
@@ -1586,58 +1612,87 @@ class bellhop:
             alt = '_'
         else:
             alt = '*'
-            self._create_bty_ati_file(fname_base+'.ati', self.env['surface'], self.env['surface_interp'])
+            self._create_bty_ati_file(fname_base+'.ati', self.env['surface'], self.env['surface_interp'], debug=debug)
         
         # All options string
         self._print(fh, "'%c%c%c%c%c'" % (ssp_interp, topBdry, attnUnit, vAttn, alt))
-        
-        # Extra line (4a) or (4c)
-        # @todo     Manage biological attenuation
-        
-        if self.env['soundspeed'].ndim == 2:
-            svp_depth = self.env['soundspeed_depth']
 
-        #max depth should be the depth of the acoustic domain, which can be deeper than the max depth bathymetry
-        max_depth = self.env['depth'] if _np.size(self.env['depth']) == 1 else max(_np.max(self.env['depth'][:,1]), svp_depth)
-        self._print(fh, "1 0.0 %0.6f" % (max_depth))
-        if _np.size(svp) == 1:
-            self._print(fh, "0.0 %0.6f /" % (svp))
-            self._print(fh, "%0.6f %0.6f /" % (max_depth, svp))
-        elif svp_interp == 'Q':
-            for j in range(svp.shape[0]):
-                self._print(fh, "%0.6f %0.6f /" % (svp.index[j], svp.iloc[j,0]))
-            self._create_ssp_file(fname_base+'.ssp', _np.column_stack((self.env['soundspeed_depth'], self.env['soundspeed'])))
+        # Extra line (4a) or (4b)
+        # @todo     Manage biological attenuation
+        if topBdry == 'A':
+            self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (_np.max(self.env['depth']), self.env['top_PwaveSpeed'], self.env['top_SwaveSpeed'], self.env['top_density'], self.env['top_PwaveAttenuation'], self.env['top_SwaveAttenuation']))
+        
+        # Medium info / Sound Speed Profile (5)
+        nmesh = 1 # Unused by Bellhop
+        self._print(fh, "%d %0.6f %0.6f" % (nmesh, 0.0, self.env['soundspeed_depth'][-1]))
+        
+        if ssp_interp == 'Q': 
+            for j in range(len(self.env['soundspeed_depth'])):
+                self._print(fh, "%0.6f %0.6f /" % (self.env['soundspeed_depth'][j], self.env['soundspeed'][j,0]))
+            self._create_ssp_file(fname_base+'.ssp',self.env['soundspeed_range'], self.env['soundspeed'], debug=debug)
         else:
-            for j in range(svp.shape[0]):
-                self._print(fh, "%0.6f %0.6f /" % (svp[j,0], svp[j,1]))
-        depth = env['depth']
-        if _np.size(depth) == 1:
-            self._print(fh, "'A' %0.6f" % (env['bottom_roughness']))
-        else:
-            self._print(fh, "'A*' %0.6f" % (env['bottom_roughness']))
-            self._create_bty_ati_file(fname_base+'.bty', depth, env['depth_interp'])  
-        if env['bottom_soundspeed'].ndim > 0:
-            print("[INFO] BELLHOP: Multiple bottom soundspeed profiles not supported, using average value.")
-        if env['bottom_density'].ndim > 0:
-            print(f"[INFO] {env['model']}: Multiple bottom density profiles not supported, using average value.")
-        if env['bottom_attenuation'].ndim > 0:
-            print(f"[INFO] {env['model']}: Multiple bottom absorption profiles not supported, using average value.")
-        self.bts = _np.mean(env['bottom_soundspeed'])
-        self.btd = _np.mean(env['bottom_density'])
-        self.bta = _np.mean(env['bottom_attenuation'])
-        self._print(fh, "%0.6f %0.6f 0.0 %0.6f %0.6f /" % (max_depth, self.bts, self.btd/1000, self.bta))
-        self._print_array(fh, env['tx_depth'])
-        self._print_array(fh, env['rx_depth'])
-        self._print_array(fh, env['rx_range']/1000)
-        if env['tx_directionality'] is None:
+            for j in range(len(self.env['soundspeed_depth'])):
+                self._print(fh, "%0.6f %0.6f /" % (self.env['soundspeed_depth'][j], self.env['soundspeed'][j]))
+        
+        # Bottom option (6)
+        if self.env['bottom_boundary'] == rigid:
+            botBdry = 'R'
+        elif self.env['bottom_boundary'] == vacuum:
+            botBdry = 'V' 
+        elif self.env['bottom_boundary'] == acousto_elastic:
+            botBdry = 'A'
+        elif self.env['bottom_boundary'] == file:
+            #botBdry = 'F'
+            # @todo 
+            print('[WARN] BELLHOP: File bottom boundary condition not yet coded, using perfectly rigid instead !')
+            botBdry = 'R'
+        elif self.env['bottom_boundary'] == grain_size:
+            #botBdry = 'G'   
+            # @todo 
+            print('[WARN] BELLHOP: Grain size bottom boundary condition not yet coded, using perfectly rigid instead !')
+            botBdry = 'R'
+        elif self.env['bottom_boundary'] == precalculated:
+            #botBdry = 'P'   
+            # @todo
+            print('[WARN] BELLHOP: Precalculated bottom boundary condition not yet coded, using perfectly rigid instead !')
+            botBdry = 'R'
+        
+        # Bottom options string
+        self._print(fh, "'%c' %0.6f" % (botBdry, self.env['bottom_roughness']))
+        
+        # Bottom halfspace extra lines (6a) (6b)
+        # @todo     Add Grain size 
+        if botBdry == 'A':
+            self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (self.env['soundspeed_depth'][-1], self.env['bottom_PwaveSpeed'], self.env['bottom_SwaveSpeed'], self.env['bottom_density'], self.env['bottom_PwaveAttenuation'], self.env['bottom_SwaveAttenuation']))
+   
+        # Number of source depth  and source depths (m) (7)
+        self._print_array(fh, self.env['tx_depth'])
+        
+        # Number of receiver depth  and receiver depths (m) (7)
+        self._print_array(fh, self.env['rx_depth'])
+        
+        # Number of receiver range and receiver range (km) (7)
+        self._print_array(fh, self.env['rx_range']/1000)
+        
+        # Run type (8)
+        # @todo     Manage all options  (line source in priority ?) 
+        if self.env['tx_directionality'] is None:
             self._print(fh, "'"+taskcode+"'")
         else:
             self._print(fh, "'"+taskcode+" *'")
-            self._create_sbp_file(fname_base+'.sbp', env['tx_directionality'])
-        self._print(fh, "%d" % (env['nbeams']))
-        self._print(fh, "%0.6f %0.6f /" % (env['min_angle'], env['max_angle']))
-        self._print(fh, "0.0 %0.6f %0.6f" % (1.01*max_depth, 1.01*_np.max(env['rx_range'])/1000))
+            self._create_sbp_file(fname_base+'.sbp', self.env['tx_directionality'], debug=debug)
+            
+        # Beam fan (9)
+        self._print(fh, "%d" % (self.env['nbeams']))
+        self._print(fh, "%0.6f %0.6f /" % (self.env['min_angle'], self.env['max_angle']))
+        
+        # Numerical integrator info (10)
+        self._print(fh, "0.0 %0.6f %0.6f" % (1.01*self.env['soundspeed_depth'][-1], 1.01*_np.max(self.env['rx_range'])/1000))
+        
         _os.close(fh)
+        
+        if debug:
+            print_file_content(fname_base+'.env')
         
         return fname_base
 
@@ -1645,28 +1700,34 @@ class bellhop:
         # @todo Plot SSP in 1D or 2D taking inoto account interpolation process for validation !!
         pass
 
-    def _create_bty_ati_file(self, filename, depth, interp):
+    def _create_bty_ati_file(self, filename, depth, interp, debug=False):
         with open(filename, 'wt') as f:
             f.write("'%c'\n" % ('C' if interp == curvilinear else 'L'))
             f.write(str(depth.shape[0])+"\n")
             for j in range(depth.shape[0]):
                 f.write("%0.6f %0.6f\n" % (depth[j,0]/1000, depth[j,1]))
+        if debug:
+            print_file_content(filename)
 
-    def _create_sbp_file(self, filename, dir):
+    def _create_sbp_file(self, filename, dir, debug=False):
         with open(filename, 'wt') as f:
             f.write(str(dir.shape[0])+"\n")
             for j in range(dir.shape[0]):
                 f.write("%0.6f %0.6f\n" % (dir[j,0], dir[j,1]))
+        if debug:
+            print_file_content(filename)
 
-    def _create_ssp_file(self, filename, svp):
+    def _create_ssp_file(self, filename, ssp_range, ssp, debug=False):
         with open(filename, 'wt') as f:
-            f.write(str(svp.shape[1])+"\n")
-            for j in range(svp.shape[1]):
-                f.write("%0.6f%c" % (svp.columns[j]/1000, '\n' if j == svp.shape[1]-1 else ' '))
-            for k in range(svp.shape[0]):
-                for j in range(svp.shape[1]):
-                    f.write("%0.6f%c" % (svp.iloc[k,j], '\n' if j == svp.shape[1]-1 else ' '))
-
+            f.write(str(ssp_range.size)+"\n")
+            for j in range(ssp_range.size):
+                f.write("%0.6f%c" % (ssp_range[j] /1000, '\n' if j == ssp_range.size-1 else ' '))
+            for k in range(ssp.shape[0]):
+                for j in range(ssp_range.size):
+                    f.write("%0.6f%c" % (ssp[k,j], '\n' if j == ssp_range.size-1 else ' '))
+        if debug:
+            print_file_content(filename)
+            
     def _readf(self, f, types, dtype=str):
         if type(f) is str:
             p = _re.split(r' +', f.strip())
@@ -2117,7 +2178,8 @@ class _Kraken:
             # Other bottom medium
             else:
                 pass
-            
+            ssp_depth = self.env['soundspeed_depth']
+
         self._print(fh, "%d 0.0 %0.6f" % (len(env['rx_range']),max_depth))
         if _np.size(ssp) == 1:
             self._print(fh, "0.0 %0.6f /" % (ssp))
