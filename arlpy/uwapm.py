@@ -40,9 +40,10 @@ rc('text', usetex=True)
 
 # @todo     Check if there is differences between linear/c-linear/n2-linear/spline, and remove useless definition !
 
-# Surface/Depth interpolation methods
+# Surface/bottom interpolation methods
 linear            = 'linear'
 curvilinear       = 'curvilinear'
+piecewise_linear  = 'piecewise linear'
 
 # SSP interpolation methods
 spline            = 'spline'         # Cubic Spline
@@ -52,6 +53,7 @@ analytic          = 'analytic'
 quadrilatteral    = 'quadrilatteral' # Bellhop only, with SSP file
 hexahedral        = 'hexahedral'     # Bellhop 3D only with SSP file   
 hermite           = 'hermite'        # Piecewise Cubic Hermite Interpolating Polynomial for which model ?
+
 
 # Attenuation units
 nepers_meter      = 'Nepers/m'
@@ -65,7 +67,7 @@ loss_parameter    = 'loss-parameter'
 # Volume attenuation
 Thorp             = 'Thorp'
 Francois_Garrison = 'Francois Garrison'
-boilogical        = 'biological'
+biological        = 'biological'
 
 # @todo remove it !
 # Kraken modes and options
@@ -99,6 +101,32 @@ _models = []
 # Objects definition
 ###############################################################################
    
+def adjustSSP(ssp, ssp_depth, ssp_range, top_interface, bot_interface, rx_range):
+    
+    if _np.size(ssp_depth) > 1:
+        # Repeat first row if necessary
+        if _np.min(top_interface) < ssp_depth[0]:
+            ssp = _np.vstack([ssp[0], ssp])
+            ssp_depth = _np.hstack(([ssp_depth[0] - (ssp_depth[1] - ssp_depth[0])], ssp_depth))
+        
+        # Repeat last row if necessary
+        if _np.max(bot_interface) > ssp_depth[-1]:
+            ssp = _np.vstack([ssp, ssp[-1]])
+            ssp_depth = _np.hstack((ssp_depth, [ssp_depth[-1] + (ssp_depth[-1] - ssp_depth[-2])]))
+
+    if _np.size(ssp_range) > 1:
+        # Repeat first column if necessary
+        if rx_range[0] < ssp_range[0]:
+            ssp = _np.hstack((_np.expand_dims(ssp[:, 0], axis=1), ssp))
+            ssp_range[0] = rx_range[0]
+        
+        # Repeat last column if necessary
+        if rx_range[-1] > ssp_range[-1]:
+            ssp = _np.hstack((ssp, _np.expand_dims(ssp[:, -1], axis=1)))
+            ssp_range[-1] = rx_range[-1]
+        
+    return ssp, ssp_depth, ssp_range
+
 # @todo     create and manage env3d for 3 dimensionnal problem
 
 def create_env2d(**kv):
@@ -109,53 +137,61 @@ def create_env2d(**kv):
     by passing keyword arguments or modified later using a dictionary notation.
     """
     env = {
-        'name': 'arlpy',
-        'type': '2D',                    # 2D only
-        'model': 'BELLHOP',              # Model: BELLHOP, KRAKEN, RAM
-        'mode': incoherent,
-        'frequency': 25000,              # Source frequency in Hz
-        'soundspeed': 1500,              # m/s
-        'soundspeed_range': [0],         # m
-        'soundspeed_depth': [0],         # m
-        'soundspeed_interp': spline,     # spline/linear
-        'bottom_soundspeed': 1600,       # m/s
-        'bottom_density': 1600,          # kg/m^3
-        'bottom_attenuation': 0.1,        # dB/wavelength
-        'bottom_srange': [0],            # m (bottom settings range for density absorption and roughness)
-        'bottom_sdepth': [0],            # m (bottom settings depth for density absorption and roughness)
-        'attn_unit':dB_wavelength,       # Attenuation units
-        'surface': None,                 # surface profile
-        'surface_interp': linear,        # curvilinear/linear
-        'tx_depth': 5,                   # m
-        'tx_directionality': None,       # [(deg, dB)...]
-        'rx_depth': 10,                  # m
-        'rx_range': 1000,                # m
-        'depth': 25,                     # m
-        'depth_interp': linear,          # curvilinear/linear
-        'min_angle': -80,                # deg
-        'max_angle': 80,                 # deg
-        'nbeams': 0,                     # number of beams (0 = auto)
-        'nmedia': 1,                     # number of medias
-                
-        # Boundary conditions
-        'top_boundary': 'vacuum',        # OPT(2:2)
-        'bottom_boundary': 'rigid',      # (6)
+            'name'            : 'arlpy',                     # Required py fortran code but not used here
+            'dimension'       : '2D',                        # 2D only
+            
+            'mode'            : incoherent,                  # Propagation loss mode
+            'volume_attn'     : None,                        # Added volume attenuation
+            
+            'rx_depth'        : None,                        # m
+            'rx_range'        : None,                        # m
+            
+            'top_boundary'    : vacuum,
+            'top_interface'   : None,                        # surface profile
+            'top_roughness'   : 0,                           # m (rms)
+            
+            'ssp_range'       : 0,                           # m
+            'ssp_depth'       : 0,                           # m
+            'ssp'             : 1500,                        # m/s
+            'ssp_interp'      : c_linear,                    # spline/linear/quadrilatteral/..
+            
+            'tx_freq'         : None,                        # Source frequency in Hz
+            'tx_depth'        : None,                        # m
+            'tx_beam'         : None,                        # [[deg, dB]...]
+            'tx_nbeams'       : 0,                           # number of beams (0 = auto)
+            'tx_minAngle'     : -180,                        # deg
+            'tx_maxAngle'     : 180,                         # deg
+            
+            'bot_boundary'    : rigid,
+            'bot_interface'   : None,                        # m
+            'bot_roughness'   : 0,                           # m (rms) 
+            'bot_range'       : None,                        # m (bottom settings range for ssp, density and absorption)
+            'bot_depth'       : None,                        # m (bottom settings depth for ssp, density and absorption)
+            'bot_ssp'         : None,                        # m/s
+            
+
+            # OALIB ONLY
+            ## Acouso-elastic boundary condition, bottom typical values for rock
+            'attn_unit'       : dB_wavelength,               # Attenuation units 
+            'top_density'     : None,                        # g/cm3 (RHOT)
+            'top_PwaveSpeed'  : None,                        # m/s (CPT)
+            'top_SwaveSpeed'  : None,                        # m/s (CST)
+            'top_PwaveAttn'   : None,                        # attn_unit (APT)
+            'top_SwaveAttn'   : None,                        # attn_unit (AST)
+            'bot_density'     : 2.7,                         # g/cm3 (RHOB)   
+            'bot_PwaveSpeed'  : 6000,                        # m/s (CPB)
+            'bot_SwaveSpeed'  : 3500,                        # m/s (CSB)
+            'bot_PwaveAttn'   : 0.02,                        # attn_unit (APB)
+            'bot_SwaveAttn'   : 0.02,                        # attn_unit (ASB)
         
-        # Top halfspace proprieties only for acousto-elastic top boundary condition (4a)
-        'top_PwaveSpeed': 2000,          # m/s (CPT)
-        'top_SwaveSpeed': 2000,          # m/s (CST)
-        'top_density': 10,               # g/cm3 (RHOT)
-        'top_PwaveAttenuation': 100,     # dB/wavelength (APT)
-        'top_SwaveAttenuation': 200,     # dB/wavelength (AST)
-        
-        # Twersky scatter parameters for soft/hard-boss Twersky top boundary condition only (4c)
-        'bump_density': 10,              # ridges/km (BUMDEN)
-        'principal_radius1': 1,          # m (ETA)
-        'principal_radius2': 3,          # m (XI)
-        
-        # Medium info (5) => (cf nmedia, bottom_density, )
-        'bottom_roughness_interface': 0, # m (rms)
-        
+            # KRAKEN ONLY
+            # Twersky scatter parameters for soft/hard-boss Twersky top boundary condition only (4c)
+            'bump_density': 10,              # ridges/km (BUMDEN)
+            'principal_radius1': 1,          # m (ETA)
+            'principal_radius2': 3,          # m (XI)
+            
+            # RAM ONLY
+            'bot_absorption'  : None,                        # dB/wavelength
         
     }
     for k, v in kv.items():
@@ -163,6 +199,12 @@ def create_env2d(**kv):
             raise KeyError('Unknown key: '+k)
         env[k] = _np.asarray(v, dtype=_np.float64) if not isinstance(v, _pd.DataFrame) and _np.size(v) > 1 else v
     env = check_env2d(env)
+    
+    # Adjust environment border by padding input data if required
+    env['ssp'], env['ssp_range'], env['ssp_depth']  = _adjust_3D(env['ssp'], env['ssp_range'], env['ssp_depth'], env['rx_range'][0], env['rx_range'][-1], _np.min(env['top_interface'][:,1]), _np.max(env['bot_interface'][:,1]))
+    env['top_interface'] = _adjust_2D(env['top_interface'], env['rx_range'][0], env['rx_range'][-1])
+    env['bot_interface'] = _adjust_2D(env['bot_interface'], env['rx_range'][0], env['rx_range'][-1])
+    
     return env
 
 # @todo     Update assert for each model.
@@ -181,55 +223,55 @@ def check_env2d(env):
         assert env['model'] is not None, 'model is not defined'
         assert env['type'] == '2D', 'Not a 2D environment'
         max_range = _np.max(env['rx_range'])
-        if env['surface'] is not None:
-            assert _np.size(env['surface']) > 1, 'surface must be an Nx2 array'
-            assert env['surface'].ndim == 2, 'surface must be a scalar or an Nx2 array'
-            assert env['surface'].shape[1] == 2, 'surface must be a scalar or an Nx2 array'
-            assert env['surface'][0,0] <= 0, 'First range in surface array must be 0 m'
-            assert env['surface'][-1,0] >= max_range, 'Last range in surface array must be beyond maximum range: '+str(max_range)+' m'
-            assert _np.all(_np.diff(env['surface'][:,0]) > 0), 'surface array must be strictly monotonic in range'
+        if env['top_interface'] is not None:
+            assert _np.size(env['top_interface']) > 1, 'surface must be an Nx2 array'
+            assert env['top_interface'].ndim == 2, 'surface must be a scalar or an Nx2 array'
+            assert env['top_interface'].shape[1] == 2, 'surface must be a scalar or an Nx2 array'
+            assert env['top_interface'][0,0] <= 0, 'First range in surface array must be 0 m'
+            assert env['top_interface'][-1,0] >= max_range, 'Last range in surface array must be beyond maximum range: '+str(max_range)+' m'
+            assert _np.all(_np.diff(env['top_interface'][:,0]) > 0), 'surface array must be strictly monotonic in range'
             # assert env['surface_interp'] == curvilinear or env['surface_interp'] == linear, 'Invalid interpolation type: '+str(env['surface_interp'])
-        if _np.size(env['depth']) > 1:
-            assert env['depth'].ndim == 2, 'depth must be a scalar or an Nx2 array'
-            assert env['depth'].shape[1] == 2, 'depth must be a scalar or an Nx2 array'
-            assert env['depth'][0,0] <= 0, 'First range in depth array must be 0 m'
-            assert env['depth'][-1,0] >= max_range, 'Last range in depth array must be beyond maximum range: '+str(max_range)+' m'
-            assert _np.all(_np.diff(env['depth'][:,0]) > 0), 'Depth array must be strictly monotonic in range'
+        if _np.size(env['bot_interface']) > 1:
+            assert env['bot_interface'].ndim == 2, 'depth must be a scalar or an Nx2 array'
+            assert env['bot_interface'].shape[1] == 2, 'depth must be a scalar or an Nx2 array'
+            assert env['bot_interface'][0,0] <= 0, 'First range in depth array must be 0 m'
+            assert env['bot_interface'][-1,0] >= max_range, 'Last range in depth array must be beyond maximum range: '+str(max_range)+' m'
+            assert _np.all(_np.diff(env['bot_interface'][:,0]) > 0), 'Depth array must be strictly monotonic in range'
             assert env['depth_interp'] == curvilinear or env['depth_interp'] == linear, 'Invalid interpolation type: '+str(env['depth_interp'])
-            max_depth = _np.max(env['depth'][:,1])
+            max_depth = _np.max(env['bot_interface'][:,1])
         else:
-            max_depth = env['depth']
-        if isinstance(env['soundspeed'], _pd.DataFrame):
-            assert env['soundspeed'].shape[0] > 3, 'soundspeed profile must have at least 4 points'
-            assert env['soundspeed_depth'][0] <= 0, 'First depth in soundspeed array must be 0 m'
-            assert env['soundspeed_depth'][-1] >= max_depth, 'Last depth in soundspeed array must be beyond water depth: '+str(max_depth)+' m'
-            assert _np.all(_np.diff(env['soundspeed'].index) > 0), 'Soundspeed array must be strictly monotonic in depth'
-        elif _np.size(env['soundspeed']) > 1:
-            #assert env['soundspeed'].ndim == 2, 'soundspeed must be a scalar or an Nx2 array'
-            #assert env['soundspeed'].shape[1] == 2, 'soundspeed must be a scalar or an Nx2 array'
-            assert env['soundspeed'].shape[0] > 3, 'soundspeed profile must have at least 4 points'
-            assert env['soundspeed_depth'][0] <= 0, 'First depth in soundspeed array must be 0 m'
-            assert env['soundspeed_depth'][-1] >= max_depth, 'Last depth in soundspeed array must be beyond water depth: '+str(max_depth)+' m'
-            assert _np.all(_np.diff(env['soundspeed_depth']) > 0), 'Soundspeed array must be strictly monotonic in depth'
-            #assert env['soundspeed_interp'] == spline or env['soundspeed_interp'] == linear, 'Invalid interpolation type: '+str(env['soundspeed_interp'])
-            if not(max_depth in env['soundspeed_depth']):
-                indlarger = _np.argwhere(env['soundspeed'][:,0]>max_depth)[0][0]
-                if env['soundspeed_interp'] == spline:
-                    tck = _interp.splrep(env['soundspeed'][:,0], env['soundspeed'][:,1], s=0)
+            max_depth = env['bot_interface']
+        if isinstance(env['ssp'], _pd.DataFrame):
+            assert env['ssp'].shape[0] > 3, 'soundspeed profile must have at least 4 points'
+            assert env['ssp_depth'][0] <= 0, 'First depth in soundspeed array must be 0 m'
+            assert env['ssp_depth'][-1] >= max_depth, 'Last depth in soundspeed array must be beyond water depth: '+str(max_depth)+' m'
+            assert _np.all(_np.diff(env['ssp'].index) > 0), 'Soundspeed array must be strictly monotonic in depth'
+        elif _np.size(env['ssp']) > 1:
+            #assert env['ssp'].ndim == 2, 'soundspeed must be a scalar or an Nx2 array'
+            #assert env['ssp'].shape[1] == 2, 'soundspeed must be a scalar or an Nx2 array'
+            assert env['ssp'].shape[0] > 3, 'soundspeed profile must have at least 4 points'
+            assert env['ssp_depth'][0] <= 0, 'First depth in soundspeed array must be 0 m'
+            assert env['ssp_depth'][-1] >= max_depth, 'Last depth in soundspeed array must be beyond water depth: '+str(max_depth)+' m'
+            assert _np.all(_np.diff(env['ssp_depth']) > 0), 'Soundspeed array must be strictly monotonic in depth'
+            #assert env['ssp_interp'] == spline or env['ssp_interp'] == linear, 'Invalid interpolation type: '+str(env['ssp_interp'])
+            if not(max_depth in env['ssp_depth']):
+                indlarger = _np.argwhere(env['ssp'][:,0]>max_depth)[0][0]
+                if env['ssp_interp'] == spline:
+                    tck = _interp.splrep(env['ssp'][:,0], env['ssp'][:,1], s=0)
                     insert_ss_val = _interp.splev(max_depth, tck, der=0)
                 else:
-                    insert_ss_val = _np.interp(max_depth, env['soundspeed'][:,0], env['soundspeed'][:,1])
-                env['soundspeed'] = _np.insert(env['soundspeed'],indlarger,[max_depth,insert_ss_val],axis = 0)
-                env['soundspeed'] = env['soundspeed'][:indlarger+1,:]
+                    insert_ss_val = _np.interp(max_depth, env['ssp'][:,0], env['ssp'][:,1])
+                env['ssp'] = _np.insert(env['ssp'],indlarger,[max_depth,insert_ss_val],axis = 0)
+                env['ssp'] = env['ssp'][:indlarger+1,:]
         assert _np.max(env['tx_depth']) <= max_depth, 'tx_depth cannot exceed water depth: '+str(max_depth)+' m'
         assert _np.max(env['rx_depth']) <= max_depth, 'rx_depth cannot exceed water depth: '+str(max_depth)+' m'
-        assert env['min_angle'] > -90 and env['min_angle'] < 90, 'min_angle must be in range (-90, 90)'
-        assert env['max_angle'] > -90 and env['max_angle'] < 90, 'max_angle must be in range (-90, 90)'
-        if env['tx_directionality'] is not None:
-            assert _np.size(env['tx_directionality']) > 1, 'tx_directionality must be an Nx2 array'
-            assert env['tx_directionality'].ndim == 2, 'tx_directionality must be an Nx2 array'
-            assert env['tx_directionality'].shape[1] == 2, 'tx_directionality must be an Nx2 array'
-            assert _np.all(env['tx_directionality'][:,0] >= -180) and _np.all(env['tx_directionality'][:,0] <= 180), 'tx_directionality angles must be in [-90, 90]'
+        assert env['tx_minAngle'] > -90 and env['tx_minAngle'] < 90, 'min_angle must be in range (-90, 90)'
+        assert env['tx_maxAngle'] > -90 and env['tx_maxAngle'] < 90, 'max_angle must be in range (-90, 90)'
+        if env['tx_beam'] is not None:
+            assert _np.size(env['tx_beam']) > 1, 'tx_directionality must be an Nx2 array'
+            assert env['tx_beam'].ndim == 2, 'tx_directionality must be an Nx2 array'
+            assert env['tx_beam'].shape[1] == 2, 'tx_directionality must be an Nx2 array'
+            assert _np.all(env['tx_beam'][:,0] >= -180) and _np.all(env['tx_beam'][:,0] <= 180), 'tx_directionality angles must be in [-90, 90]'
         return env
     except AssertionError as e:
         raise ValueError(e.args)
@@ -286,29 +328,29 @@ def plot_env(env, surface_color='dodgerblue', bottom_color='peru', tx_color='ora
     else:
         divisor = 1
         xlabel = 'Range (m)'
-    if env['surface'] is None:
+    if env['top_interface'] is None:
         min_y = 0
     else:
-        min_y = _np.min(env['surface'][:,1])
-    if _np.size(env['depth']) > 1:
-        max_y = _np.max(env['depth'][:,1])
+        min_y = _np.min(env['top_interface'][:,1])
+    if _np.size(env['bot_interface']) > 1:
+        max_y = _np.max(env['bot_interface'][:,1])
     else:
-        max_y = env['depth']
+        max_y = env['bot_interface']
     mgn_x = 0.01*(max_x-min_x)
     mgn_y = 0.1*(max_y-min_y)
     """
     oh = _plt.hold()
-    if env['surface'] is None:
+    if env['top_interface'] is None:
         _plt.plot([min_x, max_x], [0, 0], xlabel=xlabel, ylabel='Depth (m)', xlim=(min_x-mgn_x, max_x+mgn_x), ylim=(-max_y-mgn_y, -min_y+mgn_y), color=surface_color, **kwargs)
     else:
         # linear and curvilinear options use the same altimetry, just with different normals
-        s = env['surface']
+        s = env['top_interface']
         _plt.plot(s[:,0]/divisor, -s[:,1], xlabel=xlabel, ylabel='Depth (m)', xlim=(min_x-mgn_x, max_x+mgn_x), ylim=(-max_y-mgn_y, -min_y+mgn_y), color=surface_color, **kwargs)
-    if _np.size(env['depth']) == 1:
-        _plt.plot([min_x, max_x], [-env['depth'], -env['depth']], color=bottom_color)
+    if _np.size(env['bot_interface']) == 1:
+        _plt.plot([min_x, max_x], [-env['bot_interface'], -env['bot_interface']], color=bottom_color)
     else:
         # linear and curvilinear options use the same bathymetry, just with different normals
-        s = env['depth']
+        s = env['bot_interface']
         _plt.plot(s[:,0]/divisor, -s[:,1], color=bottom_color)
     txd = env['tx_depth']
     _plt.plot([0]*_np.size(txd), -txd, marker='*', style=None, color=tx_color)
@@ -338,18 +380,18 @@ def plot_ssp(env, **kwargs):
     >>> pm.plot_ssp(env)
     """
     env = check_env2d(env)
-    svp = env['soundspeed']
+    svp = env['ssp']
     if isinstance(svp, _pd.DataFrame):
         svp = _np.hstack((_np.array([svp.index]).T, _np.asarray(svp)))
     if _np.size(svp) == 1:
-        if _np.size(env['depth']) > 1:
-            max_y = _np.max(env['depth'][:,1])
+        if _np.size(env['bot_interface']) > 1:
+            max_y = _np.max(env['bot_interface'][:,1])
         else:
-            max_y = env['depth']
+            max_y = env['bot_interface']
         """
         _plt.plot([svp, svp], [0, -max_y], xlabel='Soundspeed (m/s)', ylabel='Depth (m)', **kwargs)
         """
-    elif env['soundspeed_interp'] == spline:
+    elif env['ssp_interp'] == spline:
         s = svp
         ynew = _np.linspace(_np.min(svp[:,0]), _np.max(svp[:,0]), 100)
         tck = _interp.splrep(svp[:,0], svp[:,1], s=0)
@@ -649,11 +691,11 @@ def plot_rays(rays, env, Title='', invert_colors=False, **kwargs):
         elif row.bottom_bounces == 1:
             ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='saddlebrown', alpha=.5)
 
-    ax.plot(env['depth'][:, 0] / divisor, env['depth'][:, 1], 'saddlebrown', linewidth=3)
-    ax.plot(env['surface'][:, 0] / divisor, env['surface'][:, 1], 'b', linewidth=3)
+    ax.plot(env['bot_interface'][:, 0] / divisor, env['bot_interface'][:, 1], 'saddlebrown', linewidth=3)
+    ax.plot(env['top_interface'][:, 0] / divisor, env['top_interface'][:, 1], 'b', linewidth=3)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Depth [m]")
-    ax.set_ylim((_np.min(env['surface']), _np.max(env['depth'][:, 1])))
+    ax.set_ylim((_np.min(env['top_interface']), _np.max(env['bot_interface'][:, 1])))
     ax.set_xlim((0, env['rx_range'] / divisor))
     ax.set_title(f"[ {env['model']} - Rays ] {Title}")
     ax.scatter(0, env['tx_depth'], label="Source", color="k", s=250, marker="*")
@@ -686,30 +728,30 @@ def plot_transmission_loss(tloss, env, Title='', vmin=-180, vmax=0, **kwargs):
 
     # Remove TL in sediment/surface
     for ii, x in enumerate(X):
-        ylim = _np.interp(x, env['depth'][:, 0], env['depth'][:, 1])
+        ylim = _np.interp(x, env['bot_interface'][:, 0], env['bot_interface'][:, 1])
         for jj, y in enumerate(Y):
             if y > ylim:
                 tlossplt[jj, ii] = vmax
 
-    if env['model'] == 'BELLHOP' and env['surface'] is not None:
+    if env['model'] == 'BELLHOP' and env['top_interface'] is not None:
         for ii, x in enumerate(X):
-            ylim = _np.interp(x, env['surface'][:, 0], env['surface'][:, 1])
+            ylim = _np.interp(x, env['top_interface'][:, 0], env['top_interface'][:, 1])
             for jj, y in enumerate(Y):
                 if y < ylim:
                     tlossplt[jj, ii] = _np.NaN
-        ax.plot(env['surface'][:, 0] / 1000, env['surface'][:, 1], 'b', linewidth=3)
+        ax.plot(env['top_interface'][:, 0] / 1000, env['top_interface'][:, 1], 'b', linewidth=3)
 
     elif env['model'] == 'RAM':
         ax.plot([0, X[-1] / 1000], [0, 0], 'b', linewidth=3)
 
     X, Y = _np.meshgrid(X, Y)
     im1 = ax.pcolormesh(X / 1000, Y, tlossplt, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
-    ax.plot(env['depth'][:, 0] / 1000, env['depth'][:, 1], 'k', linewidth=3)
+    ax.plot(env['bot_interface'][:, 0] / 1000, env['bot_interface'][:, 1], 'k', linewidth=3)
     ax.set_xlim((X[0, 0] / 1000, X[-1, -1] / 1000))
     ax.set_ylim((Y[0, 0], Y[-1, -1]))
     ax.set_xlabel('Range [km]')
     ax.set_ylabel('Depth [m]')
-    ax.set_title(f"[ {env['model']} - Propagation Loss @ {env['frequency']} Hz ] {Title}")
+    ax.set_title(f"[ {env['model']} - Propagation Loss @ {env['tx_freq']} Hz ] {Title}")
     cbar1 = fig.colorbar(im1, ax=ax)
     cbar1.ax.set_ylabel('Loss [dB]')
     ax.invert_yaxis()
@@ -736,9 +778,9 @@ def plot_absorption(env, Title='', vmin=0, vmax=20, Nxy=500, **kwargs):
 
     fig, ax = plt.subplots()
 
-    Xb = _np.array(env['bottom_srange'])
-    Yb = _np.array(env['bottom_sdepth'] - _np.max(env['depth'][:, 1]), ndmin=1)
-    Zb = _np.array(_np.array(env['bottom_absorption'], ndmin=2))
+    Xb = _np.array(env['bot_range'])
+    Yb = _np.array(env['bot_depth'] - _np.max(env['bot_interface'][:, 1]), ndmin=1)
+    Zb = _np.array(_np.array(env['bot_absorption'], ndmin=2))
 
     if env['model'] == 'BELLHOP':
         Xb = [0, env['rx_range'][-1]]
@@ -749,8 +791,8 @@ def plot_absorption(env, Title='', vmin=0, vmax=20, Nxy=500, **kwargs):
     Zg = _np.zeros([len(Yg), len(Xg)])
 
     # Bathy
-    rb = _np.array(env['depth'][:, 0])
-    zb = _np.array(env['depth'][:, 1])
+    rb = _np.array(env['bot_interface'][:, 0])
+    zb = _np.array(env['bot_interface'][:, 1])
 
     # Re-compute map over grid
     for ii, x in enumerate(Xg):  # For all map pixels
@@ -764,11 +806,11 @@ def plot_absorption(env, Title='', vmin=0, vmax=20, Nxy=500, **kwargs):
                 Zg[jj, ii] = vmin
 
     # Plot surface if Bellhop
-    if env['model'] == 'BELLHOP' and env['surface'] is not None:
+    if env['model'] == 'BELLHOP' and env['top_interface'] is not None:
         for ii, x in enumerate(Xg):  # For all map pixels
-            ylim = _np.interp(x, env['surface'][:, 0], env['surface'][:, 1])
+            ylim = _np.interp(x, env['top_interface'][:, 0], env['top_interface'][:, 1])
             Zg[Yg < ylim, ii] = _np.NaN
-        ax.plot(env['surface'][:, 0]/1000, env['surface'][:, 1], 'b', linewidth=3)
+        ax.plot(env['top_interface'][:, 0]/1000, env['top_interface'][:, 1], 'b', linewidth=3)
     elif env['model'] == 'RAM':
         ax.plot([0, Xg[-1]/1000], [0, 0], 'b', linewidth=3)
 
@@ -805,10 +847,10 @@ def plot_beam(env, Title='', vmin=-60, vmax=20, **kwargs):
     
     fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
     
-    if env['model'] == 'RAM' or env['tx_directionality'] is None:
+    if env['model'] == 'RAM' or env['tx_beam'] is None:
         ax.plot(_np.linspace(0, 2*_np.pi, 1000), _np.zeros(1000))
     elif env['model'] == 'BELLHOP':
-        ax.plot((env['tx_directionality'][:, 0]+180)/360*2*_np.pi-_np.pi, env['tx_directionality'][:, 1])
+        ax.plot((env['tx_beam'][:, 0]+180)/360*2*_np.pi-_np.pi, env['tx_beam'][:, 1])
         
     ax.set_rlabel_position(-22.5)  # Move radial labels away from plotted line
     ax.grid(True)
@@ -838,9 +880,9 @@ def plot_density(env, Title, vmin=1000, vmax=1750, Nxy=500, **kwargs):
     
     fig, ax = plt.subplots()
     
-    Xb = _np.array(env['bottom_srange'])
-    Yb = _np.array(env['bottom_sdepth'] - _np.max(env['depth'][:, 1]), ndmin=1)
-    Zb = _np.array(env['bottom_density'], ndmin=2)
+    Xb = _np.array(env['bot_range'])
+    Yb = _np.array(env['bot_depth'] - _np.max(env['bot_interface'][:, 1]), ndmin=1)
+    Zb = _np.array(env['bot_density'], ndmin=2)
     
     if env['model'] == 'BELLHOP':
         Xb = [0, env['rx_range'][-1]]
@@ -851,8 +893,8 @@ def plot_density(env, Title, vmin=1000, vmax=1750, Nxy=500, **kwargs):
     Zg = _np.zeros([len(Yg), len(Xg)])
     
     # Bathy
-    rb = _np.array(env['depth'][:, 0])
-    zb = _np.array(env['depth'][:, 1])
+    rb = _np.array(env['bot_interface'][:, 0])
+    zb = _np.array(env['bot_interface'][:, 1])
     
     # Re-compute map over grid
     for ii, x in enumerate(Xg):  # For all map pixels
@@ -866,11 +908,11 @@ def plot_density(env, Title, vmin=1000, vmax=1750, Nxy=500, **kwargs):
                 Zg[jj, ii] = vmin
 
     # Plot surface if Bellhop
-    if env['model'] == 'BELLHOP' and env['surface'] is not None:
+    if env['model'] == 'BELLHOP' and env['top_interface'] is not None:
         for ii, x in enumerate(Xg):  # For all map pixels
-            ylim = _np.interp(x, env['surface'][:, 0], env['surface'][:, 1])
+            ylim = _np.interp(x, env['top_interface'][:, 0], env['top_interface'][:, 1])
             Zg[Yg < ylim, ii] = _np.nan
-        ax.plot(env['surface'][:, 0]/1000, env['surface'][:, 1], 'b', linewidth=3)
+        ax.plot(env['top_interface'][:, 0]/1000, env['top_interface'][:, 1], 'b', linewidth=3)
     elif env['model'] == 'RAM':
         ax.plot([0, Xg[-1]/1000], [0, 0], 'b', linewidth=3)
 
@@ -908,9 +950,9 @@ def plot_soundspeed_map(env, Title='', Nxy=500, **kwargs):
     
     fig, ax = plt.subplots()
             
-    X, Y, Z = _np.array(env['soundspeed_range']), _np.array(env['soundspeed_depth']), _np.array(env['soundspeed'])
+    X, Y, Z = _np.array(env['ssp_range']), _np.array(env['ssp_depth']), _np.array(env['ssp'])
     
-    Xb, Yb, Zb = _np.array(env['bottom_srange']), _np.array(env['bottom_sdepth']-_np.max(env['depth'][:,1]),ndmin=1), _np.array(env['bottom_soundspeed'],ndmin=2)
+    Xb, Yb, Zb = _np.array(env['bot_range']), _np.array(env['bot_depth']-_np.max(env['bot_interface'][:,1]),ndmin=1), _np.array(env['bot_ssp'],ndmin=2)
     
     if env['model'] == 'BELLHOP':
         Xb, Zb = [0, env['rx_range'][-1]], _np.full((len(Yb), 2), _np.mean(Zb))
@@ -921,7 +963,7 @@ def plot_soundspeed_map(env, Title='', Nxy=500, **kwargs):
     Zg = _np.zeros([len(Yg), len(Xg)])
     
     # Bathy
-    rb, zb = _np.array(env['depth'][:,0]), _np.array(env['depth'][:,1])
+    rb, zb = _np.array(env['bot_interface'][:,0]), _np.array(env['bot_interface'][:,1])
     
     # Re-compute map over grid
     for ii, x in enumerate(Xg):
@@ -936,11 +978,11 @@ def plot_soundspeed_map(env, Title='', Nxy=500, **kwargs):
                 Zg[jj, ii] = Z[y_idx, x_idx]
      
     # Plot surface if Bellhop
-    if env['model'] == 'BELLHOP' and env['surface'] is not None:
+    if env['model'] == 'BELLHOP' and env['top_interface'] is not None:
         for ii, x in enumerate(Xg):
-            ylim = _np.interp(x, env['surface'][:,0], env['surface'][:,1])
+            ylim = _np.interp(x, env['top_interface'][:,0], env['top_interface'][:,1])
             Zg[Yg < ylim, ii] = _np.nan
-        ax.plot(env['surface'][:,0]/1000, env['surface'][:,1], 'b', linewidth=3)    
+        ax.plot(env['top_interface'][:,0]/1000, env['top_interface'][:,1], 'b', linewidth=3)    
     elif env['model'] == 'RAM':
         ax.plot([0, Xg[-1]/1000], [0, 0], 'b', linewidth=3) 
         
@@ -1082,31 +1124,31 @@ class _Bellhop:
         fh, fname = _mkstemp(suffix='.env')
         fname_base = fname[:-4]
         self._print(fh, "'"+env['name']+"'")
-        self._print(fh, "%0.6f" % (env['frequency']))
+        self._print(fh, "%0.6f" % (env['tx_freq']))
         self._print(fh, "1")
-        if _np.size(env['soundspeed'],axis=1) > 1:
+        if _np.size(env['ssp'],axis=1) > 1:
             print(f"[INFO] {env['model']}: Multiple sound profiles not supported, using average value.")
-            mn = _np.mean(env['soundspeed'], axis=1)
-            svp = _np.column_stack((env['soundspeed_depth'], mn))
+            mn = _np.mean(env['ssp'], axis=1)
+            svp = _np.column_stack((env['ssp_depth'], mn))
         else:
-            svp = _np.column_stack((env['soundspeed_depth'], env['soundspeed']))
+            svp = _np.column_stack((env['ssp_depth'], env['ssp']))
         svp_depth = 0.0
-        svp_interp = 'S' if env['soundspeed_interp'] == spline else 'C'
-        if isinstance(svp, _pd.DataFrame):
+        svp_interp = 'S' if env['ssp_interp'] == spline else 'C'
+        if svp.size == 2:
             svp_depth = svp.index[-1]
             if len(svp.columns) > 1:
                 svp_interp = 'Q'
             else:
                 svp = _np.hstack((_np.array([svp.index]).T, _np.asarray(svp)))
-        if env['surface'] is None:
+        if env['top_interface'] is None:
             self._print(fh, "'%cVWT'" % svp_interp)
         else:
             self._print(fh, "'%cVWT*'" % svp_interp)
-            self._create_bty_ati_file(fname_base+'.ati', env['surface'], env['surface_interp'])
+            self._create_bty_ati_file(fname_base+'.ati', env['top_interface'], env['surface_interp'])
         #max depth should be the depth of the acoustic domain, which can be deeper than the max depth bathymetry
-        max_depth = env['depth'] if _np.size(env['depth']) == 1 else max(_np.max(env['depth'][:,1]), svp_depth)
+        max_depth = env['bot_interface'] if _np.size(env['bot_interface']) == 1 else max(_np.max(env['bot_interface'][:,1]), svp_depth)
         self._print(fh, "1 0.0 %0.6f" % (max_depth))
-        if _np.size(svp) == 1:
+        if svp.ndim == 2:
             self._print(fh, "0.0 %0.6f /" % (svp))
             self._print(fh, "%0.6f %0.6f /" % (max_depth, svp))
         elif svp_interp == 'Q':
@@ -1116,35 +1158,35 @@ class _Bellhop:
         else:
             for j in range(svp.shape[0]):
                 self._print(fh, "%0.6f %0.6f /" % (svp[j,0], svp[j,1]))
-        depth = env['depth']
+        depth = env['bot_interface']
         if _np.size(depth) == 1:
-            self._print(fh, "'A' %0.6f" % (env['bottom_roughness']))
+            self._print(fh, "'A' %0.6f" % (env['bot_roughness']))
         else:
-            self._print(fh, "'A*' %0.6f" % (env['bottom_roughness']))
+            self._print(fh, "'A*' %0.6f" % (env['bot_roughness']))
             self._create_bty_ati_file(fname_base+'.bty', depth, env['depth_interp'])  
-        if env['bottom_soundspeed'].ndim > 0:
+        if env['bot_ssp'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom soundspeed profiles not supported, using average value.")
-        if env['bottom_density'].ndim > 0:
+        if env['bot_density'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom density profiles not supported, using average value.")
-        if env['bottom_absorption'].ndim > 0:
+        if env['bot_absorption'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom absorption profiles not supported, using average value.")
-        self.bts = _np.mean(env['bottom_soundspeed'])
-        self.btd = _np.mean(env['bottom_density'])
-        self.bta = _np.mean(env['bottom_absorption'])
+        self.bts = _np.mean(env['bot_ssp'])
+        self.btd = _np.mean(env['bot_density'])
+        self.bta = _np.mean(env['bot_absorption'])
         self._print(fh, "%0.6f %0.6f 0.0 %0.6f %0.6f /" % (max_depth, self.bts, self.btd/1000, self.bta))
         self._print_array(fh, env['tx_depth'])
         self._print_array(fh, env['rx_depth'])
         self._print_array(fh, env['rx_range']/1000)
-        if env['tx_directionality'] is None:
+        if env['tx_beam'] is None:
             self._print(fh, "'"+taskcode+"'")
         else:
             self._print(fh, "'"+taskcode+" *'")
-            self._create_sbp_file(fname_base+'.sbp', env['tx_directionality'])
-        self._print(fh, "%d" % (env['nbeams']))
-        self._print(fh, "%0.6f %0.6f /" % (env['min_angle'], env['max_angle']))
+            self._create_sbp_file(fname_base+'.sbp', env['tx_beam'])
+        self._print(fh, "%d" % (env['tx_nbeams']))
+        self._print(fh, "%0.6f %0.6f /" % (env['tx_minAngle'], env['tx_maxAngle']))
         self._print(fh, "0.0 %0.6f %0.6f" % (1.01*max_depth, 1.01*_np.max(env['rx_range'])/1000))
         _os.close(fh)
-        
+        print_file_content(fname_base+'.env')
         return fname_base
 
     def _create_bty_ati_file(self, filename, depth, interp):
@@ -1153,12 +1195,14 @@ class _Bellhop:
             f.write(str(depth.shape[0])+"\n")
             for j in range(depth.shape[0]):
                 f.write("%0.6f %0.6f\n" % (depth[j,0]/1000, depth[j,1]))
+            print_file_content(filename)
 
     def _create_sbp_file(self, filename, dir):
         with open(filename, 'wt') as f:
             f.write(str(dir.shape[0])+"\n")
             for j in range(dir.shape[0]):
                 f.write("%0.6f %0.6f\n" % (dir[j,0], dir[j,1]))
+        print_file_content(filename)
 
     def _create_ssp_file(self, filename, svp):
         with open(filename, 'wt') as f:
@@ -1168,6 +1212,7 @@ class _Bellhop:
             for k in range(svp.shape[0]):
                 for j in range(svp.shape[1]):
                     f.write("%0.6f%c" % (svp.iloc[k,j], '\n' if j == svp.shape[1]-1 else ' '))
+        print_file_content(filename)
 
     def _readf(self, f, types, dtype=str):
         if type(f) is str:
@@ -1297,7 +1342,7 @@ class _Bellhop:
 _models.append(('BELLHOP', _Bellhop))
 
 
-class bellhop:
+class BELLHOP:
 
     def __init__(self):
         
@@ -1307,7 +1352,7 @@ class bellhop:
         self.arrivals          = None
         self.impulse_response  = None
 
-    def create_env(self, copy=False, **kwargs):
+    def set_env(self, copy=False, **kwargs):
         
         """Create a new 2D underwater environment.
 
@@ -1315,51 +1360,53 @@ class bellhop:
         available and their default values. The environment parameters may be changed 
         by passing keyword arguments or modified later using a dictionary notation.
         """
+        
         self.env = {
-            'name': 'arlpy',                 # Required py fortran code but not used here
-            'dimension': '2D',               # 2D only
-            'mode': incoherent,              # Propagation loss mode
-            'frequency': 25000,              # Source frequency in Hz
-            'soundspeed': 1500,              # m/s
-            'soundspeed_depth': [0],         # m
-            'soundspeed_range': [0],         # m
-            'soundspeed_interp': spline,     # spline/linear
-            'bottom_soundspeed': 1600,       # m/s
-            'bottom_absorption': 0.1,        # dB/wavelength
-            'bottom_roughness': 0,           # m (rms)
-            'bottom_srange': [0],            # m (bottom settings range for density absorption and roughness)
-            'bottom_sdepth': [0],            # m (bottom settings depth for density absorption and roughness)
-            'attn_unit': dB_wavelength,      # Attenuation units 
-            'volume_attn': None,             # Added volume attenuation
-            'surface': None,                 # surface profile
-            'surface_interp': linear,        # curvilinear/linear
-            'tx_depth': 5,                   # m
-            'tx_directionality': None,       # [(deg, dB)...]
-            'rx_depth': 10,                  # m
-            'rx_range': 1000,                # m
-            'depth': 25,                     # m
-            'depth_interp': linear,          # curvilinear/linear
-            'min_angle': -90,                # deg
-            'max_angle': 90,                 # deg
-            'nbeams': 0,                     # number of beams (0 = auto)
-            'top_boundary': vacuum,
-            'bottom_boundary': rigid,
+            'name'            : 'arlpy',                     # Required py fortran code but not used here
+            'dimension'       : '2D',                        # 2D only
             
-            ## Acouso-elastic boundary condition
+            'mode'            : incoherent,                  # Propagation loss mode
+            'volume_attn'     : None,                        # Added volume attenuation
             
-            # Top
-            'top_PwaveSpeed': 2000,          # m/s (CPT)
-            'top_SwaveSpeed': 2000,          # m/s (CST)
-            'top_density': 10,               # g/cm3 (RHOT)
-            'top_PwaveAttenuation': 100,     # attn_unit (APT)
-            'top_SwaveAttenuation': 200,     # attn_unit (AST)
+            'rx_depth'        : None,                        # m
+            'rx_range'        : None,                        # m
             
-            # Bottom
-            'bottom_PwaveSpeed': 2000,       # m/s (CPB)
-            'bottom_SwaveSpeed': 2000,       # m/s (CSB)
-            'bottom_density': 10,            # g/cm3 (RHOB)
-            'bottom_PwaveAttenuation': 100,  # attn_unit (APB)
-            'bottom_SwaveAttenuation': 200,  # attn_unit (ASB)
+            'top_boundary'    : vacuum,
+            'top_interface'   : None,                        # surface profile
+            'top_roughness'   : 0,                           # m (rms)
+            
+            'ssp_range'       : 0,                           # m
+            'ssp_depth'       : 0,                           # m
+            'ssp'             : 1500,                        # m/s
+            'ssp_interp'      : c_linear,                    # spline/linear/quadrilatteral/..
+            
+            'tx_freq'         : None,                        # Source frequency in Hz
+            'tx_depth'        : None,                        # m
+            'tx_beam'         : None,                        # [[deg, dB]...]
+            'tx_nbeams'       : 0,                           # number of beams (0 = auto)
+            'tx_minAngle'     : -180,                        # deg
+            'tx_maxAngle'     : 180,                         # deg
+            
+            'bot_boundary'    : rigid,
+            'bot_interface'   : None,                        # m
+            'bot_roughness'   : 0,                           # m (rms)
+            'bot_range'       : None,                        # m (bottom settings range for ssp, density and absorption)
+            'bot_depth'       : None,                        # m (bottom settings depth for ssp, density and absorption)
+            'bot_ssp'         : None,                        # m/s
+            'bot_absorption'  : None,                        # dB/wavelength
+            
+            ## Acouso-elastic boundary condition, bottom typical values for rock
+            'attn_unit'       : dB_wavelength,               # Attenuation units 
+            'top_density'     : None,                        # g/cm3 (RHOT)
+            'top_PwaveSpeed'  : None,                        # m/s (CPT)
+            'top_SwaveSpeed'  : None,                        # m/s (CST)
+            'top_PwaveAttn'   : None,                        # attn_unit (APT)
+            'top_SwaveAttn'   : None,                        # attn_unit (AST)
+            'bot_density'     : 2.7,                         # g/cm3 (RHOB)   
+            'bot_PwaveSpeed'  : 6000,                        # m/s (CPB)
+            'bot_SwaveSpeed'  : 3500,                        # m/s (CSB)
+            'bot_PwaveAttn'   : 0.02,                        # attn_unit (APB)
+            'bot_SwaveAttn'   : 0.02,                        # attn_unit (ASB)
         }
         
         # Associate items
@@ -1371,10 +1418,110 @@ class bellhop:
             else:
                 self.env[k] = _np.asarray(v, dtype=_np.float64) if _np.size(v) > 1 else v
                 
-        # Assert environment
+        # Adjust environment border by padding input data if required
+        self.env['ssp'], self.env['ssp_range'], self.env['ssp_depth']  = self._adjust_3D(self.env['ssp'], self.env['ssp_range'], self.env['ssp_depth'], self.env['rx_range'][0], self.env['rx_range'][-1], _np.min(self.env['top_interface'][:,1]), _np.max(self.env['bot_interface'][:,1]))
+        self.env['top_interface'] = self._adjust_2D(self.env['top_interface'], self.env['rx_range'][0], self.env['rx_range'][-1])
+        self.env['bot_interface'] = self._adjust_2D(self.env['bot_interface'], self.env['rx_range'][0], self.env['rx_range'][-1])
+        
         self.check_env()
 
         return self.env
+      
+    def _adjust_2D(self, vect2D, vmin, vmax):
+        
+        if _np.size(vect2D) > 2:
+            if vect2D[0,0] > vmin:
+                lineF = _np.array([vmin, vect2D[0,1]])
+                vect2D = _np.vstack((lineF, vect2D))
+            
+            if vect2D[-1,0] < vmax:
+                lineF = _np.array([vmax, vect2D[-1,1]])
+                vect2D = _np.vstack((vect2D, lineF))
+                
+        return vect2D
+        
+    
+    def _adjust_3D(self,  vect2D, x, y, xmin, xmax, ymin, ymax):
+        
+        vect2D, x = self._adjust_3D_vertical(vect2D, x, y, xmin, xmax)
+        vect2D, y = self._adjust_3D_horizontal(vect2D, x, y, ymin, ymax)
+        
+        return vect2D, x, y
+    
+    def _adjust_3D_vertical(self, vect2D, x, y, xmin, xmax):
+        '''
+        Do vertical before horizontal.
+        '''
+        if _np.size(vect2D) > 1:
+            
+            if _np.size(x) > 1:
+                
+                if _np.ndim(vect2D) == 1:
+                    
+                    if _np.size(y) > 1:
+                        raise Exception("[ERROR] BELLHOP: Size of input vector is inconsistent !")  
+                    vect2D = _np.vstack(vect2D)
+                    
+                    if x[0] > xmin:
+                        vect2D = _np.vstack((vect2D[0],vect2D))
+                        x = _np.hstack((xmin, x))
+                    if x[-1] < xmax:
+                        vect2D = _np.vstack((vect2D,vect2D[-1]))
+                        x = _np.hstack((x, xmax))
+                        
+                else:
+                    
+                    if x[0] > xmin:
+                        first_column = vect2D[:, 0]
+                        if first_column.ndim == 1:
+                            first_column = _np.expand_dims(first_column, axis=1)
+                        vect2D = _np.concatenate((first_column, vect2D), axis=1)
+                        x = _np.hstack((xmin, x))
+                        
+                    if x[-1] < xmax:
+                        last_column = vect2D[:, -1]
+                        if last_column.ndim == 1:
+                            last_column = _np.expand_dims(last_column, axis=1)
+                        vect2D = _np.concatenate((vect2D, last_column), axis=1)
+                        x = _np.hstack((x, xmax))
+                    
+        return vect2D, x
+
+    def _adjust_3D_horizontal(self, vect2D, x, y, ymin, ymax):
+        '''
+        Do vertical before horizontal.
+        '''
+        if _np.size(vect2D) > 1:
+            
+            if _np.size(y) > 1 or _np.size(x) > 1:
+                
+                if _np.ndim(vect2D) == 1:
+                    
+                    vect2D = _np.hstack(vect2D)
+                
+                    if y[0] > ymin:
+                        vect2D = _np.hstack((vect2D[0],vect2D))
+                        y = _np.hstack((ymin, y))
+                    if y[-1] < ymax:
+                        vect2D = _np.hstack((vect2D,vect2D[-1]))
+                        y = _np.hstack((y, ymax))
+                else:
+                    
+                    if y[0] > ymin:
+                        first_row = vect2D[0]
+                        if first_row.ndim == 1:
+                            first_row = _np.expand_dims(first_row, axis=0)
+                        vect2D = _np.concatenate((first_row, vect2D), axis=0)
+                        y = _np.hstack((ymin, y))
+                        
+                    if y[-1] < ymax:
+                        last_row = vect2D[-1]
+                        if last_row.ndim == 1:
+                            last_row = _np.expand_dims(last_row, axis=0)
+                        vect2D = _np.concatenate((vect2D, last_row), axis=0)
+                        y = _np.hstack((y, ymax))
+                    
+        return vect2D, y        
         
     def check_env(self):
         # @todo
@@ -1514,8 +1661,9 @@ class bellhop:
             self._print(fh, "%0.6f /" % (a))
         else:
             self._print(fh, str(_np.size(a)))
-            for j in a:
-                self._print(fh, "%0.6f " % (j), newline=False)
+            self._print(fh, "%0.6f %0.6f " % (a.min(), a.max()), newline=False)
+            #for j in a:
+            #   self._print(fh, "%0.6f " % (j), newline=False)
             self._print(fh, "/")
 
     def _create_env_file(self, taskcode, debug=False, **kwargs):
@@ -1527,34 +1675,34 @@ class bellhop:
         self._print(fh, "'"+self.env['name']+"'")
         
         # Freq
-        self._print(fh, "%0.6f" % (self.env['frequency']))
+        self._print(fh, "%0.6f" % (self.env['tx_freq']))
         
         # Nmedia
         self._print(fh, "%d" % (1)) # Bellhop is limited to one media and ignore this parameter
         
         # Option (1:1) SSP interp      
-        if self.env['soundspeed'].ndim == 2 and self.env['soundspeed_interp'] != quadrilatteral:
+        if self.env['ssp'].ndim == 2 and self.env['ssp_interp'] != quadrilatteral:
             print('[WARNING] BELLHOP: Range dependant SSP require quadrilatteral sound speed interpolation !')
             print('[WARNING] BELLHOP: Quadrilatteral interpolation used instead of the selected one !')
             ssp_interp = 'Q'
-        elif self.env['soundspeed'].ndim == 1 and self.env['soundspeed_interp'] == quadrilatteral:
+        elif self.env['ssp'].ndim == 1 and self.env['ssp_interp'] == quadrilatteral:
             print('[WARNING] BELLHOP: Quadrilatteral interpollation is for range dependant SSP !')
             print('[WARNING] BELLHOP: C-linear interpolation used instead of the selected one !')
             ssp_interp = 'C'
-        elif self.env['soundspeed'].ndim == 2 and self.env['soundspeed_interp'] == quadrilatteral:
+        elif self.env['ssp'].ndim == 2 and self.env['ssp_interp'] == quadrilatteral:
             ssp_interp = 'Q'
-        elif self.env['soundspeed_interp'] == spline:
+        elif self.env['ssp_interp'] == spline:
             ssp_interp = 'S'
-        elif self.env['soundspeed_interp'] == c_linear:
+        elif self.env['ssp_interp'] == c_linear:
             ssp_interp = 'C' 
-        elif self.env['soundspeed_interp'] == n2_linear:
+        elif self.env['ssp_interp'] == n2_linear:
             ssp_interp = 'N'
-        elif self.env['soundspeed_interp'] == analytic:
+        elif self.env['ssp_interp'] == analytic:
             #ssp_interp = 'A'   
             # @todo
             print('[WARNING] BELLHOP: Analytic SSP interpolation not yet coded, using C-linear instead !')
             ssp_interp = 'C' 
-        elif self.env['soundspeed_interp'] == hermite:
+        elif self.env['ssp_interp'] == hermite:
             ssp_interp = 'P'
         
         # Option (2:2) Top boundary condition
@@ -1601,18 +1749,22 @@ class bellhop:
             # @todo
             print('[WARNING] BELLHOP: Francois Garrison attenuation formula not yet coded, using Thorp formula instead !')
             vAttn = 'T'
-        elif self.env['volume_attn'] == boilogical:
+        elif self.env['volume_attn'] == biological:
             #vAttn = 'B'
             # @todo
             print('[WARNING] BELLHOP: Biological attenuation formula not yet coded, using Thorp formula instead !')
             vAttn = 'T'
         
         # Option (5:5) Altimetry option
-        if self.env['surface'] is None:
+        if self.env['top_interface'] is None:
             alt = '_'
         else:
             alt = '*'
-            self._create_bty_ati_file(fname_base+'.ati', self.env['surface'], self.env['surface_interp'], debug=debug)
+            # Automatic interpolation selection
+            if ((self.env['top_interface'][-1,0]-self.env['top_interface'][0,0])/self.env['top_interface'][:,0].size) < (_np.mean(self.env['ssp'])/self.env['tx_freq']*10) :
+                self._create_bty_ati_file(fname_base+'.ati', self.env['top_interface'], curvilinear, debug=debug)
+            else:
+                self._create_bty_ati_file(fname_base+'.ati', self.env['top_interface'], piecewise_linear, debug=debug)
         
         # All options string
         self._print(fh, "'%c%c%c%c%c'" % (ssp_interp, topBdry, attnUnit, vAttn, alt))
@@ -1620,51 +1772,72 @@ class bellhop:
         # Extra line (4a) or (4b)
         # @todo     Manage biological attenuation
         if topBdry == 'A':
-            self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (_np.max(self.env['depth']), self.env['top_PwaveSpeed'], self.env['top_SwaveSpeed'], self.env['top_density'], self.env['top_PwaveAttenuation'], self.env['top_SwaveAttenuation']))
+            self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (_np.max(self.env['bot_interface']), self.env['top_PwaveSpeed'], self.env['top_SwaveSpeed'], self.env['top_density'], self.env['top_PwaveAttn'], self.env['top_SwaveAttn']))
         
         # Medium info / Sound Speed Profile (5)
-        nmesh = 1 # Unused by Bellhop
-        self._print(fh, "%d %0.6f %0.6f" % (nmesh, 0.0, self.env['soundspeed_depth'][-1]))
-        
+        nmesh = 0 # Unused by Bellhop
         if ssp_interp == 'Q': 
-            for j in range(len(self.env['soundspeed_depth'])):
-                self._print(fh, "%0.6f %0.6f /" % (self.env['soundspeed_depth'][j], self.env['soundspeed'][j,0]))
-            self._create_ssp_file(fname_base+'.ssp',self.env['soundspeed_range'], self.env['soundspeed'], debug=debug)
+            self._print(fh, "%d %0.1f %0.6f" % (nmesh, self.env['top_roughness'], _np.max(self.env['ssp_depth'])))
+            for j in range(len(self.env['ssp_depth'])):
+                self._print(fh, "%0.6f %0.6f /" % (self.env['ssp_depth'][j], self.env['ssp'][j,0]))
+            self._create_ssp_file(fname_base+'.ssp',self.env['ssp_range'], self.env['ssp'], debug=debug)
+        elif self.env['ssp_depth'].size > 1:
+            self._print(fh, "%d %0.1f %0.6f" % (nmesh, self.env['top_roughness'], _np.max(self.env['ssp_depth'])))
+            for j in range(self.env['ssp_depth'].size):
+                self._print(fh, "%0.6f %0.6f /" % (self.env['ssp_depth'][j], self.env['ssp'][j]))
         else:
-            for j in range(len(self.env['soundspeed_depth'])):
-                self._print(fh, "%0.6f %0.6f /" % (self.env['soundspeed_depth'][j], self.env['soundspeed'][j]))
+            self._print(fh, "%d %0.1f %0.6f" % (nmesh, self.env['top_roughness'], _np.max(self.env['rx_depth'])))
+            self._print(fh, "%0.6f %0.6f /" % (_np.min(self.env['rx_depth']), self.env['ssp']))
+            self._print(fh, "%0.6f %0.6f /" % (_np.max(self.env['rx_depth']), self.env['ssp']))
         
         # Bottom option (6)
-        if self.env['bottom_boundary'] == rigid:
+        if self.env['bot_boundary'] == rigid:
             botBdry = 'R'
-        elif self.env['bottom_boundary'] == vacuum:
+        elif self.env['bot_boundary'] == vacuum:
             botBdry = 'V' 
-        elif self.env['bottom_boundary'] == acousto_elastic:
+        elif self.env['bot_boundary'] == acousto_elastic:
             botBdry = 'A'
-        elif self.env['bottom_boundary'] == file:
+        elif self.env['bot_boundary'] == file:
             #botBdry = 'F'
             # @todo 
             print('[WARNING] BELLHOP: File bottom boundary condition not yet coded, using perfectly rigid instead !')
             botBdry = 'R'
-        elif self.env['bottom_boundary'] == grain_size:
+        elif self.env['bot_boundary'] == grain_size:
             #botBdry = 'G'   
             # @todo 
             print('[WARNING] BELLHOP: Grain size bottom boundary condition not yet coded, using perfectly rigid instead !')
             botBdry = 'R'
-        elif self.env['bottom_boundary'] == precalculated:
+        elif self.env['bot_boundary'] == precalculated:
             #botBdry = 'P'   
             # @todo
             print('[WARNING] BELLHOP: Precalculated bottom boundary condition not yet coded, using perfectly rigid instead !')
             botBdry = 'R'
         
         # Bottom options string
-        self._print(fh, "'%c' %0.6f" % (botBdry, self.env['bottom_roughness']))
+        print(self.env['bot_interface'][1,0])
+        if self.env['bot_interface'].ndim == 2:
+            self._print(fh, "'%c*' %0.6f" % (botBdry, self.env['bot_roughness']))
+            if ((self.env['bot_interface'][-1,0]-self.env['bot_interface'][0,0])/self.env['bot_interface'][:,0].size) < (_np.mean(self.env['ssp'])/self.env['tx_freq']*10) :
+                self._create_bty_ati_file(fname_base+'.bty', self.env['bot_interface'], curvilinear, debug=debug)
+            else:
+                self._create_bty_ati_file(fname_base+'.bty', self.env['bot_interface'], piecewise_linear, debug=debug)
+        else:
+            self._print(fh, "'%c_' %0.6f" % (botBdry, self.env['bot_roughness']))
+
         
         # Bottom halfspace extra lines (6a) (6b)
         # @todo     Add Grain size 
         if botBdry == 'A':
-            self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (self.env['soundspeed_depth'][-1], self.env['bottom_PwaveSpeed'], self.env['bottom_SwaveSpeed'], self.env['bottom_density'], self.env['bottom_PwaveAttenuation'], self.env['bottom_SwaveAttenuation']))
-   
+            self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (_np.max(self.env['bot_interface']), self.env['bot_PwaveSpeed'], self.env['bot_SwaveSpeed'], self.env['bot_density'], self.env['bot_PwaveAttn'], self.env['bot_SwaveAttn']))
+            
+        ''' ???
+        # C0 min and max
+        self._print(fh, "%0.6f %0.6f" % (0.0, _np.max(self.env['ssp'])))
+        
+        # RMAX
+        self._print(fh, "%0.6f" % (self.env['rx_range'][-1]/1000))
+        '''
+        
         # Number of source depth  and source depths (m) (7)
         self._print_array(fh, self.env['tx_depth'])
         
@@ -1676,18 +1849,18 @@ class bellhop:
         
         # Run type (8)
         # @todo     Manage all options  (line source in priority ?) 
-        if self.env['tx_directionality'] is None:
+        if self.env['tx_beam'] is None:
             self._print(fh, "'"+taskcode+"'")
         else:
             self._print(fh, "'"+taskcode+" *'")
-            self._create_sbp_file(fname_base+'.sbp', self.env['tx_directionality'], debug=debug)
+            self._create_sbp_file(fname_base+'.sbp', self.env['tx_beam'], debug=debug)
             
         # Beam fan (9)
-        self._print(fh, "%d" % (self.env['nbeams']))
-        self._print(fh, "%0.6f %0.6f /" % (self.env['min_angle'], self.env['max_angle']))
+        self._print(fh, "%d" % (self.env['tx_nbeams']))
+        self._print(fh, "%0.6f %0.6f /" % (self.env['tx_minAngle'], self.env['tx_maxAngle']))
         
         # Numerical integrator info (10)
-        self._print(fh, "0.0 %0.6f %0.6f" % (1.01*self.env['soundspeed_depth'][-1], 1.01*_np.max(self.env['rx_range'])/1000))
+        self._print(fh, "0.0 %0.6f %0.6f" % (self.env['rx_depth'][-1]-self.env['rx_depth'][0], (self.env['rx_range'][-1]-self.env['rx_range'][0])/1000))
         
         _os.close(fh)
         
@@ -1696,12 +1869,66 @@ class bellhop:
         
         return fname_base
 
-    def plot_ssp(self):
+    def plot_rawSSP(self):
+        # @todo Plot raw input SSP values in 1D or 2D         
+        pass
+
+    def plot_interpSSP(self):
         # @todo Plot SSP in 1D or 2D taking inoto account interpolation process for validation !!
         pass
+    
+    def plot_transmission_loss(self, vmin=-120, vmax=0, debug=False):
+        """
+        Plots transmission loss.
+    
+        Parameters:
+            tloss (array): Complex transmission loss.
+            env (dict): Environment definition.
+    
+        Returns:
+            fig, ax: Figure and axis objects for the plot.
+        """
+    
+        fig, ax = plt.subplots()
+        X = self.env['rx_range']
+        Y = self.env['rx_depth']
+
+        tlossplt = 20 * _np.log10(_np.finfo(float).eps + _np.abs(_np.array(self.transmission_loss)))
+        
+        # Remove TL in sediment/surface
+        for ii, x in enumerate(X):
+            ylim = _np.interp(x, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
+            for jj, y in enumerate(Y):
+                if y > ylim:
+                    tlossplt[jj, ii] = vmax
+    
+        if self.env['top_interface'] is not None:
+            for ii, x in enumerate(X):
+                ylim = _np.interp(x, self.env['top_interface'][:, 0], self.env['top_interface'][:, 1])
+                for jj, y in enumerate(Y):
+                    if y < ylim:
+                        tlossplt[jj, ii] = _np.NaN
+            ax.plot(self.env['top_interface'][:, 0] / 1000, self.env['top_interface'][:, 1], 'b', linewidth=3)
+        
+        X, Y = _np.meshgrid(X, Y)
+        im1 = ax.pcolormesh(X / 1000, Y, tlossplt, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
+        ax.plot(self.env['bot_interface'][:, 0] / 1000, self.env['bot_interface'][:, 1], 'k', linewidth=3)
+        ax.set_xlim((X[0, 0] / 1000, X[-1, -1] / 1000))
+        ax.set_ylim((Y[0, 0], Y[-1, -1]))
+        ax.set_xlabel('Range [km]')
+        ax.set_ylabel('Depth [m]')
+        ax.set_title(f"[ BELLHOP - Propagation Loss @ {self.env['tx_freq']} Hz ] {self.env['name']}")
+        cbar1 = fig.colorbar(im1, ax=ax)
+        cbar1.ax.set_ylabel('Loss [dB]')
+        ax.invert_yaxis()
+        plt.tight_layout()
+        plt.show()
+        
+        return fig, ax
 
     def _create_bty_ati_file(self, filename, depth, interp, debug=False):
         with open(filename, 'wt') as f:
+            # @todo     Manage 'LL' option for bty
             f.write("'%c'\n" % ('C' if interp == curvilinear else 'L'))
             f.write(str(depth.shape[0])+"\n")
             for j in range(depth.shape[0]):
@@ -1887,7 +2114,7 @@ class Modes:
         self.N = kwargs['N'] 
         self.Nfreq = kwargs['Nfreq']
         self.Nmedia = kwargs['Nmedia']
-        self.depth = kwargs['depth']
+        self.depth = kwargs['bot_interface']
         self.rho = kwargs['rho']
         self.freqvec = kwargs['freqVec']
         self.init_dict = kwargs
@@ -2079,29 +2306,29 @@ class _Kraken:
         
         # Max depth should be the depth of the acoustic domain, which can be deeper than the max depth bathymetry
         ssp_depth = 0.0
-        if _np.size(env['depth']) != 1:
+        if _np.size(env['bot_interface']) != 1:
             print("[INFO] KRAKEN: Range dependent bathymetry not supported, using average value.")
-            max_depth = max(_np.mean(env['depth'][:,1]), ssp_depth)
+            max_depth = max(_np.mean(env['bot_interface'][:,1]), ssp_depth)
         else:
-            max_depth = env['depth']
+            max_depth = env['bot_interface']
         
         # Title
         self._print(fh, "'"+env['name']+"'")
         
         # Freq
-        self._print(fh, "%0.6f" % (env['frequency']))
+        self._print(fh, "%0.6f" % (env['tx_freq']))
         
         # Nmedia
         self._print(fh, "%d" % (env['nmedia']))
         
         # Option (1:1) SSP interp      
-        if env['soundspeed_interp'] == spline:
+        if env['ssp_interp'] == spline:
             ssp_interp = 'S'
-        elif env['soundspeed_interp'] == c_linear:
+        elif env['ssp_interp'] == c_linear:
             ssp_interp = 'C' 
-        elif env['soundspeed_interp'] == n2_linear:
+        elif env['ssp_interp'] == n2_linear:
             ssp_interp = 'N'
-        elif env['soundspeed_interp'] == analytic:
+        elif env['ssp_interp'] == analytic:
             ssp_interp = 'A'
           
         # Option (2:2) Top boundary condition
@@ -2144,7 +2371,7 @@ class _Kraken:
         
         # Top boundary extra line (4a) or (4c)            
         if topBdry == 'A':
-            self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (max_depth, env['top_PwaveSpeed'], env['top_SwaveSpeed'], env['top_density'], env['top_PwaveAttenuation'], env['top_SwaveAttenuation']))
+            self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (max_depth, env['top_PwaveSpeed'], env['top_SwaveSpeed'], env['top_density'], env['top_PwaveAttn'], env['top_SwaveAttn']))
         elif topBdry == 'F' or topBdry == 'I':
             self._print(fh, "%0.6f %0.6f %0.6f" % (env['bump_density'], env['principal_radius1'], env['principal_radius2']))
         
@@ -2165,12 +2392,12 @@ class _Kraken:
                 self._print(fh, "%d %0.6f %0.6f" % (nmesh, sigma, z_nssp))
                 
                 # Sound speed profile (5a)
-                if _np.size(env['soundspeed'],axis=1) > 1:
+                if _np.size(env['ssp'],axis=1) > 1:
                     print(f"[INFO] {env['model']}: Multiple sound profiles not supported, using average value.")
-                    mn = _np.mean(env['soundspeed'], axis=1)
-                    ssp = _np.column_stack((env['soundspeed_depth'], mn))
+                    mn = _np.mean(env['ssp'], axis=1)
+                    ssp = _np.column_stack((env['ssp_depth'], mn))
                 else:
-                    ssp = _np.column_stack((env['soundspeed_depth'], env['soundspeed']))
+                    ssp = _np.column_stack((env['ssp_depth'], env['ssp']))
                 
                 if ssp_interp != 'A':
                     pass
@@ -2178,7 +2405,7 @@ class _Kraken:
             # Other bottom medium
             else:
                 pass
-            ssp_depth = self.env['soundspeed_depth']
+            ssp_depth = self.env['ssp_depth']
 
         self._print(fh, "%d 0.0 %0.6f" % (len(env['rx_range']),max_depth))
         if _np.size(ssp) == 1:
@@ -2189,37 +2416,36 @@ class _Kraken:
                 self._print(fh, "%0.6f %0.6f /" % (ssp[j,0], ssp[j,1]))
         
         # @todo     Manage all boundary conditions.
-        if env['bottom_boundary'] == rigid:
+        if env['bot_boundary'] == rigid:
             botBdry = 'R'
-        elif env['bottom_boundary'] == vacuum:
+        elif env['bot_boundary'] == vacuum:
             botBdry = 'V' 
-        elif env['bottom_boundary'] == analytic:
+        elif env['bot_boundary'] == analytic:
             print('[WARNING] KRAKEN: Not yet supported bottom boundary condition, using perfectly rigid instead !')
             botBdry = 'R' 
         else:
             print('[WARNING] KRAKEN: Unknown bottom boundary condition, using perfectly rigid instead !')
             botBdry = 'R'
 
-        self._print(fh, "'%c' %0.6f" % (botBdry, env['bottom_roughness']))    
-  
+        self._print(fh, "'%c' %0.6f" % (botBdry, env['bot_roughness']))    
             
-        if env['bottom_soundspeed'].ndim > 0:
+        if env['bot_ssp'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom soundspeed profiles not supported, using average value.")
-            self.bts = _np.mean(env['bottom_soundspeed'])
+            self.bts = _np.mean(env['bot_ssp'])
             
-        if env['bottom_density'].ndim > 0:
+        if env['bot_density'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom density profiles not supported, using average value.")
-            self.btd = _np.mean(env['bottom_density'])
+            self.btd = _np.mean(env['bot_density'])
             
-        if env['bottom_absorption'].ndim > 0:
+        if env['bot_absorption'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom absorption profiles not supported, using average value.")
-            self.bta = _np.mean(env['bottom_absorption'])
+            self.bta = _np.mean(env['bot_absorption'])
     
         # @todo    Not sure if this condition is required !
         if env['top_boundary'] == analytic:
             self._print(fh, "%0.6f %0.6f 0.0 %0.6f %0.6f /" % (max_depth, self.bts, self.btd/1000, self.bta))
             
-        self._print(fh, "%0.6f %0.6f" %(0, _np.max(env['soundspeed'])))                    # C0 min and max
+        self._print(fh, "%0.6f %0.6f" %(0, _np.max(env['ssp'])))                    # C0 min and max
         self._print(fh, "%0.6f" %(env['rx_range'][-1]/1000))                               # Max range in km 
         self._print(fh, "%d" %(1))                                                         # Number of sources depth
         self._print(fh, "%0.6f" %(env['tx_depth']))                                        # Source depths
@@ -2471,7 +2697,7 @@ class _Kraken:
                 modes_k = kr+ complex(0,1) * ki
                 modes_k = _np.array([modes_k[i] for i in modes], dtype=_np.complex128)  # take the subset that the user specified
 
-        input_dict = {'M':M, 'modes_k': modes_k, 'z':z, 'modes_phi':modes_phi, 'top':top, 'bot':bot, 'N':N, 'Mater':Mater, 'Nfreq': Nfreq, 'Nmedia': Nmedia, 'depth':depth, 'rho':rho, 'freqVec':freqVec}
+        input_dict = {'M':M, 'modes_k': modes_k, 'z':z, 'modes_phi':modes_phi, 'top':top, 'bot':bot, 'N':N, 'Mater':Mater, 'Nfreq': Nfreq, 'Nmedia': Nmedia, 'bot_interface':depth, 'rho':rho, 'freqVec':freqVec}
         modes = Modes(**input_dict)
         return modes
 
@@ -2562,32 +2788,32 @@ class _RAM:
         Returns:
             pd.DataFrame or bool: Resulting data as a DataFrame if successful, False otherwise.
         """
-        if env['surface'] is not None:
+        if env['top_interface'] is not None:
             print(f"[INFO] {env['model']}: Surface not supported, considering flat air/water interface.")
         
-        if env['tx_directionality'] is not None:
+        if env['tx_beam'] is not None:
             print(f"[INFO] {env['model']}: Beam pattern not supported, using omnidirectionnal instead.")
 
 
         # Initialize RAM environment
         # ram.PyRAM(freq, zs, zr, z_ss, rp_ss, cw, z_sb, rp_sb, cb, rhob, attn, rbzb, **kwargs)       
-        self.pyram = ram.PyRAM(env['frequency'],
+        self.pyram = ram.PyRAM(env['tx_freq'],
                            env['tx_depth'],
                            env['rx_depth'][-1],
-                           _np.array(env['soundspeed_depth']),
-                           _np.array(env['soundspeed_range']),
-                           _np.array(env['soundspeed']),
-                           _np.array(env['bottom_sdepth']-_np.max(env['depth'][:,1]),ndmin=1),
-                           _np.array(env['bottom_srange']),
-                           _np.array(env['bottom_soundspeed'],ndmin=2),
-                           _np.array(env['bottom_density'],ndmin=2)/1000,
-                           _np.array(env['bottom_absorption'],ndmin=2),
-                           _np.array((env['depth'][:,0],env['depth'][:,1])).transpose(),
+                           _np.array(env['ssp_depth']),
+                           _np.array(env['ssp_range']),
+                           _np.array(env['ssp']),
+                           _np.array(env['bot_depth']-_np.max(env['bot_interface'][:,1]),ndmin=1),
+                           _np.array(env['bot_range']),
+                           _np.array(env['bot_ssp'],ndmin=2),
+                           _np.array(env['bot_density'],ndmin=2)/1000,
+                           _np.array(env['bot_absorption'],ndmin=2),
+                           _np.array((env['bot_interface'][:,0],env['bot_interface'][:,1])).transpose(),
                            rmax = env['rx_range'][-1],
                            dr=env['rx_range'][2]-env['rx_range'][1],
                            dz=env['rx_depth'][2]-env['rx_depth'][1],
                            zmplt=env['rx_depth'][-1],
-                           c0=_np.mean(env['soundspeed'][:,1])
+                           c0=_np.mean(env['ssp'][:,1])
                            )
 
         self.tl_tol  = 1e-2  # Tolerable mean difference in TL (dB) with reference result
@@ -2921,3 +3147,99 @@ def print_file_content(file_path):
         print(f"[ERROR] Unable to print file, '{file_path}' does not exist.")
     except Exception as e:
         print(f"[ERROR] An unexpected error occurred during print file: {e}")
+
+def _adjust_2D(self, vect2D, vmin, vmax):
+    
+    if _np.size(vect2D) > 2:
+        if vect2D[0,0] > vmin:
+            lineF = _np.array([vmin, vect2D[0,1]])
+            vect2D = _np.vstack((lineF, vect2D))
+        
+        if vect2D[-1,0] < vmax:
+            lineF = _np.array([vmax, vect2D[-1,1]])
+            vect2D = _np.vstack((vect2D, lineF))
+            
+    return vect2D
+    
+
+def _adjust_3D(self,  vect2D, x, y, xmin, xmax, ymin, ymax):
+    
+    vect2D, x = self._adjust_3D_vertical(vect2D, x, y, xmin, xmax)
+    vect2D, y = self._adjust_3D_horizontal(vect2D, x, y, ymin, ymax)
+    
+    return vect2D, x, y
+
+def _adjust_3D_vertical(self, vect2D, x, y, xmin, xmax):
+    '''
+    Do vertical before horizontal.
+    '''
+    if _np.size(vect2D) > 1:
+        
+        if _np.size(x) > 1:
+            
+            if _np.ndim(vect2D) == 1:
+                
+                if _np.size(y) > 1:
+                    raise Exception("[ERROR] BELLHOP: Size of input vector is inconsistent !")  
+                vect2D = _np.vstack(vect2D)
+                
+                if x[0] > xmin:
+                    vect2D = _np.vstack((vect2D[0],vect2D))
+                    x = _np.hstack((xmin, x))
+                if x[-1] < xmax:
+                    vect2D = _np.vstack((vect2D,vect2D[-1]))
+                    x = _np.hstack((x, xmax))
+                    
+            else:
+                
+                if x[0] > xmin:
+                    first_column = vect2D[:, 0]
+                    if first_column.ndim == 1:
+                        first_column = _np.expand_dims(first_column, axis=1)
+                    vect2D = _np.concatenate((first_column, vect2D), axis=1)
+                    x = _np.hstack((xmin, x))
+                    
+                if x[-1] < xmax:
+                    last_column = vect2D[:, -1]
+                    if last_column.ndim == 1:
+                        last_column = _np.expand_dims(last_column, axis=1)
+                    vect2D = _np.concatenate((vect2D, last_column), axis=1)
+                    x = _np.hstack((x, xmax))
+                
+    return vect2D, x
+
+def _adjust_3D_horizontal(self, vect2D, x, y, ymin, ymax):
+    '''
+    Do vertical before horizontal.
+    '''
+    if _np.size(vect2D) > 1:
+        
+        if _np.size(y) > 1 or _np.size(x) > 1:
+            
+            if _np.ndim(vect2D) == 1:
+                
+                vect2D = _np.hstack(vect2D)
+            
+                if y[0] > ymin:
+                    vect2D = _np.hstack((vect2D[0],vect2D))
+                    y = _np.hstack((ymin, y))
+                if y[-1] < ymax:
+                    vect2D = _np.hstack((vect2D,vect2D[-1]))
+                    y = _np.hstack((y, ymax))
+            else:
+                
+                if y[0] > ymin:
+                    first_row = vect2D[0]
+                    if first_row.ndim == 1:
+                        first_row = _np.expand_dims(first_row, axis=0)
+                    vect2D = _np.concatenate((first_row, vect2D), axis=0)
+                    y = _np.hstack((ymin, y))
+                    
+                if y[-1] < ymax:
+                    last_row = vect2D[-1]
+                    if last_row.ndim == 1:
+                        last_row = _np.expand_dims(last_row, axis=0)
+                    vect2D = _np.concatenate((vect2D, last_row), axis=0)
+                    y = _np.hstack((y, ymax))
+                
+    return vect2D, y        
