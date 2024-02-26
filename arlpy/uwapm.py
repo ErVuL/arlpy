@@ -27,6 +27,7 @@ import pyram.PyRAM as ram
 from struct import unpack
 import os 
 from matplotlib import rc
+import copy
 
 # Add acoustic toolbox path to Python path
 os.environ['PATH'] = os.environ['PATH'].replace(':/opt/build/at/bin', '')+":/opt/build/at/bin"
@@ -129,7 +130,7 @@ def adjustSSP(ssp, ssp_depth, ssp_range, top_interface, bot_interface, rx_range)
 
 # @todo     create and manage env3d for 3 dimensionnal problem
 
-def create_env2d(**kv):
+def make_env2d(**kv):
     """Create a new 2D underwater environment.
 
     A basic environment is created with default values. To see all the parameters
@@ -186,24 +187,38 @@ def create_env2d(**kv):
         
             # KRAKEN ONLY
             # Twersky scatter parameters for soft/hard-boss Twersky top boundary condition only (4c)
-            'bump_density': 10,              # ridges/km (BUMDEN)
-            'principal_radius1': 1,          # m (ETA)
-            'principal_radius2': 3,          # m (XI)
+            'bump_density'     : 10,                        # ridges/km (BUMDEN)
+            'principal_radius1': 1,                         # m (ETA)
+            'principal_radius2': 3,                         # m (XI)
             
             # RAM ONLY
-            'bot_absorption'  : None,                        # dB/wavelength
+            'bot_absorption'  : None,                       # dB/wavelength
         
     }
     for k, v in kv.items():
         if k not in env.keys():
             raise KeyError('Unknown key: '+k)
         env[k] = _np.asarray(v, dtype=_np.float64) if not isinstance(v, _pd.DataFrame) and _np.size(v) > 1 else v
-    env = check_env2d(env)
+    
+    # @todo 
+    # env = check_env2d(env)
     
     # Adjust environment border by padding input data if required
-    env['ssp'], env['ssp_range'], env['ssp_depth']  = _adjust_3D(env['ssp'], env['ssp_range'], env['ssp_depth'], env['rx_range'][0], env['rx_range'][-1], _np.min(env['top_interface'][:,1]), _np.max(env['bot_interface'][:,1]))
-    env['top_interface'] = _adjust_2D(env['top_interface'], env['rx_range'][0], env['rx_range'][-1])
-    env['bot_interface'] = _adjust_2D(env['bot_interface'], env['rx_range'][0], env['rx_range'][-1])
+    env['ssp'], env['ssp_range'], env['ssp_depth']  = _adjust_3D(env['ssp'], 
+                                                                 env['ssp_range'], 
+                                                                 env['ssp_depth'], 
+                                                                 -1.011*_np.max((_np.abs(env['rx_range']))), 
+                                                                 1.011*_np.max((_np.abs(env['rx_range']))), 
+                                                                -1.011*_np.max(_np.abs(env['top_interface'][:,1])), 
+                                                                1.011*_np.max(_np.abs(env['bot_interface'][:,1])))
+    
+    env['top_interface'] = _adjust_2D(env['top_interface'], 
+                                      -1.011*_np.max((_np.abs(env['rx_range']))), 
+                                      1.011*_np.max((_np.abs(env['rx_range']))))
+    
+    env['bot_interface'] = _adjust_2D(env['bot_interface'], 
+                                      -1.011*_np.max((_np.abs(env['rx_range']))), 
+                                      1.011*_np.max((_np.abs(env['rx_range']))))
     
     return env
 
@@ -1344,15 +1359,18 @@ _models.append(('BELLHOP', _Bellhop))
 
 class BELLHOP:
 
-    def __init__(self):
+    def __init__(self, env=None, copy=False):
         
-        self.env               = None
+        if env is None:
+            self.env           = None
+        else:
+            self.set_env(env, copy=copy)
         self.transmission_loss = None 
         self.eigen_rays        = None
         self.arrivals          = None
         self.impulse_response  = None
 
-    def set_env(self, copy=False, **kwargs):
+    def set_env(self, env, copy=False, **kwargs):
         
         """Create a new 2D underwater environment.
 
@@ -1360,69 +1378,11 @@ class BELLHOP:
         available and their default values. The environment parameters may be changed 
         by passing keyword arguments or modified later using a dictionary notation.
         """
-        
-        self.env = {
-            'name'            : 'arlpy',                     # Required py fortran code but not used here
-            'dimension'       : '2D',                        # 2D only
+        if copy:
+            self.env =  copy(env)
+        else:
+            self.env = env
             
-            'mode'            : incoherent,                  # Propagation loss mode
-            'volume_attn'     : None,                        # Added volume attenuation
-            
-            'rx_depth'        : None,                        # m
-            'rx_range'        : None,                        # m
-            
-            'top_boundary'    : vacuum,
-            'top_interface'   : None,                        # surface profile
-            'top_roughness'   : 0,                           # m (rms)
-            
-            'ssp_range'       : 0,                           # m
-            'ssp_depth'       : 0,                           # m
-            'ssp'             : 1500,                        # m/s
-            'ssp_interp'      : c_linear,                    # spline/linear/quadrilatteral/..
-            
-            'tx_freq'         : None,                        # Source frequency in Hz
-            'tx_depth'        : None,                        # m
-            'tx_beam'         : None,                        # [[deg, dB]...]
-            'tx_nbeams'       : 0,                           # number of beams (0 = auto)
-            'tx_minAngle'     : -180,                        # deg
-            'tx_maxAngle'     : 180,                         # deg
-            
-            'bot_boundary'    : rigid,
-            'bot_interface'   : None,                        # m
-            'bot_roughness'   : 0,                           # m (rms)
-            'bot_range'       : None,                        # m (bottom settings range for ssp, density and absorption)
-            'bot_depth'       : None,                        # m (bottom settings depth for ssp, density and absorption)
-            'bot_ssp'         : None,                        # m/s
-            'bot_absorption'  : None,                        # dB/wavelength
-            
-            ## Acouso-elastic boundary condition, bottom typical values for rock
-            'attn_unit'       : dB_wavelength,               # Attenuation units 
-            'top_density'     : None,                        # g/cm3 (RHOT)
-            'top_PwaveSpeed'  : None,                        # m/s (CPT)
-            'top_SwaveSpeed'  : None,                        # m/s (CST)
-            'top_PwaveAttn'   : None,                        # attn_unit (APT)
-            'top_SwaveAttn'   : None,                        # attn_unit (AST)
-            'bot_density'     : 2.7,                         # g/cm3 (RHOB)   
-            'bot_PwaveSpeed'  : 6000,                        # m/s (CPB)
-            'bot_SwaveSpeed'  : 3500,                        # m/s (CSB)
-            'bot_PwaveAttn'   : 0.02,                        # attn_unit (APB)
-            'bot_SwaveAttn'   : 0.02,                        # attn_unit (ASB)
-        }
-        
-        # Associate items
-        for k, v in kwargs.items():
-            if k not in self.env.keys():
-                raise KeyError('Unknown key: '+k)
-            if copy:    
-                self.env[k] = _np.asarray(v, dtype=_np.float64).copy if _np.size(v) > 1 else v
-            else:
-                self.env[k] = _np.asarray(v, dtype=_np.float64) if _np.size(v) > 1 else v
-                
-        # Adjust environment border by padding input data if required
-        self.env['ssp'], self.env['ssp_range'], self.env['ssp_depth']  = self._adjust_3D(self.env['ssp'], self.env['ssp_range'], self.env['ssp_depth'], self.env['rx_range'][0], self.env['rx_range'][-1], _np.min(self.env['top_interface'][:,1]), _np.max(self.env['bot_interface'][:,1]))
-        self.env['top_interface'] = self._adjust_2D(self.env['top_interface'], self.env['rx_range'][0], self.env['rx_range'][-1])
-        self.env['bot_interface'] = self._adjust_2D(self.env['bot_interface'], self.env['rx_range'][0], self.env['rx_range'][-1])
-        
         self.check_env()
 
         return self.env
@@ -1860,7 +1820,7 @@ class BELLHOP:
         self._print(fh, "%0.6f %0.6f /" % (self.env['tx_minAngle'], self.env['tx_maxAngle']))
         
         # Numerical integrator info (10)
-        self._print(fh, "0.0 %0.6f %0.6f" % (self.env['rx_depth'][-1]-self.env['rx_depth'][0], (self.env['rx_range'][-1]-self.env['rx_range'][0])/1000))
+        self._print(fh, "0.0 %0.6f %0.6f" % (1.009*_np.max(self.env['bot_interface'][:,1]), 1.009*_np.max((_np.abs(self.env['rx_range'][0]), self.env['rx_range'][-1]))/1000))
         
         _os.close(fh)
         
@@ -3148,9 +3108,10 @@ def print_file_content(file_path):
     except Exception as e:
         print(f"[ERROR] An unexpected error occurred during print file: {e}")
 
-def _adjust_2D(self, vect2D, vmin, vmax):
+def _adjust_2D(vect2D, vmin, vmax):
     
     if _np.size(vect2D) > 2:
+        
         if vect2D[0,0] > vmin:
             lineF = _np.array([vmin, vect2D[0,1]])
             vect2D = _np.vstack((lineF, vect2D))
@@ -3162,14 +3123,14 @@ def _adjust_2D(self, vect2D, vmin, vmax):
     return vect2D
     
 
-def _adjust_3D(self,  vect2D, x, y, xmin, xmax, ymin, ymax):
+def _adjust_3D(vect2D, x, y, xmin, xmax, ymin, ymax):
     
-    vect2D, x = self._adjust_3D_vertical(vect2D, x, y, xmin, xmax)
-    vect2D, y = self._adjust_3D_horizontal(vect2D, x, y, ymin, ymax)
+    vect2D, x = _adjust_3D_vertical(vect2D, x, y, xmin, xmax)
+    vect2D, y = _adjust_3D_horizontal(vect2D, x, y, ymin, ymax)
     
     return vect2D, x, y
 
-def _adjust_3D_vertical(self, vect2D, x, y, xmin, xmax):
+def _adjust_3D_vertical(vect2D, x, y, xmin, xmax):
     '''
     Do vertical before horizontal.
     '''
@@ -3186,6 +3147,7 @@ def _adjust_3D_vertical(self, vect2D, x, y, xmin, xmax):
                 if x[0] > xmin:
                     vect2D = _np.vstack((vect2D[0],vect2D))
                     x = _np.hstack((xmin, x))
+                    
                 if x[-1] < xmax:
                     vect2D = _np.vstack((vect2D,vect2D[-1]))
                     x = _np.hstack((x, xmax))
@@ -3208,7 +3170,7 @@ def _adjust_3D_vertical(self, vect2D, x, y, xmin, xmax):
                 
     return vect2D, x
 
-def _adjust_3D_horizontal(self, vect2D, x, y, ymin, ymax):
+def _adjust_3D_horizontal(vect2D, x, y, ymin, ymax):
     '''
     Do vertical before horizontal.
     '''
@@ -3223,6 +3185,7 @@ def _adjust_3D_horizontal(self, vect2D, x, y, ymin, ymax):
                 if y[0] > ymin:
                     vect2D = _np.hstack((vect2D[0],vect2D))
                     y = _np.hstack((ymin, y))
+                    
                 if y[-1] < ymax:
                     vect2D = _np.hstack((vect2D,vect2D[-1]))
                     y = _np.hstack((y, ymax))
