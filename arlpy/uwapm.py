@@ -130,12 +130,65 @@ def adjustSSP(ssp, ssp_depth, ssp_range, top_interface, bot_interface, rx_range)
 
 # @todo     create and manage env3d for 3 dimensionnal problem
 
-def make_env2d(**kv):
-    """Create a new 2D underwater environment.
+def make_env2d(auto_xSettings=True, auto_xBox=True, **kv):
+    """
+    Create a new 2D underwater environment.
 
-    A basic environment is created with default values. To see all the parameters
-    available and their default values. The environment parameters may be changed 
-    by passing keyword arguments or modified later using a dictionary notation.
+    This function creates a 2D underwater environment with default parameters. It allows customization of the environment
+    by specifying keyword arguments or modifying the parameters later using dictionary notation.
+
+    Parameters:
+        auto_xSettings (bool, optional): Whether to automatically set numerical box boundaries. Defaults to True.
+        auto_xBox (bool, optional): Whether to adjust the environment border by padding input data. Defaults to True.
+        copy (bool, optional): Whether to return a shallow copy of the environment. Defaults to False.
+        **kv: Additional keyword arguments to customize the environment parameters.
+
+    Returns:
+        dict: A dictionary containing the environment parameters.
+
+    Raises:
+        KeyError: If an unknown key is provided in the keyword arguments.
+
+    Note:
+        Surface/bottom interpolation methods:
+            - linear
+            - curvilinear
+            - piecewise linear
+        
+        SSP interpolation methods:
+            - spline: Cubic Spline
+            - c_linear
+            - n2_linear
+            - analytic
+            - quadrilatteral: Bellhop only, with SSP file
+            - hexahedral: Bellhop 3D only with SSP file
+            - hermite: Piecewise Cubic Hermite Interpolating Polynomial
+
+        Attenuation units:
+            - nepers_meter
+            - dB_wavelength
+            - dB_meter
+            - dB_meter_fScaled
+            - dB_kmHz
+            - quality_factor
+            - loss_parameter
+
+        Volume attenuation:
+            - Thorp
+            - Francois_Garrison
+            - biological
+
+        Boundary condition:
+            - rigid
+            - vacuum
+            - acousto_elastic
+            - file
+            - grain_size
+            - precalculated
+            - soft_boss: Kraken only
+            - soft_boss_amp: Kraken only
+            - hard_boss: Kraken only
+            - hard_boss_amp: Kraken only
     """
     env = {
             'name'            : 'arlpy',                     # Required py fortran code but not used here
@@ -194,32 +247,39 @@ def make_env2d(**kv):
             # RAM ONLY
             'bot_absorption'  : None,                       # dB/wavelength
         
+            # OALIB compute box settings
+            'step':None,
+            'rbox':None,
+            'zbox':None
     }
     for k, v in kv.items():
         if k not in env.keys():
             raise KeyError('Unknown key: '+k)
         env[k] = _np.asarray(v, dtype=_np.float64) if not isinstance(v, _pd.DataFrame) and _np.size(v) > 1 else v
     
+
+    
+    if auto_xSettings:
+        # Standard definition of numerical box boundaries for OALIB (BELLHOP, KRAKEN, ...)
+        env['step'] = 0.0
+        env['rbox'] = 1.01*_np.max(_np.abs(env['rx_range']))
+        env['zbox'] = 1.01*_np.max(env['bot_interface'][:,-1])
+    
+    if auto_xBox:
+        # Adjust environment border by padding input data if required for OALIB (BELLHOP, KRAKEN, ...)
+        env['top_interface'] = _adjust_2D(env['top_interface'], -1.001*env['rbox'], 1.001*env['rbox'])
+        env['bot_interface'] = _adjust_2D(env['bot_interface'], -1.001*env['rbox'], 1.001*env['rbox'])
+        env['ssp'], env['ssp_range'], env['ssp_depth']  = _adjust_3D(env['ssp'], 
+                                                                     env['ssp_range'], 
+                                                                     env['ssp_depth'], 
+                                                                     -1.001*env['rbox'], 
+                                                                     1.001*env['rbox'], 
+                                                                     -1.001*_np.max(_np.abs(env['top_interface'][:,1])), 
+                                                                     1.001*env['zbox']) 
+
     # @todo 
     # env = check_env2d(env)
-    
-    # Adjust environment border by padding input data if required
-    env['ssp'], env['ssp_range'], env['ssp_depth']  = _adjust_3D(env['ssp'], 
-                                                                 env['ssp_range'], 
-                                                                 env['ssp_depth'], 
-                                                                 -1.011*_np.max((_np.abs(env['rx_range']))), 
-                                                                 1.011*_np.max((_np.abs(env['rx_range']))), 
-                                                                -1.011*_np.max(_np.abs(env['top_interface'][:,1])), 
-                                                                1.011*_np.max(_np.abs(env['bot_interface'][:,1])))
-    
-    env['top_interface'] = _adjust_2D(env['top_interface'], 
-                                      -1.011*_np.max((_np.abs(env['rx_range']))), 
-                                      1.011*_np.max((_np.abs(env['rx_range']))))
-    
-    env['bot_interface'] = _adjust_2D(env['bot_interface'], 
-                                      -1.011*_np.max((_np.abs(env['rx_range']))), 
-                                      1.011*_np.max((_np.abs(env['rx_range']))))
-    
+
     return env
 
 # @todo     Update assert for each model.
@@ -1820,7 +1880,7 @@ class BELLHOP:
         self._print(fh, "%0.6f %0.6f /" % (self.env['tx_minAngle'], self.env['tx_maxAngle']))
         
         # Numerical integrator info (10)
-        self._print(fh, "0.0 %0.6f %0.6f" % (1.009*_np.max(self.env['bot_interface'][:,1]), 1.009*_np.max((_np.abs(self.env['rx_range'][0]), self.env['rx_range'][-1]))/1000))
+        self._print(fh, "%0.6f %0.6f %0.6f" % (self.env['step'], self.env['zbox'], self.env['rbox']/1000))
         
         _os.close(fh)
         
@@ -2405,8 +2465,8 @@ class _Kraken:
         if env['top_boundary'] == analytic:
             self._print(fh, "%0.6f %0.6f 0.0 %0.6f %0.6f /" % (max_depth, self.bts, self.btd/1000, self.bta))
             
-        self._print(fh, "%0.6f %0.6f" %(0, _np.max(env['ssp'])))                    # C0 min and max
-        self._print(fh, "%0.6f" %(env['rx_range'][-1]/1000))                               # Max range in km 
+        self._print(fh, "%0.6f %0.6f" %(0, _np.max(env['ssp'])))                           # C0 min and max
+        self._print(fh, "%0.6f" %(env['rbox']/1000))                                       # Max range in km 
         self._print(fh, "%d" %(1))                                                         # Number of sources depth
         self._print(fh, "%0.6f" %(env['tx_depth']))                                        # Source depths
         self._print(fh, "%d" %(len(env['rx_depth'])))                                      # Number of receiver depths
