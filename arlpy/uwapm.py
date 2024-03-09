@@ -130,7 +130,7 @@ def adjustSSP(ssp, ssp_depth, ssp_range, top_interface, bot_interface, rx_range)
 
 # @todo     create and manage env3d for 3 dimensionnal problem
 
-def make_env2d(auto_xSettings=True, auto_xBox=True, **kv):
+def make_env2d(**kv):
     """
     Create a new 2D underwater environment.
 
@@ -240,32 +240,34 @@ def make_env2d(auto_xSettings=True, auto_xBox=True, **kv):
         
             # KRAKEN ONLY
             # Twersky scatter parameters for soft/hard-boss Twersky top boundary condition only (4c)
-            'bump_density'     : 10,                        # ridges/km (BUMDEN)
-            'principal_radius1': 1,                         # m (ETA)
-            'principal_radius2': 3,                         # m (XI)
+            'twy_bumpDensity'     : 10,                        # ridges/km (BUMDEN)
+            'twy_radius1': 1,                         # m (ETA)
+            'twy_radius2': 3,                         # m (XI)
             
             # RAM ONLY
             'bot_absorption'  : None,                       # dB/wavelength
         
-            # OALIB compute box settings
+            # Compute box settings
+            'mesh_computeBox':'auto',
+            'mesh_inputData':'auto',
             'step':None,
             'rbox':None,
-            'zbox':None
-    }
+            'zbox':None,
+
+            }
+    
     for k, v in kv.items():
         if k not in env.keys():
             raise KeyError('Unknown key: '+k)
         env[k] = _np.asarray(v, dtype=_np.float64) if not isinstance(v, _pd.DataFrame) and _np.size(v) > 1 else v
     
-
-    
-    if auto_xSettings:
+    if env['mesh_computeBox'] == 'auto':
         # Standard definition of numerical box boundaries for OALIB (BELLHOP, KRAKEN, ...)
         env['step'] = 0.0
         env['rbox'] = 1.01*_np.max(_np.abs(env['rx_range']))
-        env['zbox'] = 1.01*_np.max(env['bot_interface'][:,-1])
+        env['zbox'] = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
     
-    if auto_xBox:
+    if env['mesh_inputData'] == 'auto':
         # Adjust environment border by padding input data if required for OALIB (BELLHOP, KRAKEN, ...)
         env['top_interface'] = _adjust_2D(env['top_interface'], -1.001*env['rbox'], 1.001*env['rbox'])
         env['bot_interface'] = _adjust_2D(env['bot_interface'], -1.001*env['rbox'], 1.001*env['rbox'])
@@ -360,7 +362,7 @@ def print_env(env):
     >>> env = pm.create_env2d(depth=40, soundspeed=1540)
     >>> pm.print_env(env)
     """
-    env = check_env2d(env)
+    #env = check_env2d(env)
     keys = ['name'] + sorted(list(env.keys()-['name']))
     for k in keys:
         v = str(env[k])
@@ -758,15 +760,15 @@ def plot_rays(rays, env, Title='', invert_colors=False, **kwargs):
     for _, row in rays.iterrows():
         num_bnc = row.bottom_bounces + row.surface_bounces
         if row.bottom_bounces == 0 and row.surface_bounces == 0:
-            ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='k', alpha=.5)
-        elif num_bnc > 1:
             ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='r', alpha=.5)
+        elif num_bnc > 1:
+            ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='g', alpha=.5)
         elif row.surface_bounces == 1:
             ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='b', alpha=.5)
         elif row.bottom_bounces == 1:
-            ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='saddlebrown', alpha=.5)
+            ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='k', alpha=.5)
 
-    ax.plot(env['bot_interface'][:, 0] / divisor, env['bot_interface'][:, 1], 'saddlebrown', linewidth=3)
+    ax.plot(env['bot_interface'][:, 0] / divisor, env['bot_interface'][:, 1], 'k', linewidth=3)
     ax.plot(env['top_interface'][:, 0] / divisor, env['top_interface'][:, 1], 'b', linewidth=3)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Depth [m]")
@@ -1869,7 +1871,7 @@ class BELLHOP:
         
         # Run type (8)
         # @todo     Manage all options  (line source in priority ?) 
-        if self.env['tx_beam'] is None:
+        if _np.size(self.env['tx_beam']) == 2:
             self._print(fh, "'"+taskcode+"'")
         else:
             self._print(fh, "'"+taskcode+" *'")
@@ -2393,7 +2395,7 @@ class _Kraken:
         if topBdry == 'A':
             self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (max_depth, env['top_PwaveSpeed'], env['top_SwaveSpeed'], env['top_density'], env['top_PwaveAttn'], env['top_SwaveAttn']))
         elif topBdry == 'F' or topBdry == 'I':
-            self._print(fh, "%0.6f %0.6f %0.6f" % (env['bump_density'], env['principal_radius1'], env['principal_radius2']))
+            self._print(fh, "%0.6f %0.6f %0.6f" % (env['twy_bumpDensity'], env['twy_radius1'], env['twy_radius2']))
         
         # Medium info (5)
         # @todo     Manage manual NMESH ?
@@ -2758,7 +2760,7 @@ _models.append(('KRAKEN', _Kraken))
 
 
         
-class _RAM:
+class RAM:
     """
     A class representing the RAM model for underwater acoustic propagation.
 
@@ -2775,26 +2777,169 @@ class _RAM:
     """
     # @todo     Understand and manage CP task
     
-    def __init__(self):
-        pass
-
-    def supports(self, env=None, task=TL):
-        """
-        Checks if the RAM model supports the specified task for the given environment.
-        
-        Parameters:
-        env (dict): Environmental parameters.
-        task (str): Task identifier ('TL' for Transmission Loss, 'CP' for Cepstral Peak).
-        
-        Returns:
-        bool: True if the task is supported, False otherwise.
-        """
-        if task == TL or task == 'CP':
-            return True    
+    def __init__(self, env=None, copy=False):
+                
+        if env is None:
+            self.env           = None
         else:
-            print("[ERROR] KRAKEN: Unknown mode: {task} !")
+            self.set_env(env, copy=copy)
+        self.transmission_loss = None 
+        
+
+    def set_env(self, env, copy=False, **kwargs):
+        
+        if copy:
+            self.env =  copy(env)
+        else:
+            self.env = env
+        
+        lbda_cor = _np.mean(self.env['ssp'])/self.env['tx_freq']/8
+        
+        # Right propagation
+        iiMin = _np.where(self.env['rx_range'] >= 0)[0][0]
+        ratio = 1-iiMin/_np.size(self.env['rx_range'])
+        
+        if self.env['mesh_computeBox'] == 'manual':
+            rmax  = self.env['rbox']
+            dr    = self.env['step']
+            dz    = self.env['step']
+            if _np.size(self.env['rx_range']) > 1:
+                ndr = dr / (self.env['rx_range'][1]-self.env['rx_range'][0]*ratio)
+            else:
+                ndr = dr / self.env['rx_range']
             
-        return False
+            if _np.size(self.env['rx_depth']) > 1:
+                ndz = dz / (self.env['rx_depth'][1]-self.env['rx_depth'][0])
+            else:
+                ndz = dz / self.env['rx_depth']
+                
+        if self.env['mesh_computeBox'] == 'auto':
+            
+            if _np.size(self.env['rx_range']) > 1:
+                ndr = _np.max((_np.round((self.env['rx_range'][1]-self.env['rx_range'][0])/(lbda_cor)*ratio), 1))
+                dr = (self.env['rx_range'][1]-self.env['rx_range'][0])/ndr
+            else:
+                ndr = _np.max((_np.round((self.env['rx_range'])/(lbda_cor)*ratio), 1))
+                dr = self.env['rx_range']/ndr
+                
+            if _np.size(self.env['rx_depth']) > 1:
+                ndz = _np.max((_np.round((self.env['rx_depth'][1]-self.env['rx_depth'][0])/(lbda_cor)), 1))
+                dz = (self.env['rx_depth'][1]-self.env['rx_depth'][0])/ndz
+            else:
+                ndz = _np.max((_np.round((self.env['rx_depth'])/(lbda_cor)), 1))
+                dz = self.env['rx_depth']/ndz
+        
+            self.pyramR = ram.PyRAM(self.env['tx_freq'],
+                               self.env['tx_depth'],
+                               self.env['rx_depth'][-1],
+                               _np.array(self.env['ssp_depth']),
+                               _np.flip(-_np.array(self.env['ssp_range'])),
+                               _np.fliplr(_np.array(self.env['ssp'])),
+                               _np.array(self.env['bot_depth']),
+                               _np.flip(-_np.array(self.env['bot_range'])),
+                               _np.fliplr(_np.array(self.env['bot_ssp'],ndmin=2)),
+                               _np.fliplr(_np.array(self.env['bot_density'],ndmin=2)),
+                               _np.fliplr(_np.array(self.env['bot_absorption'],ndmin=2)),
+                               _np.array(self.env['bot_interface'],ndmin=2),
+                               rmax  = ndr*dr*(_np.size(self.env['rx_range'])*ratio),
+                               dr    = dr,
+                               dz    = dz,
+                               ndr   = ndr,
+                               ndz   = ndz,
+                               zmplt = ndz*dz*_np.size(self.env['rx_depth'])
+                               )
+            # Left propagation
+            ratio = iiMin/_np.size(self.env['rx_range'])
+            
+            if self.env['mesh_computeBox'] == 'manual':
+                rmax  = self.env['rbox']
+                dr    = self.env['step']
+                dz    = self.env['step']
+                if _np.size(self.env['rx_range']) > 1:
+                    ndr = dr / (self.env['rx_range'][1]-self.env['rx_range'][0]*ratio)
+                else:
+                    ndr = dr / self.env['rx_range']
+                
+                    
+            if self.env['mesh_computeBox'] == 'auto':
+                
+                if _np.size(self.env['rx_range']) > 1:
+                    ndr = _np.max((_np.round((self.env['rx_range'][1]-self.env['rx_range'][0])/(lbda_cor)*ratio), 1))
+                    dr = (self.env['rx_range'][1]-self.env['rx_range'][0])/ndr
+                else:
+                    ndr = _np.max(_np.round(((self.env['rx_range'])/(lbda_cor)*ratio), 1))
+                    dr = self.env['rx_range']/ndr
+                    
+            
+            self.pyramL = ram.PyRAM(self.env['tx_freq'],
+                               self.env['tx_depth'],
+                               self.env['rx_depth'][-1],
+                               _np.array(self.env['ssp_depth']),
+                               _np.array(self.env['ssp_range']),
+                               _np.array(self.env['ssp']),
+                               _np.array(self.env['bot_depth']),
+                               _np.array(self.env['bot_range']),
+                               _np.array(self.env['bot_ssp'],ndmin=2),
+                               _np.array(self.env['bot_density'],ndmin=2),
+                               _np.array(self.env['bot_absorption'],ndmin=2),
+                               _np.column_stack((_np.flip(-self.env['bot_interface'][:,0]), _np.flip(self.env['bot_interface'][:,1]))),
+                               rmax  = ndr*dr*(_np.size(self.env['rx_range'])*ratio),
+                               dr    = dr,
+                               dz    = dz,
+                               ndr   = ndr,
+                               ndz   = ndz,
+                               zmplt = ndz*dz*_np.size(self.env['rx_depth'])
+                               )
+        
+    def check_env(self):
+        return self.pyramR.check_inputs(self.env['tx_freq'],
+                           self.env['tx_depth'],
+                           self.env['rx_depth'][-1],
+                           _np.array(self.env['ssp_depth']),
+                           _np.array(self.env['ssp_range']),
+                           _np.array(self.env['ssp']),
+                           _np.array(self.env['bot_depth']-_np.max(self.env['bot_interface'][:,1]),ndmin=1),
+                           _np.array(self.env['bot_range']),
+                           _np.array(self.env['bot_ssp'],ndmin=2),
+                           _np.array(self.env['bot_density'],ndmin=2)/1000,
+                           _np.array(self.env['bot_absorption'],ndmin=2),
+                           _np.array((self.env['bot_interface'][:,0],self.env['bot_interface'][:,1])).transpose()
+                           )
+    
+    def compute_transmission_loss(self, debug=False):
+        
+        if _np.size(self.env['top_interface']) > 2:
+            print("[INFO] RAM: Surface not supported, considering flat air/water interface.")
+        
+        if _np.size(self.env['tx_beam']) > 2:
+            print("[INFO] RAM: Beam pattern not supported, using omnidirectionnal instead.")
+        
+        self.pyramL.run()
+        self.pyramR.run()
+        
+        self.transmission_loss = 10**(-_np.hstack((_np.fliplr(self.pyramL.tlg), self.pyramR.tlg))/20)
+        self.complex_pressure  = _np.hstack((_np.fliplr(self.pyramL.cpg), self.pyramR.cpg))
+        self.vr = _np.hstack((-_np.flip(self.pyramL.vr), self.pyramR.vr))
+        
+        return self.transmission_loss, self.vr, self.pyramR.vz
+
+    def compute_complex_pressure(self, debug=False):
+        
+        if _np.size(self.env['top_interface']) > 2:
+            print("[INFO] RAM: Surface not supported, considering flat air/water interface.")
+        
+        if _np.size(self.env['tx_beam']) > 2:
+            print("[INFO] RAM: Beam pattern not supported, using omnidirectionnal instead.")
+        
+        self.pyramL.run()
+        self.pyramR.run()
+        
+        self.transmission_loss = 10**(-_np.hstack((_np.fliplr(self.pyramL.tlg), self.pyramR.tlg))/20)
+        self.complex_pressure  = _np.hstack((_np.fliplr(self.pyramL.cpg), self.pyramR.cpg))
+        self.vr = _np.hstack((-_np.flip(self.pyramL.vr), self.pyramR.vr))
+        
+        return self.complex_pressure
+        
     
     def run(self, env, task=TL, debug=False):
         """
@@ -2802,7 +2947,7 @@ class _RAM:
         
         Parameters:
             env (dict): Environmental parameters.
-            task (str): Task identifier ('TL' for Transmission Loss, 'CP' for Cepstral Peak).
+            task (str): Task identifier ('TL' for Transmission Loss, CP' for Complex Pressure (does not include cylindrical spreading term 1/sqrt(r) or phase term exp(-j*k0*r))).
             debug (bool): Debugging flag.
         
         Returns:
@@ -2813,70 +2958,59 @@ class _RAM:
         
         if env['tx_beam'] is not None:
             print(f"[INFO] {env['model']}: Beam pattern not supported, using omnidirectionnal instead.")
-
-
-        # Initialize RAM environment
-        # ram.PyRAM(freq, zs, zr, z_ss, rp_ss, cw, z_sb, rp_sb, cb, rhob, attn, rbzb, **kwargs)       
-        self.pyram = ram.PyRAM(env['tx_freq'],
-                           env['tx_depth'],
-                           env['rx_depth'][-1],
-                           _np.array(env['ssp_depth']),
-                           _np.array(env['ssp_range']),
-                           _np.array(env['ssp']),
-                           _np.array(env['bot_depth']-_np.max(env['bot_interface'][:,1]),ndmin=1),
-                           _np.array(env['bot_range']),
-                           _np.array(env['bot_ssp'],ndmin=2),
-                           _np.array(env['bot_density'],ndmin=2)/1000,
-                           _np.array(env['bot_absorption'],ndmin=2),
-                           _np.array((env['bot_interface'][:,0],env['bot_interface'][:,1])).transpose(),
-                           rmax = env['rx_range'][-1],
-                           dr=env['rx_range'][2]-env['rx_range'][1],
-                           dz=env['rx_depth'][2]-env['rx_depth'][1],
-                           zmplt=env['rx_depth'][-1],
-                           c0=_np.mean(env['ssp'][:,1])
-                           )
-
-        self.tl_tol  = 1e-2  # Tolerable mean difference in TL (dB) with reference result
-        self.lines   = env['rx_depth']
-        self.columns = env['rx_range']
         
         # Run computation
         results = self.pyram.run()
         
-        if task == TL:
-            # If necessary resize the results grid by adding NaNs
-            if _np.size(results['TL Grid'], axis=0) < len(self.lines):
-                results['TL Grid'] = _np.insert(results['TL Grid'], 0, _np.zeros(_np.size(results['TL Grid'],axis=1)), axis=0)
-                results['TL Grid'][0,:] = _np.nan
-            if _np.size(results['TL Grid'], axis=1) < len(self.columns):
-                results['TL Grid'] = _np.insert(results['TL Grid'], 0, _np.zeros(_np.size(results['TL Grid'],axis=0)), axis=1) 
-                results['TL Grid'][:,0] = _np.nan
-            if _np.size(results['TL Grid'], axis=1) < len(self.columns):
-                results['TL Grid'] = _np.insert(results['TL Grid'], _np.size(results['TL Grid'],axis=1), _np.zeros(_np.size(results['TL Grid'],axis=0)), axis=1)
-                results['TL Grid'][:,-1] = _np.nan
-            
-            # Return data as DataFrame with range and depth as index
-            return _pd.DataFrame(10**(-results['TL Grid']/20), index=self.lines, columns=self.columns)
+        '''
+        Output transmission loss.
+        '''  
+        TL =  10**(-results['TL Grid']/20)
         
-        if task == 'CP':
-            # If necessary resize the results grid by adding NaNs
-            if _np.size(results['CP Grid'], axis=0) < len(self.lines):
-                results['CP Grid'] = _np.insert(results['CP Grid'], 0, _np.zeros(_np.size(results['CP Grid'],axis=1)), axis=0)
-                results['CP Grid'][0,:] = _np.nan
-            if _np.size(results['CP Grid'], axis=1) < len(self.columns):
-                results['CP Grid'] = _np.insert(results['CP Grid'], 0, _np.zeros(_np.size(results['CP Grid'],axis=0)), axis=1) 
-                results['CP Grid'][:,0] = _np.nan
-            if _np.size(results['CP Grid'], axis=1) < len(self.columns):
-                results['CP Grid'] = _np.insert(results['CP Grid'], _np.size(results['CP Grid'],axis=1), _np.zeros(_np.size(results['CP Grid'],axis=0)), axis=1)
-                results['CP Grid'][:,-1] = _np.nan
-            
-            # Return data as DataFrame with range and depth as index
-            return _pd.DataFrame(results['CP Grid'], index=self.lines, columns=self.columns)    
+        '''
+        Output complex pressure.
+        Complex pressure does not include cylindrical spreading term 1/sqrt(r)
+        or phase term exp(-j*k0*r).
+        '''
+        CP = results['CP Grid']
         
-        return False
+        return TL, CP
+    
+    def plot_transmission_loss(self, vmin=-120, vmax=0, **kwargs):
+        
+        fig, ax = plt.subplots()
+        X = self.env['rx_range']
+        Y = self.env['rx_depth']
+
+        tlossplt = 20 * _np.log10(_np.finfo(float).eps + _np.abs(_np.array(self.transmission_loss)))
+
+        # Remove TL in sediment/surface
+        for ii, x in enumerate(X):
+            ylim = _np.interp(x, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
+            for jj, y in enumerate(Y):
+                if y > ylim:
+                    tlossplt[jj, ii] = vmax
+
+        ax.plot([X[0], X[-1] / 1000], [0, 0], 'b', linewidth=3)
+        
+        X, Y = _np.meshgrid(X, Y)
+        im1 = ax.pcolormesh(X / 1000, Y, tlossplt, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
+        ax.plot(self.env['bot_interface'][:, 0] / 1000, self.env['bot_interface'][:, 1], 'k', linewidth=3)
+        ax.set_xlim((X[0, 0] / 1000, X[-1, -1] / 1000))
+        ax.set_ylim((self.env['rx_depth'][0], Y[-1, -1]))
+        ax.set_xlabel('Range [km]')
+        ax.set_ylabel('Depth [m]')
+        ax.set_title(f"[ RAM - Propagation Loss @ {self.env['tx_freq']} Hz ] {self.env['name']}")
+        cbar1 = fig.colorbar(im1, ax=ax)
+        cbar1.ax.set_ylabel('Loss [dB]')
+        ax.invert_yaxis()
+        plt.tight_layout()
+        plt.show()
+        
+        return fig, ax
 
 # Add model to available models
-_models.append(('RAM', _RAM))
+_models.append(('RAM', RAM))
 
 
 def plot_recwPSD(Fxx, Pxx, maxval=2**24-1, vpk=3, sh=-205, gain=0, Title='', **kwargs):
