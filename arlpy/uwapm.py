@@ -2833,13 +2833,13 @@ class RAM:
                                self.env['tx_depth'],
                                self.env['rx_depth'][-1],
                                _np.array(self.env['ssp_depth']),
-                               _np.flip(-_np.array(self.env['ssp_range'])),
-                               _np.fliplr(_np.array(self.env['ssp'])),
+                               _np.array(self.env['ssp_range']),
+                               _np.array(self.env['ssp']),
                                _np.array(self.env['bot_depth']),
-                               _np.flip(-_np.array(self.env['bot_range'])),
-                               _np.fliplr(_np.array(self.env['bot_ssp'],ndmin=2)),
-                               _np.fliplr(_np.array(self.env['bot_density'],ndmin=2)),
-                               _np.fliplr(_np.array(self.env['bot_absorption'],ndmin=2)),
+                               _np.array(self.env['bot_range']),
+                               _np.array(self.env['bot_ssp'],ndmin=2),
+                               _np.array(self.env['bot_density'],ndmin=2),
+                               _np.array(self.env['bot_absorption'],ndmin=2),
                                _np.array(self.env['bot_interface'],ndmin=2),
                                rmax  = ndr*dr*(_np.size(self.env['rx_range'])*ratio),
                                dr    = dr,
@@ -2875,13 +2875,13 @@ class RAM:
                                self.env['tx_depth'],
                                self.env['rx_depth'][-1],
                                _np.array(self.env['ssp_depth']),
-                               _np.array(self.env['ssp_range']),
-                               _np.array(self.env['ssp']),
+                               _np.flip(-_np.array(self.env['ssp_range'])),
+                               _np.fliplr(_np.array(self.env['ssp'])),
                                _np.array(self.env['bot_depth']),
-                               _np.array(self.env['bot_range']),
-                               _np.array(self.env['bot_ssp'],ndmin=2),
-                               _np.array(self.env['bot_density'],ndmin=2),
-                               _np.array(self.env['bot_absorption'],ndmin=2),
+                               _np.flip(-_np.array(self.env['bot_range'])),
+                               _np.fliplr(_np.array(self.env['bot_ssp'],ndmin=2)),
+                               _np.fliplr(_np.array(self.env['bot_density'],ndmin=2)),
+                               _np.fliplr(_np.array(self.env['bot_absorption'],ndmin=2)),
                                _np.column_stack((_np.flip(-self.env['bot_interface'][:,0]), _np.flip(self.env['bot_interface'][:,1]))),
                                rmax  = ndr*dr*(_np.size(self.env['rx_range'])*ratio),
                                dr    = dr,
@@ -2938,7 +2938,7 @@ class RAM:
         self.complex_pressure  = _np.hstack((_np.fliplr(self.pyramL.cpg), self.pyramR.cpg))
         self.vr = _np.hstack((-_np.flip(self.pyramL.vr), self.pyramR.vr))
         
-        return self.complex_pressure
+        return self.complex_pressure, self.vr, self.pyramR.vz
         
     
     def run(self, env, task=TL, debug=False):
