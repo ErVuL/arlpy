@@ -220,7 +220,7 @@ def make_env2d(**kv):
             'twy_radius2'     : None,                       # m (XI)
             
             # RAM ONLY
-            'bot_attenuation'  : None,                       # dB/wavelength
+            'bot_attn'  : None,                       # dB/wavelength
         
             }
     
@@ -234,11 +234,11 @@ def make_env2d(**kv):
         env['ssp'] = _np.hstack(env['ssp'])
     if _np.size(env['ssp_depth']) == _np.size(env['ssp']):
         env['ssp'] = _np.vstack(env['ssp'])
-    if env['bot_attenuation'] is not None and _np.size(env['bot_attenuation']) > 1:
-        if _np.size(env['bot_range']) == _np.size(env['bot_attenuation']):
-            env['bot_attenuation'] = _np.hstack(env['bot_attenuation'])
-        if _np.size(env['bot_depth']) == _np.size(env['bot_attenuation']):
-            env['bot_attenuation'] = _np.vstack(env['bot_attenuation'])
+    if env['bot_attn'] is not None and _np.size(env['bot_attn']) > 1:
+        if _np.size(env['bot_range']) == _np.size(env['bot_attn']):
+            env['bot_attn'] = _np.hstack(env['bot_attn'])
+        if _np.size(env['bot_depth']) == _np.size(env['bot_attn']):
+            env['bot_attn'] = _np.vstack(env['bot_attn'])
     if env['bot_ssp'] is not None and _np.size(env['bot_ssp']) > 1:
         if _np.size(env['bot_range']) == _np.size(env['bot_ssp']):
             env['bot_ssp'] = _np.hstack(env['bot_ssp'])
@@ -260,7 +260,7 @@ def make_env2d(**kv):
             env['top_interface'] = _np.array((0,0), ndmin=2)
         env['bot_interface'] = _adjust_2D(env['bot_interface'], -1.001*rBox, 1.001*rBox)
         env['ssp'], env['ssp_range'], env['ssp_depth']  = _adjust_3D(env['ssp'], env['ssp_range'], env['ssp_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.max(_np.abs(env['top_interface'][:,1])),1.001*zBox)                                                               
-        env['bot_attenuation'], _, _  = _adjust_3D(env['bot_attenuation'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                 
+        env['bot_attn'], _, _  = _adjust_3D(env['bot_attn'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                 
         env['bot_density'], _, _  = _adjust_3D(env['bot_density'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                
         env['bot_ssp'], env['bot_range'], env['bot_depth']  = _adjust_3D(env['bot_ssp'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)
 
@@ -1120,7 +1120,7 @@ class BELLHOP:
 
         return fig, ax
     
-    def plot_raw_ssp(self, Nxy=500, **kwargs):
+    def plot_ssp(self, Nxy=500, **kwargs):
         """
         Plots the sound speed profile of the environment.
         
@@ -1171,7 +1171,7 @@ class BELLHOP:
             ax.set_ylim((self.env['rx_depth'][0], self.env['rx_depth'][-1]))
             ax.set_xlabel('Range [km]')
             ax.set_ylabel('Depth [m]')
-            ax.set_title(f"[BELLHOP - Raw sound speed profile] {self.env['name']}")
+            ax.set_title(f"[BELLHOP - Sound speed profile] {self.env['name']}")
             ax.invert_yaxis()
             plt.tight_layout()
             plt.show()
@@ -1179,7 +1179,7 @@ class BELLHOP:
             vmax = kwargs.get('vmax', _np.max(self.env['ssp']))
             vmin = kwargs.get('vmin', _np.min(self.env['ssp']))
             Y, Z = _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
-            ax.set_title(f"[BELLHOP - Raw sound speed profile] {self.env['name']}")
+            ax.set_title(f"[BELLHOP - Sound speed profile] {self.env['name']}")
             ax.set_xlim((vmin, vmax))
             ax.invert_yaxis()
             ax.grid(True)
@@ -1890,9 +1890,9 @@ class KRAKEN:
             print(f"[INFO] {env['model']}: Multiple bottom density profiles not supported, using average value.")
             self.btd = _np.mean(env['bot_density'])
             
-        if env['bot_attenuation'].ndim > 0:
+        if env['bot_attn'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom absorption profiles not supported, using average value.")
-            self.bta = _np.mean(env['bot_attenuation'])
+            self.bta = _np.mean(env['bot_attn'])
     
         # @todo    Not sure if this condition is required !
         if env['top_boundary'] == analytic:
@@ -2263,7 +2263,7 @@ class RAM:
                            _np.array(self.env['bot_range']),
                            _np.array(self.env['bot_ssp'],ndmin=2),
                            _np.array(self.env['bot_density'],ndmin=2),
-                           _np.array(self.env['bot_attenuation'],ndmin=2),
+                           _np.array(self.env['bot_attn'],ndmin=2),
                            _np.array(self.env['bot_interface'],ndmin=2),
                            rmax  = self.rbox,
                            dr    = dr,
@@ -2295,7 +2295,7 @@ class RAM:
                            _np.flip(-_np.array(self.env['bot_range'])),
                            _np.fliplr(_np.array(self.env['bot_ssp'],ndmin=2)),
                            _np.fliplr(_np.array(self.env['bot_density'],ndmin=2)),
-                           _np.fliplr(_np.array(self.env['bot_attenuation'],ndmin=2)),
+                           _np.fliplr(_np.array(self.env['bot_attn'],ndmin=2)),
                            _np.column_stack((_np.flip(-self.env['bot_interface'][:,0]), _np.flip(self.env['bot_interface'][:,1]))),
                            rmax  = self.rbox,
                            dr    = dr,
@@ -2341,7 +2341,7 @@ class RAM:
                            _np.array(self.env['bot_range']),
                            _np.array(self.env['bot_ssp'],ndmin=2),
                            _np.array(self.env['bot_density'],ndmin=2),
-                           _np.array(self.env['bot_attenuation'],ndmin=2),
+                           _np.array(self.env['bot_attn'],ndmin=2),
                            _np.array(self.env['bot_interface'],ndmin=2),
                            rmax  = ndr*dr*(_np.size(self.env['rx_range'])*ratio),
                            dr    = dr,
@@ -2543,7 +2543,7 @@ class RAM:
     
         return fig, ax
 
-    def plot_raw_ssp(self, vmin=1200, vmax=7500, Nxy=500, **kwargs):
+    def plot_ssp(self, vmin=1200, vmax=7500, Nxy=500, **kwargs):
         """
         Plots the sound speed profile of the environment.
         
@@ -2593,7 +2593,7 @@ class RAM:
             ax.set_ylim((self.env['rx_depth'][0], self.env['rx_depth'][-1]))
             ax.set_xlabel('Range [km]')
             ax.set_ylabel('Depth [m]')
-            ax.set_title(f"[RAM - Raw sound speed profile] {self.env['name']}")
+            ax.set_title(f"[RAM - Sound speed profile] {self.env['name']}")
             ax.invert_yaxis()
             plt.tight_layout()
             plt.show()
@@ -2603,7 +2603,7 @@ class RAM:
             vmax = kwargs.get('vmax', _np.max(self.env['ssp']))
             vmin = kwargs.get('vmin', _np.min(self.env['ssp']))
             Y, Z = _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
-            ax.set_title(f"[RAM - Raw sound speed profile] {self.env['name']}")
+            ax.set_title(f"[RAM - Sound speed profile] {self.env['name']}")
             ax.set_xlim((vmin, vmax))
             ax.invert_yaxis()
             ax.grid(True)
@@ -2634,7 +2634,7 @@ class RAM:
         # Extract absorption data
         Xb = _np.array(self.env['bot_range'])
         Yb = _np.array(self.env['bot_depth'])
-        Zb = _np.array(_np.array(self.env['bot_attenuation'], ndmin=2))
+        Zb = _np.array(_np.array(self.env['bot_attn'], ndmin=2))
     
         # Generate grid
         Xg = _np.linspace(self.env['rx_range'][0], self.env['rx_range'][-1], Nxy)
