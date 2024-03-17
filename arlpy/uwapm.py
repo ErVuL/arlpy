@@ -33,7 +33,7 @@ import copy
 os.environ['PATH'] = os.environ['PATH'].replace(':/opt/build/at/bin', '')+":/opt/build/at/bin"
 
 # Configure LaTeX for matplotlib
-rc('font',**{'family':'sans-serif','sans-serif':['Helvetica'],'size':16})
+rc('font',**{'family':'sans-serif','sans-serif':['Helvetica'],'size':12})
 rc('text', usetex=True)
 
 ## Constants and models definition
@@ -169,7 +169,7 @@ def make_env2d(**kv):
             'dimension'       : '2D',                        # 2D only
             'pad_inputData'   : True,                        # pad input data to the border of the calculation range
 
-            'mode'            : incoherent,                  # Propagation loss mode
+            'mode'            : semicoherent,                # Propagation loss mode
             'volume_attn'     : None,                        # Added volume attenuation
             
             'rx_depth'        : None,                        # m
@@ -207,23 +207,21 @@ def make_env2d(**kv):
             'top_SwaveSpeed'  : None,                        # m/s (CST)
             'top_PwaveAttn'   : None,                        # attn_unit (APT)
             'top_SwaveAttn'   : None,                        # attn_unit (AST)
-            'bot_density'     : 2.7,                         # g/cm3 (RHOB)   
-            'bot_PwaveSpeed'  : 6000,                        # m/s (CPB)
-            'bot_SwaveSpeed'  : 3500,                        # m/s (CSB)
-            'bot_PwaveAttn'   : 0.02,                        # attn_unit (APB)
-            'bot_SwaveAttn'   : 0.02,                        # attn_unit (ASB)
+            'bot_density'     : None,                        # g/cm3 (RHOB)   
+            'bot_PwaveSpeed'  : None,                        # m/s (CPB)
+            'bot_SwaveSpeed'  : None,                        # m/s (CSB)
+            'bot_PwaveAttn'   : None,                        # attn_unit (APB)
+            'bot_SwaveAttn'   : None,                        # attn_unit (ASB)
         
             # KRAKEN ONLY
             # Twersky scatter parameters for soft/hard-boss Twersky top boundary condition only (4c)
-            'twy_bumpDensity'     : 10,                      # ridges/km (BUMDEN)
-            'twy_radius1': 1,                                # m (ETA)
-            'twy_radius2': 3,                                # m (XI)
+            'twy_bumpDensity' : None,                       # ridges/km (BUMDEN)
+            'twy_radius1'     : None,                       # m (ETA)
+            'twy_radius2'     : None,                       # m (XI)
             
             # RAM ONLY
-            'bot_absorption'  : None,                       # dB/wavelength
+            'bot_attenuation'  : None,                       # dB/wavelength
         
-            # Compute box settings
-            'step': 0,                                      # 0 = automatic
             }
     
     for k, v in kv.items():
@@ -236,27 +234,33 @@ def make_env2d(**kv):
         env['ssp'] = _np.hstack(env['ssp'])
     if _np.size(env['ssp_depth']) == _np.size(env['ssp']):
         env['ssp'] = _np.vstack(env['ssp'])
-    if _np.size(env['bot_range']) == _np.size(env['bot_absorption']):
-        env['bot_absorption'] = _np.hstack(env['bot_absorption'])
-    if _np.size(env['bot_depth']) == _np.size(env['bot_absorption']):
-        env['bot_absorption'] = _np.vstack(env['bot_absorption'])
-    if _np.size(env['bot_range']) == _np.size(env['bot_ssp']):
-        env['bot_ssp'] = _np.hstack(env['bot_ssp'])
-    if _np.size(env['bot_depth']) == _np.size(env['bot_ssp']):
-        env['bot_ssp'] = _np.vstack(env['bot_ssp'])
-    if _np.size(env['bot_range']) == _np.size(env['bot_density']):
-        env['bot_density'] = _np.hstack(env['bot_density'])
-    if _np.size(env['bot_depth']) == _np.size(env['bot_density']):
-        env['bot_density'] = _np.vstack(env['bot_density'])
+    if env['bot_attenuation'] is not None and _np.size(env['bot_attenuation']) > 1:
+        if _np.size(env['bot_range']) == _np.size(env['bot_attenuation']):
+            env['bot_attenuation'] = _np.hstack(env['bot_attenuation'])
+        if _np.size(env['bot_depth']) == _np.size(env['bot_attenuation']):
+            env['bot_attenuation'] = _np.vstack(env['bot_attenuation'])
+    if env['bot_ssp'] is not None and _np.size(env['bot_ssp']) > 1:
+        if _np.size(env['bot_range']) == _np.size(env['bot_ssp']):
+            env['bot_ssp'] = _np.hstack(env['bot_ssp'])
+        if _np.size(env['bot_depth']) == _np.size(env['bot_ssp']):
+            env['bot_ssp'] = _np.vstack(env['bot_ssp'])
+    if env['bot_density'] is not None and _np.size(env['bot_density']) > 1:
+        if _np.size(env['bot_range']) == _np.size(env['bot_density']):
+            env['bot_density'] = _np.hstack(env['bot_density'])
+        if _np.size(env['bot_depth']) == _np.size(env['bot_density']):
+            env['bot_density'] = _np.vstack(env['bot_density'])
 
     # Adjust environment border by padding input data if required for OALIB (BELLHOP, KRAKEN, ...) also works for RAM
     if env['pad_inputData'] == True:
         rBox = 1.01*_np.max(_np.abs(env['rx_range']))
         zBox = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
-        env['top_interface'] = _adjust_2D(env['top_interface'], -1.001*rBox, 1.001*rBox)
+        if env['top_interface'] is not None:
+            env['top_interface'] = _adjust_2D(env['top_interface'], -1.001*rBox, 1.001*rBox)
+        else:
+            env['top_interface'] = _np.array((0,0), ndmin=2)
         env['bot_interface'] = _adjust_2D(env['bot_interface'], -1.001*rBox, 1.001*rBox)
         env['ssp'], env['ssp_range'], env['ssp_depth']  = _adjust_3D(env['ssp'], env['ssp_range'], env['ssp_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.max(_np.abs(env['top_interface'][:,1])),1.001*zBox)                                                               
-        env['bot_absorption'], _, _  = _adjust_3D(env['bot_absorption'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                 
+        env['bot_attenuation'], _, _  = _adjust_3D(env['bot_attenuation'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                 
         env['bot_density'], _, _  = _adjust_3D(env['bot_density'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                
         env['bot_ssp'], env['bot_range'], env['bot_depth']  = _adjust_3D(env['bot_ssp'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)
 
@@ -353,115 +357,6 @@ def print_env(env):
                 print('%20s   '%('') + v1)
         else:
             print('%20s : '%(k) + v)
-
-def plot_env(env, surface_color='dodgerblue', bottom_color='peru', tx_color='orangered', rx_color='midnightblue', rx_plot=None, **kwargs):
-    """Plots a visual representation of the environment.
-
-    :param env: environment description
-    :param surface_color: color of the surface (see `Bokeh colors <https://bokeh.pydata.org/en/latest/docs/reference/colors.html>`_)
-    :param bottom_color: color of the bottom (see `Bokeh colors <https://bokeh.pydata.org/en/latest/docs/reference/colors.html>`_)
-    :param tx_color: color of transmitters (see `Bokeh colors <https://bokeh.pydata.org/en/latest/docs/reference/colors.html>`_)
-    :param rx_color: color of receviers (see `Bokeh colors <https://bokeh.pydata.org/en/latest/docs/reference/colors.html>`_)
-    :param rx_plot: True to plot all receivers, False to not plot any receivers, None to automatically decide
-
-    Other keyword arguments applicable for `arlpy.plot.plot()` are also supported.
-
-    The surface, bottom, transmitters (marker: '*') and receivers (marker: 'o')
-    are plotted in the environment. If `rx_plot` is set to None and there are
-    more than 2000 receivers, they are not plotted.
-
-    >>> import arlpy.uwapm as pm
-    >>> env = pm.create_env2d(depth=[[0, 40], [100, 30], [500, 35], [700, 20], [1000,45]])
-    >>> pm.plot_env(env)
-    """
-    env = check_env2d(env)
-    min_x = 0
-    max_x = _np.max(env['rx_range'])
-    if max_x-min_x > 10000:
-        divisor = 1000
-        min_x /= divisor
-        max_x /= divisor
-        xlabel = 'Range (km)'
-    else:
-        divisor = 1
-        xlabel = 'Range (m)'
-    if env['top_interface'] is None:
-        min_y = 0
-    else:
-        min_y = _np.min(env['top_interface'][:,1])
-    if _np.size(env['bot_interface']) > 1:
-        max_y = _np.max(env['bot_interface'][:,1])
-    else:
-        max_y = env['bot_interface']
-    mgn_x = 0.01*(max_x-min_x)
-    mgn_y = 0.1*(max_y-min_y)
-    """
-    oh = _plt.hold()
-    if env['top_interface'] is None:
-        _plt.plot([min_x, max_x], [0, 0], xlabel=xlabel, ylabel='Depth (m)', xlim=(min_x-mgn_x, max_x+mgn_x), ylim=(-max_y-mgn_y, -min_y+mgn_y), color=surface_color, **kwargs)
-    else:
-        # linear and curvilinear options use the same altimetry, just with different normals
-        s = env['top_interface']
-        _plt.plot(s[:,0]/divisor, -s[:,1], xlabel=xlabel, ylabel='Depth (m)', xlim=(min_x-mgn_x, max_x+mgn_x), ylim=(-max_y-mgn_y, -min_y+mgn_y), color=surface_color, **kwargs)
-    if _np.size(env['bot_interface']) == 1:
-        _plt.plot([min_x, max_x], [-env['bot_interface'], -env['bot_interface']], color=bottom_color)
-    else:
-        # linear and curvilinear options use the same bathymetry, just with different normals
-        s = env['bot_interface']
-        _plt.plot(s[:,0]/divisor, -s[:,1], color=bottom_color)
-    txd = env['tx_depth']
-    _plt.plot([0]*_np.size(txd), -txd, marker='*', style=None, color=tx_color)
-    if rx_plot is None:
-        rx_plot = _np.size(env['rx_depth'])*_np.size(env['rx_range']) < 2000
-    if rx_plot:
-        rxr = env['rx_range']
-        if _np.size(rxr) == 1:
-            rxr = [rxr]
-        for r in _np.array(rxr):
-            rxd = env['rx_depth']
-            _plt.plot([r/divisor]*_np.size(rxd), -rxd, marker='o', style=None, color=rx_color)
-    _plt.hold(oh)
-    """
-    
-def plot_ssp(env, **kwargs):
-    """Plots the sound speed profile.
-
-    :param env: environment description
-
-    Other keyword arguments applicable for `arlpy.plot.plot()` are also supported.
-
-    If the sound speed profile is range-dependent, this function only plots the first profile.
-
-    >>> import arlpy.uwapm as pm
-    >>> env = pm.create_env2d(soundspeed=[[ 0, 1540], [10, 1530], [20, 1532], [25, 1533], [30, 1535]])
-    >>> pm.plot_ssp(env)
-    """
-    env = check_env2d(env)
-    svp = env['ssp']
-    if isinstance(svp, _pd.DataFrame):
-        svp = _np.hstack((_np.array([svp.index]).T, _np.asarray(svp)))
-    if _np.size(svp) == 1:
-        if _np.size(env['bot_interface']) > 1:
-            max_y = _np.max(env['bot_interface'][:,1])
-        else:
-            max_y = env['bot_interface']
-        """
-        _plt.plot([svp, svp], [0, -max_y], xlabel='Soundspeed (m/s)', ylabel='Depth (m)', **kwargs)
-        """
-    elif env['ssp_interp'] == spline:
-        s = svp
-        ynew = _np.linspace(_np.min(svp[:,0]), _np.max(svp[:,0]), 100)
-        tck = _interp.splrep(svp[:,0], svp[:,1], s=0)
-        xnew = _interp.splev(ynew, tck, der=0)
-        """
-        _plt.plot(xnew, -ynew, xlabel='Soundspeed (m/s)', ylabel='Depth (m)', hold=True, **kwargs)
-        _plt.plot(svp[:,1], -svp[:,0], marker='.', style=None, **kwargs)
-        """
-    else:
-        """
-        _plt.plot(svp[:,1], -svp[:,0], xlabel='Soundspeed (m/s)', ylabel='Depth (m)', **kwargs)
-        """
-        pass
 
 def compute_arrivals(env, model=None, debug=False):
     """Compute arrivals between each transmitter and receiver.
@@ -837,7 +732,7 @@ def plot_absorption(env, Title='', vmin=0, vmax=20, Nxy=500, **kwargs):
 
     Xb = _np.array(env['bot_range'])
     Yb = _np.array(env['bot_depth'] - _np.max(env['bot_interface'][:, 1]), ndmin=1)
-    Zb = _np.array(_np.array(env['bot_absorption'], ndmin=2))
+    Zb = _np.array(_np.array(env['bot_attenuation'], ndmin=2))
 
     if env['model'] == 'BELLHOP':
         Xb = [0, env['rx_range'][-1]]
@@ -1225,11 +1120,11 @@ class _Bellhop:
             print(f"[INFO] {env['model']}: Multiple bottom soundspeed profiles not supported, using average value.")
         if env['bot_density'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom density profiles not supported, using average value.")
-        if env['bot_absorption'].ndim > 0:
+        if env['bot_attenuation'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom absorption profiles not supported, using average value.")
         self.bts = _np.mean(env['bot_ssp'])
         self.btd = _np.mean(env['bot_density'])
-        self.bta = _np.mean(env['bot_absorption'])
+        self.bta = _np.mean(env['bot_attenuation'])
         self._print(fh, "%0.6f %0.6f 0.0 %0.6f %0.6f /" % (max_depth, self.bts, self.btd/1000, self.bta))
         self._print_array(fh, env['tx_depth'])
         self._print_array(fh, env['rx_depth'])
@@ -1411,6 +1306,10 @@ class BELLHOP:
         self.eigen_rays        = None
         self.arrivals          = None
         self.impulse_response  = None
+        self.step              = 0
+
+    def set_step(self, step):
+        self.step = step
 
     def set_env(self, env, cp=False, **kwargs):
         
@@ -1428,7 +1327,6 @@ class BELLHOP:
         # Numerical box definition
         self.rbox = 1.01*_np.max(_np.abs(env['rx_range']))
         self.zbox = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
-        self.step = 0 # Automatic mode by default
                 
         self.check_env()
 
@@ -2001,53 +1899,79 @@ class BELLHOP:
         # @todo Plot SSP in 1D or 2D taking inoto account interpolation process for validation !!
         pass
     
+    def plot_beam(self, vmin=-60, vmax=20, **kwargs):
+        
+        fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+        
+        ax.plot((self.env['tx_beam'][:, 0]+180)/360*2*_np.pi-_np.pi, self.env['tx_beam'][:, 1])
+            
+        ax.set_rlabel_position(-22.5)  # Move radial labels away from plotted line
+        ax.grid(True)
+        ax.set_ylim(vmin, vmax)
+        ax.set_title(f"[BELLHOP - Source directivity [dB]] {self.env['name']}", va='bottom')
+        plt.tight_layout()
+        plt.show()
+        
+        return fig, ax
+    
     def plot_transmission_loss(self, vmin=-120, vmax=0, debug=False):
         """
         Plots transmission loss.
-    
+
         Parameters:
-            tloss (array): Complex transmission loss.
-            env (dict): Environment definition.
-    
+            vmin (float): Minimum value for color scale (default: -120).
+            vmax (float): Maximum value for color scale (default: 0).
+            debug (bool): Whether to enable debug mode (default: False).
+
         Returns:
             fig, ax: Figure and axis objects for the plot.
         """
-    
+
         fig, ax = plt.subplots()
         X = self.env['rx_range']
         Y = self.env['rx_depth']
 
         tlossplt = 20 * _np.log10(_np.finfo(float).eps + _np.abs(_np.array(self.transmission_loss)))
-        
+
         # Remove TL in sediment/surface
-        for ii, x in enumerate(X):
-            ylim = _np.interp(x, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
-            for jj, y in enumerate(Y):
-                if y > ylim:
-                    tlossplt[jj, ii] = vmax
-    
+        for i, range_val in enumerate(X):
+            ylim = _np.interp(range_val, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
+            for j, depth_val in enumerate(Y):
+                if depth_val > ylim:
+                    tlossplt[j, i] = vmax
+
         if self.env['top_interface'] is not None:
-            for ii, x in enumerate(X):
-                ylim = _np.interp(x, self.env['top_interface'][:, 0], self.env['top_interface'][:, 1])
-                for jj, y in enumerate(Y):
-                    if y < ylim:
-                        tlossplt[jj, ii] = _np.NaN
+            for i, range_val in enumerate(X):
+                ylim = _np.interp(range_val, self.env['top_interface'][:, 0], self.env['top_interface'][:, 1])
+                for j, depth_val in enumerate(Y):
+                    if depth_val < ylim:
+                        tlossplt[j, i] = _np.NaN
             ax.plot(self.env['top_interface'][:, 0] / 1000, self.env['top_interface'][:, 1], 'b', linewidth=3)
+
+        # Plot the transmission loss map using imshow
+        im1 = ax.imshow(tlossplt, extent=[X[0] / 1000, X[-1] / 1000, Y[-1], Y[0]], cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
         
-        X, Y = _np.meshgrid(X, Y)
-        im1 = ax.pcolormesh(X / 1000, Y, tlossplt, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
+        # Plot the bottom interface
         ax.plot(self.env['bot_interface'][:, 0] / 1000, self.env['bot_interface'][:, 1], 'k', linewidth=3)
-        ax.set_xlim((X[0, 0] / 1000, X[-1, -1] / 1000))
-        ax.set_ylim((Y[0, 0], Y[-1, -1]))
+        
+        # Set plot properties
+        ax.set_xlim((X[0] / 1000, X[-1] / 1000))
+        ax.set_ylim((Y[0], Y[-1]))
         ax.set_xlabel('Range [km]')
         ax.set_ylabel('Depth [m]')
-        ax.set_title(f"[ BELLHOP - Propagation Loss @ {self.env['tx_freq']} Hz ] {self.env['name']}")
+        ax.set_title(f"[BELLHOP - Transmission loss @ {self.env['tx_freq']} Hz] {self.env['name']}")
+        
+        # Add color bar
         cbar1 = fig.colorbar(im1, ax=ax)
         cbar1.ax.set_ylabel('Loss [dB]')
+        
+        # Invert y-axis for depth
         ax.invert_yaxis()
+        
+        # Adjust layout and display plot
         plt.tight_layout()
         plt.show()
-        
+
         return fig, ax
     
     def plot_raw_ssp(self, Nxy=500, **kwargs):
@@ -2055,67 +1979,61 @@ class BELLHOP:
         Plots the sound speed profile of the environment.
         
         Parameters:
-        env (dict): Environmental parameters.
-        Title (str): Title for the plot.
-        Nxy (int): Number of points in the x and y directions.
-        **kwargs: Additional keyword arguments for customization.
-        
+            Nxy (int): Number of points in the x and y directions.
+            **kwargs: Additional keyword arguments for customization.
+            
         Returns:
-        fig, ax: Figure and axis objects for the plot.
+            fig, ax: Figure and axis objects for the plot.
         """
-        
         fig, ax = plt.subplots()
         
         if _np.size(self.env['ssp_range']) > 1:
-                
             X, Y, Z = _np.array(self.env['ssp_range']), _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
             
-            Zb = kwargs.get('vmax', _np.max(self.env['ssp'])*4) 
-    
+            Zb = kwargs.get('vmax', _np.max(self.env['ssp']) * 4) 
+            
             Xg = _np.linspace(self.env['rx_range'][0], self.env['rx_range'][-1], Nxy)
             Yg = _np.linspace(0, Y[-1], Nxy)
             Zg = _np.zeros([len(Yg), len(Xg)])
             
             # Bathy
-            rb, zb = _np.array(self.env['bot_interface'][:,0]), _np.array(self.env['bot_interface'][:,1])
+            rb, zb = _np.array(self.env['bot_interface'][:, 0]), _np.array(self.env['bot_interface'][:, 1])
             
             # Re-compute map over grid
             for ii, x in enumerate(Xg):
                 for jj, y in enumerate(Yg):
-                    if y > _np.interp(x, rb, zb):  # If in sediment (interpolation of bathymetry line between samples)
+                    if y > _np.interp(x, rb, zb):  
                         Zg[jj, ii] = Zb
-                    else:  # Else it is in water column
+                    else:  
                         y_idx = _np.argmin(_np.abs(Y - y))
                         x_idx = _np.argmin(_np.abs(X - x))
                         Zg[jj, ii] = Z[y_idx, x_idx]
              
-            # Plot surface if Bellhop
+            # Plot surface
             for ii, x in enumerate(Xg):
-                ylim = _np.interp(x, self.env['top_interface'][:,0], self.env['top_interface'][:,1])
+                ylim = _np.interp(x, self.env['top_interface'][:, 0], self.env['top_interface'][:, 1])
                 Zg[Yg < ylim, ii] = _np.nan
-            ax.plot(self.env['top_interface'][:,0]/1000, self.env['top_interface'][:,1], 'b', linewidth=3)    
+            ax.plot(self.env['top_interface'][:, 0] / 1000, self.env['top_interface'][:, 1], 'b', linewidth=3)    
     
             # Plot
-            Xg, Yg = _np.meshgrid(Xg/1000, Yg)
-            im = ax.pcolormesh(Xg, Yg, Zg, cmap='jet', shading='gouraud', **kwargs)
-            ax.plot(rb/1000, zb, 'k', linewidth=3)
+            im = ax.imshow(Zg, cmap='jet', aspect='auto', extent=[Xg[0]/1000, Xg[-1]/1000, Yg[-1], Yg[0]], **kwargs)
+            ax.plot(rb / 1000, zb, 'k', linewidth=3)
             ax.scatter(0, self.env['tx_depth'], label="Stars", color="r", s=500, marker="*") 
             cbar = fig.colorbar(im, ax=ax)
             cbar.ax.set_ylabel('Sound speed [m/s]')
-            ax.set_xlim((self.env['rx_range'][0]/1000,self.env['rx_range'][-1]/1000))
-            ax.set_ylim((self.env['rx_depth'][0],self.env['rx_depth'][-1]))
+            ax.set_xlim((self.env['rx_range'][0] / 1000, self.env['rx_range'][-1] / 1000))
+            ax.set_ylim((self.env['rx_depth'][0], self.env['rx_depth'][-1]))
             ax.set_xlabel('Range [km]')
             ax.set_ylabel('Depth [m]')
-            ax.set_title(f"[ BELLHOP - Raw sound speed profile ] {self.env['name']}")
+            ax.set_title(f"[BELLHOP - Raw sound speed profile] {self.env['name']}")
             ax.invert_yaxis()
             plt.tight_layout()
             plt.show()
-        
         else:
             vmax = kwargs.get('vmax', _np.max(self.env['ssp']))
             vmin = kwargs.get('vmin', _np.min(self.env['ssp']))
             Y, Z = _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
-            ax.set_title(f"[ BELLHOP - Raw sound speed profile ] {self.env['name']}")
+            ax.set_title(f"[BELLHOP - Raw sound speed profile] {self.env['name']}")
             ax.set_xlim((vmin, vmax))
             ax.invert_yaxis()
             ax.grid(True)
@@ -2126,7 +2044,7 @@ class BELLHOP:
             plt.show()
         
         return fig, ax
-    
+        
     def plot_arrivals(self, dB=False, color='steelblue', **kwargs):
         """
         Plots the arrival times and amplitudes.
@@ -2166,7 +2084,7 @@ class BELLHOP:
             ax.stem(t, y, linefmt=color, markerfmt=color, basefmt='k')
 
         ax.set_ylabel(ylabel)
-        ax.set_title(f"[ BELLHOP - Arrivals ] {self.env['name']}")
+        ax.set_title(f"[BELLHOP - Arrivals] {self.env['name']}")
         ax.set_xlabel('Arrival time [s]')
         ax.grid('all')
         plt.tight_layout()
@@ -2174,7 +2092,7 @@ class BELLHOP:
 
         return fig, ax
     
-    def plot_rays(self, number=10, invert_colors=False, **kwargs):
+    def plot_rays(self, number=_np.Inf, invert_colors=False, **kwargs):
 
         # Sorting rays by bottom bounces in descending order
         self.rays = self.rays.sort_values('surface_bounces', ascending=True)
@@ -2226,8 +2144,9 @@ class BELLHOP:
         ax.set_ylabel("Depth [m]")
         ax.set_ylim((_np.min(self.env['top_interface'][:,1]), _np.max(self.env['bot_interface'][:, 1])))
         ax.set_xlim((0, self.env['rx_range'] / divisor))
-        ax.set_title(f"[ BELLHOP - Rays ] {self.env['name']}")
+        ax.set_title(f"[BELLHOP - Rays] {self.env['name']}")
         ax.scatter(0, self.env['tx_depth'], label="Source", color="k", s=250, marker="*")
+        ax.scatter(self.env['rx_range']/1000, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
         ax.invert_yaxis()
         ax.grid('all')
         plt.tight_layout()
@@ -2284,9 +2203,9 @@ class BELLHOP:
         ax.set_ylabel("Depth [m]")
         ax.set_ylim((_np.min(self.env['top_interface'][:,1]), _np.max(self.env['bot_interface'][:, 1])))
         ax.set_xlim((0, self.env['rx_range'] / divisor))
-        ax.set_title(f"[ BELLHOP - Eigen rays ] {self.env['name']}")
+        ax.set_title(f"[BELLHOP - Eigen rays] {self.env['name']}")
         ax.scatter(0, self.env['tx_depth'], label="Source", color="k", s=250, marker="*")
-        ax.scatter(self.env['rx_range'], self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+        ax.scatter(self.env['rx_range']/1000, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
         ax.invert_yaxis()
         ax.grid('all')
         plt.tight_layout()
@@ -2300,14 +2219,14 @@ class BELLHOP:
         if dB:
             ir = 20 * _np.log10(_np.abs(self.impulse_response) + _np.finfo(float).eps)
         else:
-            ir = self.impulse_response
+            ir = self.impulse_response.real
 
         # Plot the impulse response using stem plot
         fig, ax = plt.subplots()
-        ax.stem(ir, linefmt=color, markerfmt=color, basefmt='k', **kwargs)
+        ax.plot(ir)
         ax.set_xlabel('Sample [S]')
         ax.set_ylabel('Amplitude')
-        ax.set_title(f"[ BELLHOP - Impulse response @ {self.impulse_response_fs} S/s ] {self.env['name']}")
+        ax.set_title(f"[BELLHOP - Impulse response @ {self.impulse_response_fs} S/s] {self.env['name']}")
         ax.grid('all')
         plt.tight_layout()
         plt.show()
@@ -2825,9 +2744,9 @@ class _Kraken:
             print(f"[INFO] {env['model']}: Multiple bottom density profiles not supported, using average value.")
             self.btd = _np.mean(env['bot_density'])
             
-        if env['bot_absorption'].ndim > 0:
+        if env['bot_attenuation'].ndim > 0:
             print(f"[INFO] {env['model']}: Multiple bottom absorption profiles not supported, using average value.")
-            self.bta = _np.mean(env['bot_absorption'])
+            self.bta = _np.mean(env['bot_attenuation'])
     
         # @todo    Not sure if this condition is required !
         if env['top_boundary'] == analytic:
@@ -3151,6 +3070,7 @@ class RAM:
         else:
             self.set_env(env, cp=cp)
         self.transmission_loss = None 
+        self.step              = 0
         
 
     def set_env(self, env, cp=False, **kwargs):
@@ -3197,7 +3117,7 @@ class RAM:
                            _np.array(self.env['bot_range']),
                            _np.array(self.env['bot_ssp'],ndmin=2),
                            _np.array(self.env['bot_density'],ndmin=2),
-                           _np.array(self.env['bot_absorption'],ndmin=2),
+                           _np.array(self.env['bot_attenuation'],ndmin=2),
                            _np.array(self.env['bot_interface'],ndmin=2),
                            rmax  = self.rbox,
                            dr    = dr,
@@ -3229,7 +3149,7 @@ class RAM:
                            _np.flip(-_np.array(self.env['bot_range'])),
                            _np.fliplr(_np.array(self.env['bot_ssp'],ndmin=2)),
                            _np.fliplr(_np.array(self.env['bot_density'],ndmin=2)),
-                           _np.fliplr(_np.array(self.env['bot_absorption'],ndmin=2)),
+                           _np.fliplr(_np.array(self.env['bot_attenuation'],ndmin=2)),
                            _np.column_stack((_np.flip(-self.env['bot_interface'][:,0]), _np.flip(self.env['bot_interface'][:,1]))),
                            rmax  = self.rbox,
                            dr    = dr,
@@ -3239,6 +3159,9 @@ class RAM:
                            zmplt = self.zbox
                            )
     
+    def set_step(self, step):
+        self.step = step
+        self.set_env(self.env)
         
     def check_env(self):
         # Right propagation
@@ -3272,7 +3195,7 @@ class RAM:
                            _np.array(self.env['bot_range']),
                            _np.array(self.env['bot_ssp'],ndmin=2),
                            _np.array(self.env['bot_density'],ndmin=2),
-                           _np.array(self.env['bot_absorption'],ndmin=2),
+                           _np.array(self.env['bot_attenuation'],ndmin=2),
                            _np.array(self.env['bot_interface'],ndmin=2),
                            rmax  = ndr*dr*(_np.size(self.env['rx_range'])*ratio),
                            dr    = dr,
@@ -3362,52 +3285,119 @@ class RAM:
     def plot_transmission_loss(self, vmin=-120, vmax=0, **kwargs):
         """
         Plots the transmission loss of the environment.
-        
+
         Parameters:
             vmin (float): Minimum value for the transmission loss.
             vmax (float): Maximum value for the transmission loss.
             **kwargs: Additional keyword arguments for customization.
-            
+
         Returns:
             fig, ax: Figure and axis objects for the plot.
         """
         fig, ax = plt.subplots()
         X = self.env['rx_range']
         Y = self.env['rx_depth']
-    
+
         tlossplt = 20 * _np.log10(_np.finfo(float).eps + _np.abs(_np.array(self.transmission_loss)))
-    
-        # Remove TL in sediment/surface
-        for ii, x in enumerate(X):
+
+        # Remove transmission loss in sediment/surface
+        for i, x in enumerate(X):
             ylim = _np.interp(x, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
-            for jj, y in enumerate(Y):
+            for j, y in enumerate(Y):
                 if y > ylim:
-                    tlossplt[jj, ii] = vmax
-    
-        # Plot surface
-        ax.plot([X[0], X[-1] / 1000], [0, 0], 'b', linewidth=3)
-        
-        # Plot map
-        X, Y = _np.meshgrid(X, Y)
-        im1 = ax.pcolormesh(X / 1000, Y, tlossplt, cmap='jet', shading='gouraud', vmin=vmin, vmax=vmax)
-        
-        # Plot bottom interface
+                    tlossplt[j, i] = vmax
+
+        # Plot the surface
+        ax.plot([X[0]/1000, X[-1]/1000], [0, 0], 'b', linewidth=3)
+
+        # Plot the transmission loss map using imshow
+        im1 = ax.imshow(tlossplt, extent=[X[0] / 1000, X[-1] / 1000, Y[-1], Y[0]], cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
+
+        # Plot the bottom interface
         ax.plot(self.env['bot_interface'][:, 0] / 1000, self.env['bot_interface'][:, 1], 'k', linewidth=3)
-        
-        ax.set_xlim((X[0, 0] / 1000, X[-1, -1] / 1000))
-        ax.set_ylim((self.env['rx_depth'][0], Y[-1, -1]))
+
+        # Set plot properties
+        ax.set_xlim((X[0] / 1000, X[-1] / 1000))
+        ax.set_ylim((Y[0], Y[-1]))
         ax.set_xlabel('Range [km]')
         ax.set_ylabel('Depth [m]')
-        ax.set_title(f"[ RAM - Propagation Loss @ {self.env['tx_freq']} Hz ] {self.env['name']}")
+        ax.set_title(f"[RAM - Transmission loss @ {self.env['tx_freq']} Hz] {self.env['name']}")
+
+        # Add color bar
         cbar1 = fig.colorbar(im1, ax=ax)
         cbar1.ax.set_ylabel('Loss [dB]')
+
+        # Invert y-axis for depth
+        ax.invert_yaxis()
+
+        # Adjust layout and display plot
+        plt.tight_layout()
+        plt.show()
+
+        return fig, ax
+
+    def plot_bot_density(self, vmin=0, vmax=4, Nxy=500, **kwargs):
+        """
+        Plots the density profile of the sediment in the environment.
+    
+        Parameters:
+            Title (str): Title for the plot.
+            vmin (float): Minimum value for the density color map.
+            vmax (float): Maximum value for the density color map.
+            Nxy (int): Number of points in the x and y directions.
+            **kwargs: Additional keyword arguments for customization.
+    
+        Returns:
+            fig, ax: Figure and axis objects for the plot.
+        """
+        
+        fig, ax = plt.subplots()
+        
+        # Extract density data
+        Xb = _np.array(self.env['bot_range'])
+        Yb = _np.array(self.env['bot_depth'])
+        Zb = _np.array(self.env['bot_density'], ndmin=2)
+        
+        # Generate grid
+        Xg = _np.linspace(self.env['rx_range'][0], self.env['rx_range'][-1], Nxy)
+        Yg = _np.linspace(self.env['rx_depth'][0], self.env['rx_depth'][-1], Nxy)
+        Zg = _np.zeros([len(Yg), len(Xg)])
+        
+        # Bathy
+        rb, zb = _np.array(self.env['bot_interface'][:, 0]), _np.array(self.env['bot_interface'][:, 1])
+        
+        # Re-compute map over grid
+        for ii, x in enumerate(Xg):  # For all map pixels
+            for jj, y in enumerate(Yg):
+                if y > _np.interp(x, rb, zb):  # If in sediment (interpolation of bathymetry line between samples)
+                    x_idx = _np.argmin(_np.abs(Xb - x))
+                    y_idx = _np.argmin(_np.abs(Yb - y))
+                    Zg[jj, ii] = Zb[y_idx, x_idx]
+                else:  # Else it is in water column
+                    # Set minimum value
+                    Zg[jj, ii] = vmin
+    
+        # Plot surface
+        ax.plot([Xg[0]/1000, Xg[-1]/1000], [0, 0], 'b', linewidth=3)
+    
+        # Plot
+        im = ax.imshow(Zg, cmap='jet', extent=[Xg[0] / 1000, Xg[-1] / 1000, Yg[-1], Yg[0]], aspect='auto', vmin=vmin, vmax=vmax)
+        ax.plot(rb/1000, zb, 'k', linewidth=3)
+        ax.scatter(0, self.env['tx_depth'], label="Stars", color="r", s=500, marker="*")
+        ax.set_xlim((Xg[0] / 1000, Xg[-1] / 1000))
+        ax.set_ylim((Yg[0], Yg[-1]))
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.ax.set_ylabel('Density [$g.cm^{3}$]')
+        ax.set_xlabel('Range [km]')
+        ax.set_ylabel('Depth [m]')
+        ax.set_title(f"[RAM - Bottom density] {self.env['name']}")
         ax.invert_yaxis()
         plt.tight_layout()
         plt.show()
-        
+    
         return fig, ax
 
-    def plot_raw_ssp(self, Nxy=500, **kwargs):
+    def plot_raw_ssp(self, vmin=1200, vmax=7500, Nxy=500, **kwargs):
         """
         Plots the sound speed profile of the environment.
         
@@ -3448,8 +3438,7 @@ class RAM:
             
             # Plot
             ax.plot([Xg[0] / 1000, Xg[-1] / 1000], [0, 0], 'b', linewidth=3)  # Flat surface
-            Xg, Yg = _np.meshgrid(Xg / 1000, Yg)
-            im = ax.pcolormesh(Xg, Yg, Zg, cmap='jet', shading='gouraud', **kwargs)
+            im = ax.imshow(Zg, cmap='jet', extent=[Xg[0] / 1000, Xg[-1] / 1000, Yg[-1], Yg[0]], aspect='auto', vmin=vmin, vmax=vmax)
             ax.plot(rb / 1000, zb, 'k', linewidth=3)  # Bathy
             ax.scatter(0, self.env['tx_depth'], label="Stars", color="r", s=500, marker="*")  # Stars
             cbar = fig.colorbar(im, ax=ax)
@@ -3458,7 +3447,7 @@ class RAM:
             ax.set_ylim((self.env['rx_depth'][0], self.env['rx_depth'][-1]))
             ax.set_xlabel('Range [km]')
             ax.set_ylabel('Depth [m]')
-            ax.set_title(f"[ RAM - Raw sound speed profile ] {self.env['name']}")
+            ax.set_title(f"[RAM - Raw sound speed profile] {self.env['name']}")
             ax.invert_yaxis()
             plt.tight_layout()
             plt.show()
@@ -3468,7 +3457,7 @@ class RAM:
             vmax = kwargs.get('vmax', _np.max(self.env['ssp']))
             vmin = kwargs.get('vmin', _np.min(self.env['ssp']))
             Y, Z = _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
-            ax.set_title(f"[ RAM - Raw sound speed profile ] {self.env['name']}")
+            ax.set_title(f"[RAM - Raw sound speed profile] {self.env['name']}")
             ax.set_xlim((vmin, vmax))
             ax.invert_yaxis()
             ax.grid(True)
@@ -3478,6 +3467,66 @@ class RAM:
             plt.tight_layout()
             plt.show()
             
+        return fig, ax
+
+    def plot_bot_attn(self, vmin=0, vmax=0.04, Nxy=500, **kwargs):
+        """
+        Plots the absorption profile in the environment.
+    
+        Parameters:
+            vmin (float): Minimum value for the absorption color map.
+            vmax (float): Maximum value for the absorption color map.
+            Nxy (int): Number of points in the x and y directions.
+            **kwargs: Additional keyword arguments for customization.
+    
+        Returns:
+            fig, ax: Figure and axis objects for the plot.
+        """
+    
+        fig, ax = plt.subplots()
+    
+        # Extract absorption data
+        Xb = _np.array(self.env['bot_range'])
+        Yb = _np.array(self.env['bot_depth'])
+        Zb = _np.array(_np.array(self.env['bot_attenuation'], ndmin=2))
+    
+        # Generate grid
+        Xg = _np.linspace(self.env['rx_range'][0], self.env['rx_range'][-1], Nxy)
+        Yg = _np.linspace(self.env['rx_depth'][0], self.env['rx_depth'][-1], Nxy)
+        Zg = _np.zeros([len(Yg), len(Xg)])
+    
+        # Bathy
+        rb, zb = _np.array(self.env['bot_interface'][:, 0]), _np.array(self.env['bot_interface'][:, 1])
+    
+        # Re-compute map over grid
+        for ii, x in enumerate(Xg):  # For all map pixels
+            for jj, y in enumerate(Yg):
+                if y > _np.interp(x, rb, zb):  # If in sediment (interpolation of bathymetry line between samples)
+                    x_idx = _np.argmin(_np.abs(Xb - x))
+                    y_idx = _np.argmin(_np.abs(Yb - y))
+                    Zg[jj, ii] = Zb[y_idx, x_idx]
+                else:  # Else it is in water column
+                    # Set minimum value
+                    Zg[jj, ii] = vmin
+    
+        # Plot surface
+        ax.plot([Xg[0]/1000, Xg[-1]/1000], [0, 0], 'b', linewidth=3)
+    
+        # Plot
+        im = ax.imshow(Zg, cmap='jet', aspect='auto', extent=[Xg[0]/1000, Xg[-1]/1000, Yg[-1], Yg[0]], vmin=vmin, vmax=vmax)
+        ax.plot(rb/1000, zb, 'k', linewidth=3)
+        ax.scatter(0, self.env['tx_depth'], label="Stars", color="r", s=500, marker="*")
+        ax.set_xlim((self.env['rx_range'][0] / 1000, self.env['rx_range'][-1] / 1000))
+        ax.set_ylim((self.env['rx_depth'][0], self.env['rx_depth'][-1]))
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.ax.set_ylabel('Attenuation [dB/$\lambda$]')
+        ax.set_xlabel('Range [km]')
+        ax.set_ylabel('Depth [m]')
+        ax.set_title(f"[RAM - Bottom attenuation] {self.env['name']}")
+        ax.invert_yaxis()
+        plt.tight_layout()
+        plt.show()
+    
         return fig, ax
 
     
