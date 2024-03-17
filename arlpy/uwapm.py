@@ -1,6 +1,6 @@
 ##############################################################################
 #
-# Copyright (c) 2018, Mandar Chitre
+# cpright (c) 2018, Mandar Chitre
 #
 # This file is initially part of arlpy which is released under Simplified BSD License.
 # See file LICENSE or go to http://www.opensource.org/licenses/BSD-3-Clause
@@ -114,7 +114,7 @@ def make_env2d(**kv):
     Parameters:
         auto_xSettings (bool, optional): Whether to automatically set numerical box boundaries. Defaults to True.
         auto_xBox (bool, optional): Whether to adjust the environment border by padding input data. Defaults to True.
-        copy (bool, optional): Whether to return a shallow copy of the environment. Defaults to False.
+        cp (bool, optional): Whether to return a shallow cp of the environment. Defaults to False.
         **kv: Additional keyword arguments to customize the environment parameters.
 
     Returns:
@@ -499,7 +499,7 @@ def compute_eigenrays(env, tx_depth_ndx=0, rx_depth_ndx=0, rx_range_ndx=0, model
     >>> pm.plot_rays(rays, width=1000)
     """
     env = check_env2d(env)
-    env = env.copy()
+    env = env.cp()
     if _np.size(env['tx_depth']) > 1:
         env['tx_depth'] = env['tx_depth'][tx_depth_ndx]
     if _np.size(env['rx_depth']) > 1:
@@ -527,7 +527,7 @@ def compute_rays(env, tx_depth_ndx=0, model=None, debug=False):
     """
     env = check_env2d(env)
     if _np.size(env['tx_depth']) > 1:
-        env = env.copy()
+        env = env.cp()
         env['tx_depth'] = env['tx_depth'][tx_depth_ndx]
     (model_name, model) = _select_model(env, rays, model)
     if debug:
@@ -562,7 +562,7 @@ def compute_transmission_loss(env, tx_depth_ndx=0, mode=coherent, model=None, de
         mode = TL
     
     if _np.size(env['tx_depth']) > 1:
-        env = env.copy()
+        env = env.cp()
         env['tx_depth'] = env['tx_depth'][tx_depth_ndx]
 
     (model_name, model_process) = _select_model(env, mode, env['model'])
@@ -1401,18 +1401,18 @@ _models.append(('BELLHOP', _Bellhop))
 
 class BELLHOP:
 
-    def __init__(self, env=None, copy=False):
+    def __init__(self, env=None, cp=False):
         
         if env is None:
             self.env           = None
         else:
-            self.set_env(env, copy=copy)
+            self.set_env(env, cp=cp)
         self.transmission_loss = None 
         self.eigen_rays        = None
         self.arrivals          = None
         self.impulse_response  = None
 
-    def set_env(self, env, copy=False, **kwargs):
+    def set_env(self, env, cp=False, **kwargs):
         
         """Set a new 2D underwater environment.
 
@@ -1420,8 +1420,8 @@ class BELLHOP:
         available and their default values. The environment parameters may be changed 
         by passing keyword arguments or modified later using a dictionary notation.
         """
-        if copy:
-            self.env =  copy(env)
+        if cp:
+            self.env =  dict(env)
         else:
             self.env = env
         
@@ -1535,7 +1535,7 @@ class BELLHOP:
        
         return True
 
-    def compute_tl(self, debug=False, **kwargs):
+    def compute_transmission_loss(self, debug=False, **kwargs):
         
         # Assert environment
         self.check_env()
@@ -1573,7 +1573,108 @@ class BELLHOP:
         
         return self.transmission_loss
         
+    def compute_arrivals(self, debug=False):
+        
+        # Assert environment
+        self.check_env()
+        
+        # Define mode taskcode
+        taskcode = 'A'
+           
+        # Generate temporary env file and get base name used for all temporary files
+        fname_base = self._create_env_file(taskcode, debug=debug)
+        
+        # Debug print
+        if debug:
+            print('[DEBUG] BELLHOP: Working files: '+fname_base+'.')
+        
+        # Compute Arrivals
+        if self._bellhop(fname_base):
+            err = self._check_error(fname_base)
+            if err is not None:
+                raise RuntimeError(err) 
+            else:
+                try:
+                    self.arrivals = self._load_arrivals(fname_base)
+                except FileNotFoundError:
+                    raise FileNotFoundError('BELLHOP: Fortran execution did not generate expected output file !')
+        
+        # Delete temporary generated files
+        self._unlink_all(fname_base)     
+        
+        return self.arrivals
+        
+
+    def compute_rays(self, debug=False):
+        
+        # Assert environment
+        self.check_env()
+        
+        # Define mode taskcode
+        taskcode = 'R'
+           
+        # Generate temporary env file and get base name used for all temporary files
+        fname_base = self._create_env_file(taskcode, debug=debug)
+        
+        # Debug print
+        if debug:
+            print('[DEBUG] BELLHOP: Working files: '+fname_base+'.')
+        
+        # Compute Arrivals
+        if self._bellhop(fname_base):
+            err = self._check_error(fname_base)
+            if err is not None:
+                raise RuntimeError(err) 
+            else:
+                try:
+                    self.rays = self._load_rays(fname_base)
+                except FileNotFoundError:
+                    raise FileNotFoundError('BELLHOP: Fortran execution did not generate expected output file !')
+        
+        # Delete temporary generated files
+        self._unlink_all(fname_base)     
+        
+        return self.rays
     
+    def compute_eigen_rays(self, debug=False):
+        
+        # Assert environment
+        self.check_env()
+        
+        # Define mode taskcode
+        taskcode = 'E'
+           
+        # Generate temporary env file and get base name used for all temporary files
+        fname_base = self._create_env_file(taskcode, debug=debug)
+        
+        # Debug print
+        if debug:
+            print('[DEBUG] BELLHOP: Working files: '+fname_base+'.')
+        
+        # Compute Arrivals
+        if self._bellhop(fname_base):
+            err = self._check_error(fname_base)
+            if err is not None:
+                raise RuntimeError(err) 
+            else:
+                try:
+                    self.eigen_rays = self._load_rays(fname_base)
+                except FileNotFoundError:
+                    raise FileNotFoundError('BELLHOP: Fortran execution did not generate expected output file !')
+        
+        # Delete temporary generated files
+        self._unlink_all(fname_base)     
+        
+        return self.eigen_rays
+    
+    def compute_impulse_respsonse(self, fs=24000, nArrivals=10, debug=False):
+        
+        self.compute_arrivals(debug=debug)
+        self.impulse_response = arrivals_to_impulse_response(self.arrivals[0:min(nArrivals, len(self.arrivals)-1)], fs, abs_time=False)
+        self.impulse_response_fs = fs
+        return self.impulse_response
+        
+        
     def supports(self, env=None, task=None):
         if env is not None and env['type'] != '2D':
             return False
@@ -1895,15 +1996,12 @@ class BELLHOP:
         
         return fname_base
 
-    def plot_rawSSP(self):
-        # @todo Plot raw input SSP values in 1D or 2D         
-        pass
 
     def plot_interpSSP(self):
         # @todo Plot SSP in 1D or 2D taking inoto account interpolation process for validation !!
         pass
     
-    def plot_tl(self, vmin=-120, vmax=0, debug=False):
+    def plot_transmission_loss(self, vmin=-120, vmax=0, debug=False):
         """
         Plots transmission loss.
     
@@ -1951,7 +2049,8 @@ class BELLHOP:
         plt.show()
         
         return fig, ax
-    def plot_ssp(self, Nxy=500, **kwargs):
+    
+    def plot_raw_ssp(self, Nxy=500, **kwargs):
         """
         Plots the sound speed profile of the environment.
         
@@ -2007,7 +2106,7 @@ class BELLHOP:
             ax.set_ylim((self.env['rx_depth'][0],self.env['rx_depth'][-1]))
             ax.set_xlabel('Range [km]')
             ax.set_ylabel('Depth [m]')
-            ax.set_title(f"[ BELLHOP - Sound speed profile ] {self.env['name']}")
+            ax.set_title(f"[ BELLHOP - Raw sound speed profile ] {self.env['name']}")
             ax.invert_yaxis()
             plt.tight_layout()
             plt.show()
@@ -2016,7 +2115,7 @@ class BELLHOP:
             vmax = kwargs.get('vmax', _np.max(self.env['ssp']))
             vmin = kwargs.get('vmin', _np.min(self.env['ssp']))
             Y, Z = _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
-            ax.set_title(f"[ BELLHOP - Sound speed profile ] {self.env['name']}")
+            ax.set_title(f"[ BELLHOP - Raw sound speed profile ] {self.env['name']}")
             ax.set_xlim((vmin, vmax))
             ax.invert_yaxis()
             ax.grid(True)
@@ -2026,6 +2125,193 @@ class BELLHOP:
             plt.tight_layout()
             plt.show()
         
+        return fig, ax
+    
+    def plot_arrivals(self, dB=False, color='steelblue', **kwargs):
+        """
+        Plots the arrival times and amplitudes.
+
+        Parameters:
+            arrivals (DataFrame): Arrival times (s) and coefficients.
+            env (dict): Environment definition.
+            Title (str): Title for the plot.
+            dB (bool): True to plot in dB, False for linear scale.
+            color (str): Line color (see `Matplotlib colors <https://matplotlib.org/stable/gallery/color/named_colors.html>`_).
+            **kwargs: Other keyword arguments applicable for `matplotlib.pyplot.plot()`.
+
+        Returns:
+            fig, ax: Figure and axis objects for the plot.
+        """
+
+        t0 = min(self.arrivals.time_of_arrival)
+        t1 = max(self.arrivals.time_of_arrival)
+
+        fig, ax = plt.subplots()
+
+        if dB:
+            min_y = 20 * _np.log10(_np.max(_np.abs(self.arrivals.arrival_amplitude))) - 60
+            ylabel = 'Amplitude [dB]'
+        else:
+            ylabel = 'Amplitude'
+            ax.plot([t0, t1], [0, 0], 'r')
+            min_y = 0
+
+        for _, row in self.arrivals.iterrows():
+            t = row.time_of_arrival.real
+            y = _np.abs(row.arrival_amplitude)
+
+            if dB:
+                y = max(20 * _np.log10(_np.finfo(float).eps + y), min_y)
+
+            ax.stem(t, y, linefmt=color, markerfmt=color, basefmt='k')
+
+        ax.set_ylabel(ylabel)
+        ax.set_title(f"[ BELLHOP - Arrivals ] {self.env['name']}")
+        ax.set_xlabel('Arrival time [s]')
+        ax.grid('all')
+        plt.tight_layout()
+        plt.show()
+
+        return fig, ax
+    
+    def plot_rays(self, number=10, invert_colors=False, **kwargs):
+
+        # Sorting rays by bottom bounces in descending order
+        self.rays = self.rays.sort_values('surface_bounces', ascending=True)
+
+        # Determine the maximum amplitude of bottom bounces
+        max_amp = _np.max(_np.abs(self.rays.bottom_bounces)) if len(self.rays.bottom_bounces) > 0 else 0
+
+        if max_amp <= 0:
+            max_amp = 1
+
+        divisor = 1
+        xlabel = 'Range [m]'
+        r = []
+
+        # Flatten ray coordinates for determining the range
+        for _, row in self.rays.iterrows():
+            r += list(row.ray[:, 0])
+
+        if max(r) - min(r) > 10000:
+            divisor = 1000
+            xlabel = 'Range [km]'
+
+        fig, ax = plt.subplots()
+        tot = len(self.rays)
+        ii = 0
+        for _, row in self.rays.iterrows():
+            ii += 1
+            if ii%(int(tot/number)) == 0:
+                num_bnc = row.bottom_bounces + row.surface_bounces
+                if row.bottom_bounces == 0 and row.surface_bounces == 0:
+                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='r', alpha=.5)
+                    number -= 1
+                elif num_bnc > 1:
+                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='k', alpha=.5)
+                    number -= 1
+                elif row.surface_bounces == 1:
+                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='b', alpha=.5)
+                    number -= 1
+                elif row.bottom_bounces == 1:
+                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='g', alpha=.5)
+                    number -= 1
+    
+            if number == 0:
+                break
+
+        ax.plot(self.env['bot_interface'][:, 0] / divisor, self.env['bot_interface'][:, 1], 'k', linewidth=3)
+        ax.plot(self.env['top_interface'][:, 0] / divisor, self.env['top_interface'][:, 1], 'b', linewidth=3)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("Depth [m]")
+        ax.set_ylim((_np.min(self.env['top_interface'][:,1]), _np.max(self.env['bot_interface'][:, 1])))
+        ax.set_xlim((0, self.env['rx_range'] / divisor))
+        ax.set_title(f"[ BELLHOP - Rays ] {self.env['name']}")
+        ax.scatter(0, self.env['tx_depth'], label="Source", color="k", s=250, marker="*")
+        ax.invert_yaxis()
+        ax.grid('all')
+        plt.tight_layout()
+        plt.show()
+        
+        return fig, ax
+    
+    def plot_eigen_rays(self, number=10, invert_colors=False, **kwargs):
+
+        # Sorting rays by bottom bounces in descending order
+        self.eigen_rays = self.eigen_rays.sort_values('bottom_bounces', ascending=True)
+
+        # Determine the maximum amplitude of bottom bounces
+        max_amp = _np.max(_np.abs(self.eigen_rays.bottom_bounces)) if len(self.eigen_rays.bottom_bounces) > 0 else 0
+
+        if max_amp <= 0:
+            max_amp = 1
+
+        divisor = 1
+        xlabel = 'Range [m]'
+        r = []
+
+        # Flatten ray coordinates for determining the range
+        for _, row in self.eigen_rays.iterrows():
+            r += list(row.ray[:, 0])
+
+        if max(r) - min(r) > 10000:
+            divisor = 1000
+            xlabel = 'Range [km]'
+
+        fig, ax = plt.subplots()
+        
+        for _, row in self.eigen_rays.iterrows():
+            num_bnc = row.bottom_bounces + row.surface_bounces
+            if row.bottom_bounces == 0 and row.surface_bounces == 0:
+                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='r', alpha=.5)
+                number -= 1
+            elif num_bnc > 1:
+                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='k', alpha=.5)
+                number -= 1
+            elif row.surface_bounces == 1:
+                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='b', alpha=.5)
+                number -= 1
+            elif row.bottom_bounces == 1:
+                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='g', alpha=.5)
+                number -= 1
+
+            if number == 0:
+                break
+
+        ax.plot(self.env['bot_interface'][:, 0] / divisor, self.env['bot_interface'][:, 1], 'k', linewidth=3)
+        ax.plot(self.env['top_interface'][:, 0] / divisor, self.env['top_interface'][:, 1], 'b', linewidth=3)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("Depth [m]")
+        ax.set_ylim((_np.min(self.env['top_interface'][:,1]), _np.max(self.env['bot_interface'][:, 1])))
+        ax.set_xlim((0, self.env['rx_range'] / divisor))
+        ax.set_title(f"[ BELLHOP - Eigen rays ] {self.env['name']}")
+        ax.scatter(0, self.env['tx_depth'], label="Source", color="k", s=250, marker="*")
+        ax.scatter(self.env['rx_range'], self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+        ax.invert_yaxis()
+        ax.grid('all')
+        plt.tight_layout()
+        plt.show()
+        
+        return fig, ax
+    
+    def plot_impulse_response(self, dB=False, color='steelblue', **kwargs):
+        
+        # If dB is True, convert the impulse response to dB
+        if dB:
+            ir = 20 * _np.log10(_np.abs(self.impulse_response) + _np.finfo(float).eps)
+        else:
+            ir = self.impulse_response
+
+        # Plot the impulse response using stem plot
+        fig, ax = plt.subplots()
+        ax.stem(ir, linefmt=color, markerfmt=color, basefmt='k', **kwargs)
+        ax.set_xlabel('Sample [S]')
+        ax.set_ylabel('Amplitude')
+        ax.set_title(f"[ BELLHOP - Impulse response @ {self.impulse_response_fs} S/s ] {self.env['name']}")
+        ax.grid('all')
+        plt.tight_layout()
+        plt.show()
+
         return fig, ax
     
     def _create_bty_ati_file(self, filename, depth, interp, debug=False):
@@ -2858,19 +3144,19 @@ class RAM:
     """
     # @todo     Understand and manage CP task
     
-    def __init__(self, env=None, copy=False):
+    def __init__(self, env=None, cp=False):
                 
         if env is None:
             self.env           = None
         else:
-            self.set_env(env, copy=copy)
+            self.set_env(env, cp=cp)
         self.transmission_loss = None 
         
 
-    def set_env(self, env, copy=False, **kwargs):
+    def set_env(self, env, cp=False, **kwargs):
         
-        if copy:
-            self.env =  copy(env)
+        if cp:
+            self.env =  dict(env)
         else:
             self.env = env
         
@@ -2878,8 +3164,8 @@ class RAM:
             step  = self.step
         else:
             step = _np.mean(self.env['ssp'])/self.env['tx_freq']/8 # lambda/8
-            self.step = step
-            
+            self.step = 0
+         
         # Right propagation
         iiMin = _np.where(self.env['rx_range'] >= 0)[0][0]
         ratio = 1-iiMin/_np.size(self.env['rx_range'])
@@ -2903,7 +3189,7 @@ class RAM:
 
         self.pyramR = ram.PyRAM(self.env['tx_freq'],
                            self.env['tx_depth'],
-                           self.env['rx_depth'][-1],
+                           _np.max(self.env['rx_depth']),
                            _np.array(self.env['ssp_depth']),
                            _np.array(self.env['ssp_range']),
                            _np.array(self.env['ssp']),
@@ -2935,7 +3221,7 @@ class RAM:
             
         self.pyramL = ram.PyRAM(self.env['tx_freq'],
                            self.env['tx_depth'],
-                           self.env['rx_depth'][-1],
+                           _np.max(self.env['rx_depth']),
                            _np.array(self.env['ssp_depth']),
                            _np.flip(-_np.array(self.env['ssp_range'])),
                            _np.fliplr(_np.array(self.env['ssp'],ndmin=2)),
@@ -2996,7 +3282,7 @@ class RAM:
                            zmplt = ndz*dz*_np.size(self.env['rx_depth'])
                            )
     
-    def compute_tl(self, debug=False):
+    def compute_transmission_loss(self, debug=False):
         """
         Compute Transmission Loss.
         """
@@ -3073,7 +3359,7 @@ class RAM:
         
         return self.complex_pressure
     
-    def plot_tl(self, vmin=-120, vmax=0, **kwargs):
+    def plot_transmission_loss(self, vmin=-120, vmax=0, **kwargs):
         """
         Plots the transmission loss of the environment.
         
@@ -3121,7 +3407,7 @@ class RAM:
         
         return fig, ax
 
-    def plot_ssp(self, Nxy=500, **kwargs):
+    def plot_raw_ssp(self, Nxy=500, **kwargs):
         """
         Plots the sound speed profile of the environment.
         
@@ -3172,7 +3458,7 @@ class RAM:
             ax.set_ylim((self.env['rx_depth'][0], self.env['rx_depth'][-1]))
             ax.set_xlabel('Range [km]')
             ax.set_ylabel('Depth [m]')
-            ax.set_title(f"[ RAM - Sound speed profile ] {self.env['name']}")
+            ax.set_title(f"[ RAM - Raw sound speed profile ] {self.env['name']}")
             ax.invert_yaxis()
             plt.tight_layout()
             plt.show()
@@ -3182,7 +3468,7 @@ class RAM:
             vmax = kwargs.get('vmax', _np.max(self.env['ssp']))
             vmin = kwargs.get('vmin', _np.min(self.env['ssp']))
             Y, Z = _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
-            ax.set_title(f"[ RAM - Sound speed profile ] {self.env['name']}")
+            ax.set_title(f"[ RAM - Raw sound speed profile ] {self.env['name']}")
             ax.set_xlim((vmin, vmax))
             ax.invert_yaxis()
             ax.grid(True)
