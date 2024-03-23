@@ -95,6 +95,9 @@ soft_boss_amp     = 'soft-boss-amp' # Kraken only
 hard_boss         = 'hard-boss'     # Kraken only
 hard_boss_amp     = 'hard-boss-amp' # Kraken only
 
+# Kraken mode
+coupled           = 'coupled' 
+adiabatic         = 'adiabatic' 
 
 # models (in order of preference)
 _models = []
@@ -169,7 +172,7 @@ def make_env2d(**kv):
             'dimension'       : '2D',                        # 2D only
             'pad_inputData'   : True,                        # pad input data to the border of the calculation range
 
-            'mode'            : semicoherent,                # Propagation loss mode
+            'mode'            : incoherent,                  # Propagation loss mode
             'volume_attn'     : None,                        # Added volume attenuation
             
             'rx_depth'        : None,                        # m
@@ -183,6 +186,7 @@ def make_env2d(**kv):
             'ssp_depth'       : 0,                           # m
             'ssp'             : 1500,                        # m/s
             'ssp_interp'      : c_linear,                    # spline/linear/quadrilatteral/..
+            'water_density'   : 1.03,                        # g/cm3, KRAKEN only    
             
             'tx_freq'         : None,                        # Source frequency in Hz
             'tx_depth'        : None,                        # m
@@ -218,6 +222,9 @@ def make_env2d(**kv):
             'twy_bumpDensity' : None,                       # ridges/km (BUMDEN)
             'twy_radius1'     : None,                       # m (ETA)
             'twy_radius2'     : None,                       # m (XI)
+            'nmedia'          : 1,                          # Number of media except infinite top and bottom 
+            'theory'          : adiabatic,                 
+            'nmodes'          : 9999,
             
             # RAM ONLY
             'bot_attn'  : None,                       # dB/wavelength
@@ -357,27 +364,6 @@ def print_env(env):
                 print('%20s   '%('') + v1)
         else:
             print('%20s : '%(k) + v)
-
-        
-def compute_modes(env, debug=False):
-    """
-    Compute modes.
-
-    :param env: environment definition
-    :param debug: generate debug information for propagation model
-    :returns: modes
-
-    """
-    env = check_env2d(env)
-
-    if env['model'] == 'KRAKEN':
-        mode = modes
-        
-    (model_name, model_process) = _select_model(env, mode, env['model'])
-    if debug:
-        print('[DEBUG] Model: '+model_name)
- 
-    return model_process.run(env, mode, debug)
 
 def arrivals_to_impulse_response(arrivals, fs, abs_time=False):
     """Convert arrival times and coefficients to an impulse response.
@@ -597,10 +583,6 @@ class BELLHOP:
         # Generate temporary env file and get base name used for all temporary files
         fname_base = self._create_env_file(taskcode, debug=debug)
         
-        # Debug print
-        if debug:
-            print('[DEBUG] BELLHOP: Working files: '+fname_base+'.')
-        
         # Compute TL
         if self._bellhop(fname_base):
             err = self._check_error(fname_base)
@@ -627,10 +609,6 @@ class BELLHOP:
            
         # Generate temporary env file and get base name used for all temporary files
         fname_base = self._create_env_file(taskcode, debug=debug)
-        
-        # Debug print
-        if debug:
-            print('[DEBUG] BELLHOP: Working files: '+fname_base+'.')
         
         # Compute Arrivals
         if self._bellhop(fname_base):
@@ -660,10 +638,6 @@ class BELLHOP:
         # Generate temporary env file and get base name used for all temporary files
         fname_base = self._create_env_file(taskcode, debug=debug)
         
-        # Debug print
-        if debug:
-            print('[DEBUG] BELLHOP: Working files: '+fname_base+'.')
-        
         # Compute Arrivals
         if self._bellhop(fname_base):
             err = self._check_error(fname_base)
@@ -690,10 +664,6 @@ class BELLHOP:
            
         # Generate temporary env file and get base name used for all temporary files
         fname_base = self._create_env_file(taskcode, debug=debug)
-        
-        # Debug print
-        if debug:
-            print('[DEBUG] BELLHOP: Working files: '+fname_base+'.')
         
         # Compute Arrivals
         if self._bellhop(fname_base):
@@ -731,40 +701,6 @@ class BELLHOP:
         self._unlink(fname_base+'.log')
         return rv
 
-    def run(self, env, task, debug=False):
-        taskmap = {
-            arrivals:     ['A', self._load_arrivals],
-            eigenrays:    ['E', self._load_rays],
-            rays:         ['R', self._load_rays],
-            coherent:     ['C', self._load_shd],
-            incoherent:   ['I', self._load_shd],
-            semicoherent: ['S', self._load_shd]
-        }
-        fname_base = self._create_env_file(env, taskmap[task][0])
-        results = None
-        if self._bellhop(fname_base):
-            err = self._check_error(fname_base)
-            if err is not None:
-                print(err)
-            else:
-                try:
-                    results = taskmap[task][1](fname_base)
-                except FileNotFoundError:
-                    print('[WARNING] BELLHOP: Fortran execution did not generate expected output file !')
-        if debug:
-            print('[DEBUG] BELLHOP: Working files: '+fname_base+'.*.')
-        else:
-            self._unlink(fname_base+'.env')
-            self._unlink(fname_base+'.bty')
-            self._unlink(fname_base+'.ssp')
-            self._unlink(fname_base+'.ati')
-            self._unlink(fname_base+'.sbp')
-            self._unlink(fname_base+'.prt')
-            self._unlink(fname_base+'.log')
-            self._unlink(fname_base+'.arr')
-            self._unlink(fname_base+'.ray')
-            self._unlink(fname_base+'.shd')
-        return results
 
     def _bellhop(self, *args):
         try:
@@ -918,17 +854,15 @@ class BELLHOP:
         
         # Medium info / Sound Speed Profile (5)
         nmesh = 0 # Unused by Bellhop
+        self._print(fh, "%d %0.1f %0.6f" % (nmesh, self.env['top_roughness'], _np.max(self.env['ssp_depth'])))
         if ssp_interp == 'Q': 
-            self._print(fh, "%d %0.1f %0.6f" % (nmesh, self.env['top_roughness'], _np.max(self.env['ssp_depth'])))
             for j in range(len(self.env['ssp_depth'])):
                 self._print(fh, "%0.6f %0.6f /" % (self.env['ssp_depth'][j], self.env['ssp'][j,0]))
             self._create_ssp_file(fname_base+'.ssp',self.env['ssp_range'], self.env['ssp'], debug=debug)
         elif self.env['ssp_depth'].size > 1:
-            self._print(fh, "%d %0.1f %0.6f" % (nmesh, self.env['top_roughness'], _np.max(self.env['ssp_depth'])))
             for j in range(self.env['ssp_depth'].size):
                 self._print(fh, "%0.6f %0.6f /" % (self.env['ssp_depth'][j], self.env['ssp'][j]))
         else:
-            self._print(fh, "%d %0.1f %0.6f" % (nmesh, self.env['top_roughness'], _np.max(self.env['rx_depth'])))
             self._print(fh, "%0.6f %0.6f /" % (_np.min(self.env['rx_depth']), self.env['ssp']))
             self._print(fh, "%0.6f %0.6f /" % (_np.max(self.env['rx_depth']), self.env['ssp']))
         
@@ -1000,14 +934,6 @@ class BELLHOP:
      
         if botBdry == 'A':
             self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (_np.max(self.env['bot_interface']), bot_PwaveSpeed, bot_SwaveSpeed, bot_density, bot_PwaveAttn, bot_SwaveAttn))
-
-        ''' ???
-        # C0 min and max
-        self._print(fh, "%0.6f %0.6f" % (0.0, _np.max(self.env['ssp'])))
-        
-        # RMAX
-        self._print(fh, "%0.6f" % (self.env['rx_range'][-1]/1000))
-        '''
         
         # Number of source depth  and source depths (m) (7)
         self._print_array(fh, self.env['tx_depth'])
@@ -1509,7 +1435,11 @@ class BELLHOP:
                 }))
         return _pd.concat(rays)
 
-    def _load_shd(self, fname_base):
+    def _load_shd(self, fname_base, debug=0, **kwargs):
+        
+        if not _os.path.exists(fname_base+'.shd'):
+            print(f"[ERROR] BELLHOP: {fname_base}.shd not found !")
+            
         with open(fname_base+'.shd', 'rb') as f:
             recl, = _unpack('i', f.read(4))
             title = str(f.read(80))
@@ -1667,53 +1597,105 @@ class Modes:
 
 class KRAKEN:
 
-    def __init__(self):
-        pass
-
-    def supports(self, env=None, task=None):
-        if env is not None and env['type'] != '2D':
-            return False
-        fh, fname = _mkstemp(suffix='.env')
-        _os.close(fh)
-        fname_base = fname[:-4]
-        self._unlink(fname_base+'.env')
-        rv = self._kraken(fname_base)
-        self._unlink(fname_base+'.prt')
-        self._unlink(fname_base+'.log')
-        return rv
-
-    def run(self, env, task, debug=False):
+    def __init__(self, env=None, cp=False):
         
-        taskmap = {
-            TL:           ['C', self._load_shd],
-            modes:        ['', self._load_modes]
-        }
-        fname_base = self._create_env_file(env, taskmap[task][0], debug=debug)
-        results = None
+        if env is None:
+            self.env           = None
+        else:
+            self.set_env(env, cp=cp)
+        self.transmission_loss = None 
+        self.modes             = None
+        self.step              = 0
+
+    def set_step(self, step):
+        self.step = step
+
+    def set_env(self, env, cp=False, **kwargs):
+        
+        """Set a new 2D underwater environment.
+
+        A basic environment is created with default values. To see all the parameters
+        available and their default values. The environment parameters may be changed 
+        by passing keyword arguments or modified later using a dictionary notation.
+        """
+        if cp:
+            self.env =  dict(env)
+        else:
+            self.env = env
+        
+        # Numerical box definition
+        self.rbox = 1.01*_np.max(_np.abs(env['rx_range']))
+        self.zbox = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
+                
+        self.check_env()
+
+        return self.env
+    
+    def check_env(self):
+        # @todo
+        return True
+    
+    def compute_transmission_loss(self, debug=False, **kwargs):
+        
+        # Assert environment
+        self.check_env()
+        
+        # Define mode taskcode
+        taskcode = ''
+
+        # Generate temporary env file and get base name used for all temporary files
+        fname_base = self._create_env_file(taskcode, debug=debug)
+        
+        # Compute TL
         if self._kraken(fname_base):
             err = self._check_error(fname_base)
             if err is not None:
-                print(err)
+                raise RuntimeError(err) 
             else:
-                if self._field(fname_base):
-                    err = self._check_error(fname_base)
-                    if err is not None:
-                        print(err)
                 try:
-                    results = taskmap[task][1](fname_base)
-                except FileNotFoundError:
-                    print('[ERROR] KRAKEN: Fortran execution did not generate expected output file !')
-                    self._unlink(fname_base+'.env')
-                    self._unlink(fname_base+'.mod')
-                    self._unlink(fname_base+'.shd')
-        if debug:
-            print('[DEBUG] KRAKEN: Working files: '+fname_base+'.*.')
-        else:
-            self._unlink(fname_base+'.env')
-            self._unlink(fname_base+'.mod')
-            self._unlink(fname_base+'.shd')
+                    self._create_flp_file(fname_base, debug=debug)
+                    if self._field(fname_base):
+                        try:
+                            self.modes             = self._load_modes(fname_base)
+                            self.transmission_loss = self._load_shd(fname_base)
+                        except FileNotFoundError:
+                            raise FileNotFoundError('KRAKEN: Fortran execution did not generate expected output file !')
+                except Exception as e:
+                    raise Exception(e)
+                
+        
+        # Delete temporary generated files
+        self._unlink_all(fname_base)     
+        
+        return self.transmission_loss
 
-        return results
+    def compute_modes(self, debug=False, **kwargs):
+        
+        # Assert environment
+        self.check_env()
+        
+        # Define mode taskcode
+        taskcode = ''
+
+        # Generate temporary env file and get base name used for all temporary files
+        fname_base = self._create_env_file(taskcode, debug=debug)
+        
+        # Compute modes
+        if self._kraken(fname_base):
+            err = self._check_error(fname_base)
+            if err is not None:
+                raise RuntimeError(err) 
+            else:
+                try:
+                    self.modes = self._load_modes(fname_base)
+                except FileNotFoundError:
+                    raise FileNotFoundError('KRAKEN: Fortran execution did not generate expected output file !')
+        
+        # Delete temporary generated files
+        self._unlink_all(fname_base)     
+        
+        return self.modes
+    
 
     def _kraken(self, *args):
         try:
@@ -1724,9 +1706,89 @@ class KRAKEN:
             return False
         return True
     
-    def _field(self, fname):
+    def _create_flp_file(self, fname_base, debug=False, **kwargs):
+                
+        with open(fname_base+'.flp', 'wt') as fh:
+            
+            fh = fh.fileno()
+            
+            # Title read from .mod file
+            self._print(fh, "/")
+                    
+            # OPT (1:1)
+            rx_type = 'R'
+            
+            # OPT (2:2)
+            if self.env['theory'] == coupled:
+                th = 'C'
+            elif self.env['theory'] == adiabatic:
+                th = 'A'
+            else:
+                print("[WARNING] KRAKEN: Unknown theory, using adiabatic instead !")
+                th = 'A'
+            
+            # OPT (3:3)
+            if self.env['tx_beam'] is not None and _np.size(self.env['tx_beam'][:,0]) > 1:
+                bp = '*'
+                self._create_sbp_file(fname_base+'.sbp', self.env['tx_beam'], debug=debug)
+            else:
+                bp = 'O'
+                
+            # OPT (4:4)
+            if self.env['mode'] == coherent:
+                mode = 'C'
+            elif self.env['mode'] == incoherent:
+                mode = 'I'
+            else:
+                print('[WARNING] KRAKEN: Unknown mode, using incoherent instead !')
+                mode = 'I'
+            
+            # Options string
+            self._print(fh, "'%c%c%c%c'" % (rx_type, th, bp, mode))
+            
+            # NUMBER OF MODES (3)
+            nmodes = self.env['nmodes']
+            self._print(fh, "%d" % (nmodes))
+            
+            # PROFILE RANGES (4)
+            # Nprof
+            self._print(fh, "%d" % (1))
+            self._print(fh, "%0.6f" % (0.0))
+            
+            # SOURCE/RECEIVER LOCATIONS (6)
+            # NRr R
+            self._print(fh,"%0.6f" % (_np.size(self.env['rx_range'])))
+            self._print(fh,"%0.6f %0.6f /" % (_np.min((_np.min(self.env['rx_range']/1000), 0)), _np.max(self.env['rx_range']/1000)))
+            
+            # NSz Sz
+            self._print_array(fh, self.env['tx_depth'])
+            
+            # NRz Rz
+            self._print_array(fh, self.env['rx_depth']) 
+            
+            # NRro
+            self._print(fh, "%d" % (_np.size(self.env['rx_depth'])))
+            
+            # RR
+            #self._print(fh, "%0.6f %0.6f" % (_np.min(self.env['rx_range']), _np.max(self.env['rx_range'])))
+            self._print(fh, "%0.6f /" % (0.0))
+            
+        if debug:
+            print_file_content(fname_base+'.flp')
+    
+    def _create_sbp_file(self, fname_base, dir, debug=False):
+        
+        with open(fname_base+'.sbp', 'wt') as f:
+            f.write(str(dir.shape[0])+"\n")
+            for j in range(dir.shape[0]):
+                f.write("%0.6f %0.6f\n" % (dir[j,0], dir[j,1]))
+        if debug:
+            print_file_content(fname_base+'.sbp')
+            
+    def _field(self, fname_base, *args):
+        
         try:
-            _proc.run(f'field.exe {fname}', 
+            _proc.run(f'field.exe {fname_base}', 
                       stderr=_proc.STDOUT, stdout=_proc.PIPE,
                       shell=True)
         except OSError:
@@ -1737,8 +1799,25 @@ class KRAKEN:
         try:
             _os.unlink(f)
         except:
-            pass
-
+            try:
+                _os.remove(f)
+            except:
+                pass
+        
+    def _unlink_all(self, fname_base):
+            self._unlink(fname_base+'.env')
+            self._unlink(fname_base+'.bty')
+            self._unlink(fname_base+'.ssp')
+            self._unlink(fname_base+'.ati')
+            self._unlink(fname_base+'.sbp')
+            self._unlink(fname_base+'.prt')
+            self._unlink(fname_base+'.log')
+            self._unlink(fname_base+'.arr')
+            self._unlink(fname_base+'.ray')
+            self._unlink(fname_base+'.shd')
+            self._unlink(fname_base+'.mod')
+            self._unlink(fname_base+'.flp')
+            
     def _print(self, fh, s, newline=True):
         _os.write(fh, (s+'\n' if newline else s).encode())
 
@@ -1748,59 +1827,59 @@ class KRAKEN:
             self._print(fh, "%0.6f /" % (a))
         else:
             self._print(fh, str(_np.size(a)))
-            for j in a:
-                self._print(fh, "%0.6f " % (j), newline=False)
+            self._print(fh, "%0.6f %0.6f " % (a.min(), a.max()), newline=False)
+            #for j in a:
+            #   self._print(fh, "%0.6f " % (j), newline=False)
             self._print(fh, "/")
 
-    def _create_env_file(self, env, taskcode, debug = 0, **kwargs):
+    def _create_env_file(self, taskcode, debug=0, **kwargs):
         
         fh, fname = _mkstemp(suffix='.env')
         fname_base = fname[:-4]
-        
-        # Max depth should be the depth of the acoustic domain, which can be deeper than the max depth bathymetry
-        ssp_depth = 0.0
-        if _np.size(env['bot_interface']) != 1:
-            print("[INFO] KRAKEN: Range dependent bathymetry not supported, using average value.")
-            max_depth = max(_np.mean(env['bot_interface'][:,1]), ssp_depth)
-        else:
-            max_depth = env['bot_interface']
-        
+                
         # Title
-        self._print(fh, "'"+env['name']+"'")
+        self._print(fh, "'"+self.env['name']+"'")
         
         # Freq
-        self._print(fh, "%0.6f" % (env['tx_freq']))
+        self._print(fh, "%0.6f" % (self.env['tx_freq']))
         
         # Nmedia
-        self._print(fh, "%d" % (env['nmedia']))
+        if(self.env['nmedia'] > 1):
+            print("[WARNING] KRAKEN: Multiple media not yet coded, using only the first one.")
+        self._print(fh, "%d" % (1))
         
         # Option (1:1) SSP interp      
-        if env['ssp_interp'] == spline:
+        if self.env['ssp_interp'] == spline:
             ssp_interp = 'S'
-        elif env['ssp_interp'] == c_linear:
+        elif self.env['ssp_interp'] == c_linear:
             ssp_interp = 'C' 
-        elif env['ssp_interp'] == n2_linear:
+        elif self.env['ssp_interp'] == n2_linear:
             ssp_interp = 'N'
-        elif env['ssp_interp'] == analytic:
+        elif self.env['ssp_interp'] == analytic:
             ssp_interp = 'A'
+        else:
+            print("[WARNING] KRAKEN: Unknown ssp interpolation method, using c-linear instead !")
+            ssp_interp = 'C'
+            
           
         # Option (2:2) Top boundary condition
         # @todo     Manage all boundary conditions.
-        if env['top_boundary'] == rigid:
+        if self.env['top_boundary'] == rigid:
             topBdry = 'R'
-        elif env['top_boundary'] == vacuum:
+        elif self.env['top_boundary'] == vacuum:
             topBdry = 'V' 
-        elif env['top_boundary'] == acousto_elastic:
+        elif self.env['top_boundary'] == acousto_elastic:
             topBdry = 'A' 
-        elif env['top_boundary'] == file:
-            raise Exception('Kraken reflection coefficient from file not available, it need to be coded !') 
-        elif env['top_boundary'] == soft_boss:
+        elif self.env['top_boundary'] == file:
+            # @todo
+            raise Exception('KRAKEN: Rreflection coefficient from file not available, it need to be coded !') 
+        elif self.env['top_boundary'] == soft_boss:
             topBdry = 'S' 
-        elif env['top_boundary'] == hard_boss:
+        elif self.env['top_boundary'] == hard_boss:
             topBdry = 'H' 
-        elif env['top_boundary'] == soft_boss_amp:
+        elif self.env['top_boundary'] == soft_boss_amp:
             topBdry = 'T' 
-        elif env['top_boundary'] == hard_boss_amp:
+        elif self.env['top_boundary'] == hard_boss_amp:
             topBdry = 'I' 
         else:
             print('[WARNING] KRAKEN: Unknown top boundary condition, using vacuum instead !')
@@ -1808,31 +1887,44 @@ class KRAKEN:
             
         # Option (3:3) Attenuation units
         # Kraken ignores material attenuation in elastic media, Krakenc treats it properly.
-        attnUnit = 'F' # Unused but necessary option
+        attnUnit = 'W' # Unused but necessary option
         
         # Option (4:4)
-        if self.env['volume_attn'] == None:
+        if self.env['volume_attn'] is None:
             vAttn = ''
+        elif self.env['volume_attn'] == Francois_Garrison:
+            print('[WARNING] KRAKEN: Francois Garrison attenuation formula not supported, using Thorp formula instead !')
+            vAttn = 'T'
+        elif self.env['volume_attn'] == biological:
+            print('[WARNING] KRAKEN: Biological attenuation formula not supported, using Thorp formula instead !')
+            vAttn = 'T'
         elif self.env['volume_attn'] == Thorp:
+            vAttn = 'T'
+        else:
+            print('[WARNING] KRAKEN: Unknown volume attenuation, using Thorp formula instead !')
             vAttn = 'T'
         
         # Option (5:5)
-        # Not available in Kraken
+        # Available in KRAKENC only
         
         # All options string
-        self._print(fh, "'%c%c%c%c'" % (ssp_interp, topBdry, attnUnit, vAttn))
+        if vAttn != '':
+            self._print(fh, "'%c%c%c%c'" % (ssp_interp, topBdry, attnUnit, vAttn))
+        else:
+            self._print(fh, "'%c%c%c'" % (ssp_interp, topBdry, attnUnit))
         
         # Top boundary extra line (4a) or (4c)            
         if topBdry == 'A':
-            self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (max_depth, env['top_PwaveSpeed'], env['top_SwaveSpeed'], env['top_density'], env['top_PwaveAttn'], env['top_SwaveAttn']))
+            self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (_np.max(self.env['bot_interface']), self.env['top_PwaveSpeed'], self.env['top_SwaveSpeed'], self.env['top_density'], self.env['top_PwaveAttn'], self.env['top_SwaveAttn']))
         elif topBdry == 'F' or topBdry == 'I':
-            self._print(fh, "%0.6f %0.6f %0.6f" % (env['twy_bumpDensity'], env['twy_radius1'], env['twy_radius2']))
+            self._print(fh, "%0.6f %0.6f %0.6f" % (self.env['twy_bumpDensity'], self.env['twy_radius1'], self.env['twy_radius2']))
         
         # Medium info (5)
-        # @todo     Manage manual NMESH ?
+        # @todo     Manage manual NMESH
         # @todo     Add bottom_idepth for interface depth to use with roughness ?
-        # @todo     Continue here !
         
+        nmesh  = 0 # Automatic mesh points calculation
+        '''
         for media in range(env['nmedia']): # len(bottom_idepth ?)
 
             # Water as first media
@@ -1859,72 +1951,206 @@ class KRAKEN:
             else:
                 pass
             ssp_depth = self.env['ssp_depth']
-
-        self._print(fh, "%d 0.0 %0.6f" % (len(env['rx_range']),max_depth))
-        if _np.size(ssp) == 1:
-            self._print(fh, "0.0 %0.6f /" % (ssp))
-            self._print(fh, "%0.6f %0.6f /" % (max_depth, ssp))
-        else:
-            for j in range(ssp.shape[0]):
-                self._print(fh, "%0.6f %0.6f /" % (ssp[j,0], ssp[j,1]))
+        '''
         
-        # @todo     Manage all boundary conditions.
-        if env['bot_boundary'] == rigid:
-            botBdry = 'R'
-        elif env['bot_boundary'] == vacuum:
-            botBdry = 'V' 
-        elif env['bot_boundary'] == analytic:
-            print('[WARNING] KRAKEN: Not yet supported bottom boundary condition, using perfectly rigid instead !')
-            botBdry = 'R' 
+        
+        if _np.size(self.env['ssp_range']) > 1:
+            print("[WARNING] KRAKEN: Range dependant ssp not supported, using average values instead !")
+            try:
+                ssp = _np.mean(self.env['ssp'], axis=1)
+            except:
+                try:
+                    ssp = _np.mean(self.env['ssp'], axis=0)
+                except:
+                    ssp = self.env['ssp']
         else:
-            print('[WARNING] KRAKEN: Unknown bottom boundary condition, using perfectly rigid instead !')
+            ssp = self.env['ssp']
+        
+        if _np.size(self.env['ssp_depth']) > 1 and _np.size(self.env['ssp']) > 1:             
+            self._print(fh, "%d %0.1f %0.6f" % (nmesh, self.env['top_roughness'], _np.max(self.env['ssp_depth'])))
+            firstLine = True
+            for j in range(self.env['ssp_depth'].size):
+                if self.env['ssp_depth'][j] >= 0.0:
+                    if firstLine:
+                        firstLine = False
+                        self._print(fh, "%0.6f %0.6f 0.0 %0.6f 0.0 0.0 /" % (_np.abs(self.env['ssp_depth'][j]), ssp[j], self.env['water_density']))
+                    else:
+                        self._print(fh, "%0.6f %0.6f /" % (_np.abs(self.env['ssp_depth'][j]), ssp[j]))
+        else:
+            self._print(fh, "%0.6f %0.6f /" % (_np.min(self.env['rx_depth']), ssp))
+            self._print(fh, "%0.6f %0.6f /" % (_np.max(self.env['rx_depth']), ssp))
+        
+        # Bottom option (6)
+        if self.env['bot_boundary'] == rigid:
             botBdry = 'R'
+        elif self.env['bot_boundary'] == vacuum:
+            botBdry = 'V' 
+        elif self.env['bot_boundary'] == acousto_elastic:
+            botBdry = 'A'
+        elif self.env['bot_boundary'] == file:
+            #botBdry = 'F'
+            # @todo 
+            print('[WARNING] KRAKEN: File bottom boundary condition not yet coded, using perfectly rigid instead !')
+            botBdry = 'R'
+        elif self.env['bot_boundary'] == grain_size:
+            #botBdry = 'G'   
+            # @todo 
+            print('[WARNING] KRAKEN: Grain size bottom boundary condition not yet coded, using perfectly rigid instead !')
+            botBdry = 'R'
+        elif self.env['bot_boundary'] == precalculated:
+            #botBdry = 'P'   
+            # @todo
+            print('[WARNING] KRAKEN: Precalculated bottom boundary condition not yet coded, using perfectly rigid instead !')
+            botBdry = 'R'
+       
+        # Bottom options string
+        # if self.env['bot_interface'].ndim == 2:
+        #     self._print(fh, "'%c*' %0.6f" % (botBdry, self.env['bot_roughness']))
+        # else:
+        self._print(fh, "'%c' %0.6f" % (botBdry, self.env['bot_roughness']))
+        
+        # Bottom halfspace extra lines (6a) (6b)
+        # @todo     Add Grain size 
+        if  _np.size(self.env['bot_PwaveSpeed']) > 1:
+            print("[INFO] KRAKEN: Do not support multiple Pwave speed definition, using average value instead.")
+            bot_PwaveSpeed = _np.mean(self.env['bot_PwaveSpeed'])
+        else:
+            bot_PwaveSpeed = self.env['bot_PwaveSpeed']
+        
+        if  _np.size(self.env['bot_SwaveSpeed']) > 1:
+            print("[INFO] KRAKEN: Do not support multiple Swave speed definition, using average value instead.")
+            bot_SwaveSpeed = _np.mean(self.env['bot_SwaveSpeed'])
+        else:
+            bot_SwaveSpeed = self.env['bot_SwaveSpeed']
+            
+        if  _np.size(self.env['bot_density']) > 1:
+            print("[INFO] KRAKEN: Do not support multiple bottom density definition, using average value instead.")
+            bot_density = _np.mean(self.env['bot_density'])
+        else:
+            bot_density = self.env['bot_density']    
+            
+        if  _np.size(self.env['bot_PwaveAttn']) > 1:
+            print("[INFO] KRAKEN: Do not support multiple Pwave attn definition, using average value instead.")
+            bot_PwaveAttn = _np.mean(self.env['bot_PwaveAttn'])
+        else:
+            bot_PwaveAttn = self.env['bot_PwaveAttn']   
+            
+        if  _np.size(self.env['bot_SwaveAttn']) > 1:
+            print("[INFO] KRAKEN: Do not support multiple Swave speed definition, using average value instead.")
+            bot_SwaveAttn = _np.mean(self.env['bot_SwaveAttn'])
+        else:
+            bot_SwaveAttn = self.env['bot_SwaveAttn']     
+     
+        if botBdry == 'A':
+            self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (_np.max(self.env['bot_interface']), bot_PwaveSpeed, bot_SwaveSpeed, bot_density, bot_PwaveAttn, bot_SwaveAttn))
 
-        self._print(fh, "'%c' %0.6f" % (botBdry, env['bot_roughness']))    
-            
-        if env['bot_ssp'].ndim > 0:
-            print(f"[INFO] {env['model']}: Multiple bottom soundspeed profiles not supported, using average value.")
-            self.bts = _np.mean(env['bot_ssp'])
-            
-        if env['bot_density'].ndim > 0:
-            print(f"[INFO] {env['model']}: Multiple bottom density profiles not supported, using average value.")
-            self.btd = _np.mean(env['bot_density'])
-            
-        if env['bot_attn'].ndim > 0:
-            print(f"[INFO] {env['model']}: Multiple bottom absorption profiles not supported, using average value.")
-            self.bta = _np.mean(env['bot_attn'])
-    
-        # @todo    Not sure if this condition is required !
-        if env['top_boundary'] == analytic:
-            self._print(fh, "%0.6f %0.6f 0.0 %0.6f %0.6f /" % (max_depth, self.bts, self.btd/1000, self.bta))
-            
-        self._print(fh, "%0.6f %0.6f" %(0, _np.max(env['ssp'])))                           # C0 min and max
-        self._print(fh, "%0.6f" %(self.rbox/1000))                                       # Max range in km 
-        self._print(fh, "%d" %(1))                                                         # Number of sources depth
-        self._print(fh, "%0.6f" %(env['tx_depth']))                                        # Source depths
-        self._print(fh, "%d" %(len(env['rx_depth'])))                                      # Number of receiver depths
-        self._print(fh, "%0.6f %0.6f /" %(env['rx_depth'][0], env['rx_depth'][-1]))        # Receiver depths
-                
+        # C0 min and max (c0min = 0 => automatic calculation mode)
+        self._print(fh, "%0.6f %0.6f" %(0, _np.max(self.env['ssp'])))                           
+        
+        # Max range in km self._print_array(fh, self.env['rx_depth'])
+        self._print(fh, "%0.6f" %(self.rbox/1000))                                         
+        
+        # Number of source depth  and source depths (m) (7)
+        self._print_array(fh, self.env['tx_depth'])         
+         
+        # Number of receiver depth  and receiver depths (m) (7)
+        self._print_array(fh, self.env['rx_depth'])      
+
+        # Number of receiver range and receiver range (km) (7)
+        self._print_array(fh, self.env['rx_range']/1000)
+               
         _os.close(fh)
+        
         if debug:
             print_file_content(fname_base+'.env')
             
         return fname_base
 
+
+    def plot_transmission_loss(self, vmin=-120, vmax=0, **kwargs):
+        """
+        Plots the transmission loss of the environment.
+
+        Parameters:
+            vmin (float): Minimum value for the transmission loss.
+            vmax (float): Maximum value for the transmission loss.
+            **kwargs: Additional keyword arguments for customization.
+
+        Returns:
+            fig, ax: Figure and axis objects for the plot.
+        """
+        fig, ax = plt.subplots()
+        X = self.env['rx_range']
+        Y = self.env['rx_depth']
+
+        tlossplt = 20 * _np.log10(_np.finfo(float).eps + _np.abs(_np.array(self.transmission_loss)))
+
+        # Remove transmission loss in sediment/surface
+        for i, x in enumerate(X):
+            ylim = _np.interp(x, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
+            for j, y in enumerate(Y):
+                if y > ylim:
+                    tlossplt[j, i] = vmax
+
+        # Plot the surface
+        ax.plot([X[0]/1000, X[-1]/1000], [0, 0], 'b', linewidth=3)
+
+        # Plot the transmission loss map using imshow
+        im1 = ax.imshow(tlossplt, extent=[X[0] / 1000, X[-1] / 1000, Y[-1], Y[0]], cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
+
+        # Plot the bottom interface
+        ax.plot(self.env['bot_interface'][:, 0] / 1000, self.env['bot_interface'][:, 1], 'k', linewidth=3)
+
+        # Set plot properties
+        ax.set_xlim((X[0] / 1000, X[-1] / 1000))
+        ax.set_ylim((Y[0], Y[-1]))
+        ax.set_xlabel('Range [km]')
+        ax.set_ylabel('Depth [m]')
+        ax.set_title(f"[KRAKEN - Transmission loss @ {self.env['tx_freq']} Hz] {self.env['name']}")
+
+        # Add color bar
+        cbar1 = fig.colorbar(im1, ax=ax)
+        cbar1.ax.set_ylabel('Loss [dB]')
+
+        # Invert y-axis for depth
+        ax.invert_yaxis()
+
+        # Adjust layout and display plot
+        plt.tight_layout()
+        plt.show()
+
+        return fig, ax
     # @todo     Remove useless file creation.
 
+
+    def plot_modes(self, n=10):
+        
+        fig, ax = plt.subplots()
+        
+        ax.plot(_np.real(self.modes.phi[:,0:n]), self.modes.z)
+        ax.set_ylabel('Depth [m]')
+        ax.grid()
+        ax.set_ylim([0,_np.max(self.env['bot_interface'][:,1])])
+        ax.set_title(f"[KRAKEN - Modes] First {n} Shapes")
+        ax.invert_yaxis()
+        
+        return fig, ax
+            
     def _create_bty_ati_file(self, filename, depth, interp):
         with open(filename, 'wt') as f:
             f.write("'%c'\n" % ('C' if interp == curvilinear else 'L'))
             f.write(str(depth.shape[0])+"\n")
             for j in range(depth.shape[0]):
                 f.write("%0.6f %0.6f\n" % (depth[j,0]/1000, depth[j,1]))
+                
 
-    def _create_sbp_file(self, filename, dir):
+    def _create_sbp_file(self, filename, dir, debug=False):
         with open(filename, 'wt') as f:
             f.write(str(dir.shape[0])+"\n")
             for j in range(dir.shape[0]):
                 f.write("%0.6f %0.6f\n" % (dir[j,0], dir[j,1]))
+        if debug:
+            print_file_content(filename)
 
     def _create_ssp_file(self, filename, svp):
         with open(filename, 'wt') as f:
@@ -2004,13 +2230,9 @@ class KRAKEN:
         '''
 
         filename = fname_base+'.mod'
-
-        if debug:
-            if _os.path.exists(filename):
-                print(f"[DEBUG] KRAKEN: The .mod file exists at {filename}.")
                 
         if not _os.path.exists(filename):
-            print(f"[ERROR] KRAKEN: The .mod file does not exist at {filename} !")
+            print(f"[ERROR] KRAKEN: {filename} not found! !")
     
         if 'freq' in kwargs.keys():
             freq = kwargs['freq']
@@ -2154,17 +2376,12 @@ class KRAKEN:
         modes = Modes(**input_dict)
         return modes
 
-    def _load_shd(self, fname_base, debug = 0, **kwargs):
-        
-        if debug:
-            if _os.path.exists(fname_base):
-                print(f"[DEBUG] KRAKEN: The .shd file exists at {fname_base}.")
-                
-        if not _os.path.exists(fname_base):
-            print(f"[ERROR] KRAKEN: The .shd file does not exist at {fname_base} !")
+    def _load_shd(self, fname_base, debug=0, **kwargs):
+                    
+        if not _os.path.exists(fname_base+'.shd'):
+            print(f"[ERROR] KRAKEN: {fname_base}.shd not found !")
             
         with open(fname_base+'.shd', 'rb') as f:
-            print("SHD file open !")
             recl, = _unpack('i', f.read(4))
             title = str(f.read(80))
             f.seek(4*recl, 0)
