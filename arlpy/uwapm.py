@@ -106,7 +106,7 @@ _models = []
 ###############################################################################
 
 # @todo     create and manage env3d for 3 dimensionnal problem
-
+        
 def make_env2d(**kv):
     """
     Create a new 2D underwater environment.
@@ -1073,8 +1073,9 @@ class BELLHOP:
             
             # Re-compute map over grid
             for ii, x in enumerate(Xg):
+                interpolation = _np.interp(x, rb, zb)
                 for jj, y in enumerate(Yg):
-                    if y > _np.interp(x, rb, zb):  
+                    if y > interpolation:  
                         Zg[jj, ii] = Zb
                     else:  
                         y_idx = _np.argmin(_np.abs(Y - y))
@@ -1642,30 +1643,78 @@ class KRAKEN:
         
         # Define mode taskcode
         taskcode = ''
-
-        # Generate temporary env file and get base name used for all temporary files
-        fname_base = self._create_env_file(taskcode, debug=debug)
+        TL_L = None
+        TL_R = None
         
-        # Compute TL
-        if self._kraken(fname_base):
-            err = self._check_error(fname_base)
-            if err is not None:
-                raise RuntimeError(err) 
-            else:
-                try:
-                    self._create_flp_file(fname_base, debug=debug)
-                    if self._field(fname_base):
-                        try:
-                            self.modes             = self._load_modes(fname_base)
-                            self.transmission_loss = self._load_shd(fname_base)
-                        except FileNotFoundError:
-                            raise FileNotFoundError('KRAKEN: Fortran execution did not generate expected output file !')
-                except Exception as e:
-                    raise Exception(e)
+        # Manage left propagation
+        flip = False
+        if _np.min(self.env['rx_range']) < 0:
+            self.env['rx_range'] = -_np.flip(self.env['rx_range'])
+            flip = True
+        
+            # Generate temporary env file and get base name used for all temporary files
+            fname_base = self._create_env_file(taskcode, debug=debug)
                 
+            if self._kraken(fname_base):
+                err = self._check_error(fname_base)
+                if err is not None:
+                    raise RuntimeError(err) 
+                else:
+                    try:
+                        self._create_flp_file(fname_base, debug=debug)
+                        if self._field(fname_base):
+                            try:
+                                self.modes = self._load_modes(fname_base)
+                                TL_L = self._load_shd(fname_base)
+                            except FileNotFoundError:
+                                raise FileNotFoundError('KRAKEN: Fortran execution did not generate expected output file !')
+                    
+                    except Exception as e:
+                        raise Exception(e)
+                        
+                # Delete temporary generated files
+                self._unlink_all(fname_base)  
+                        
+        # Manage right propagation
+        if flip:
+            self.env['rx_range'] = -_np.flip(self.env['rx_range'])
+            flip = False
         
-        # Delete temporary generated files
-        self._unlink_all(fname_base)     
+        if _np.max(self.env['rx_range']) >= 0:
+                    
+            # Generate temporary env file and get base name used for all temporary files
+            fname_base = self._create_env_file(taskcode, debug=debug)
+                
+            if self._kraken(fname_base):
+                err = self._check_error(fname_base)
+                if err is not None:
+                    raise RuntimeError(err) 
+                else:
+                    try:
+                        self._create_flp_file(fname_base, debug=debug)
+                        if self._field(fname_base):
+                            try:
+                                self.modes = self._load_modes(fname_base)
+                                TL_R = self._load_shd(fname_base)
+                            except FileNotFoundError:
+                                raise FileNotFoundError('KRAKEN: Fortran execution did not generate expected output file !')
+                    
+                    except Exception as e:
+                        raise Exception(e)
+                
+                # Delete temporary generated files
+                self._unlink_all(fname_base)  
+                
+        if TL_L is not None and TL_R is not None:
+            self.transmission_loss = _np.hstack((_np.fliplr(TL_L), TL_R))
+        elif TL_L is not None:
+            self.transmission_loss = _np.fliplr(TL_L)
+        elif TL_R is not None:
+            self.transmission_loss = TL_R
+        else:
+            print("[ERROR] KRAKEN: Transmission loss results are empty !")
+            
+   
         
         return self.transmission_loss
 
@@ -1677,6 +1726,12 @@ class KRAKEN:
         # Define mode taskcode
         taskcode = ''
 
+        # Manage left propagation limit
+        flip = False
+        if (_np.abs(_np.min(self.env['rx_range'])) > _np.abs(_np.max(self.env['rx_range']))):
+            self.env['rx_range'] = -_np.flip(self.env['rx_range'])
+            flip = True
+            
         # Generate temporary env file and get base name used for all temporary files
         fname_base = self._create_env_file(taskcode, debug=debug)
         
@@ -1690,7 +1745,10 @@ class KRAKEN:
                     self.modes = self._load_modes(fname_base)
                 except FileNotFoundError:
                     raise FileNotFoundError('KRAKEN: Fortran execution did not generate expected output file !')
-        
+        if flip:
+            self.env['rx_range'] = -_np.flip(self.env['rx_range'])
+            flip = False
+            
         # Delete temporary generated files
         self._unlink_all(fname_base)     
         
@@ -1741,7 +1799,7 @@ class KRAKEN:
                 mode = 'I'
             else:
                 print('[WARNING] KRAKEN: Unknown mode, using incoherent instead !')
-                mode = 'I'
+                mode = 'C'
             
             # Options string
             self._print(fh, "'%c%c%c%c'" % (rx_type, th, bp, mode))
@@ -1757,7 +1815,7 @@ class KRAKEN:
             
             # SOURCE/RECEIVER LOCATIONS (6)
             # NRr R
-            self._print(fh,"%0.6f" % (_np.size(self.env['rx_range'])))
+            self._print(fh,"%d" % (_np.size(self.env['rx_range'])))
             self._print(fh,"%0.6f %0.6f /" % (_np.min((_np.min(self.env['rx_range']/1000), 0)), _np.max(self.env['rx_range']/1000)))
             
             # NSz Sz
@@ -2045,7 +2103,7 @@ class KRAKEN:
             self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (_np.max(self.env['bot_interface']), bot_PwaveSpeed, bot_SwaveSpeed, bot_density, bot_PwaveAttn, bot_SwaveAttn))
 
         # C0 min and max (c0min = 0 => automatic calculation mode)
-        self._print(fh, "%0.6f %0.6f" %(0, _np.max(self.env['ssp'])))                           
+        self._print(fh, "%0.6f %0.6f" %(0, 999999999))                           
         
         # Max range in km self._print_array(fh, self.env['rx_depth'])
         self._print(fh, "%0.6f" %(self.rbox/1000))                                         
@@ -2099,7 +2157,7 @@ class KRAKEN:
         im1 = ax.imshow(tlossplt, extent=[X[0] / 1000, X[-1] / 1000, Y[-1], Y[0]], cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
 
         # Plot the bottom interface
-        ax.plot(self.env['bot_interface'][:, 0] / 1000, self.env['bot_interface'][:, 1], 'k', linewidth=3)
+        ax.plot([X[0]/1000, X[-1]/1000], [_np.mean(self.env['bot_interface'][:,1]), _np.mean(self.env['bot_interface'][:,1])], 'k', linewidth=3)
 
         # Set plot properties
         ax.set_xlim((X[0] / 1000, X[-1] / 1000))
@@ -2376,34 +2434,137 @@ class KRAKEN:
         modes = Modes(**input_dict)
         return modes
 
-    def _load_shd(self, fname_base, debug=0, **kwargs):
-                    
-        if not _os.path.exists(fname_base+'.shd'):
-            print(f"[ERROR] KRAKEN: {fname_base}.shd not found !")
-            
-        with open(fname_base+'.shd', 'rb') as f:
-            recl, = _unpack('i', f.read(4))
-            title = str(f.read(80))
-            f.seek(4*recl, 0)
-            ptype = f.read(10).decode('utf8').strip()
-            assert ptype == 'rectilin', 'Invalid file format (expecting ptype == "rectilin")'
-            f.seek(8*recl, 0)
-            nfreq, ntheta, nsx, nsy, nsd, nrd, nrr, atten = _unpack('iiiiiiif', f.read(32))
-            assert nfreq == 1, 'Invalid file format (expecting nfreq == 1)'
-            assert ntheta == 1, 'Invalid file format (expecting ntheta == 1)'
-            assert nsd == 1, 'Invalid file format (expecting nsd == 1)'
-            f.seek(32*recl, 0)
-            pos_r_depth = _unpack('f'*nrd, f.read(4*nrd))
-            f.seek(36*recl, 0)
-            pos_r_range = _unpack('f'*nrr, f.read(4*nrr))
-            pressure = _np.zeros((nrd, nrr), dtype=_np.complex128)
-            for ird in range(nrd):
-                recnum = 10 + ird
-                f.seek(recnum*4*recl, 0)
-                temp = _np.array(_unpack('f'*2*nrr, f.read(2*nrr*4)))
-                pressure[ird,:] = temp[::2] + 1j*temp[1::2]
-        return _pd.DataFrame(pressure, index=pos_r_depth, columns=pos_r_range)
+    def _load_shd(self, fname_base, debug=0, *args, **kwargs):
+        '''
+        Code imported and modified from pyat.
+        '''
+        
+        filename = fname_base+'.shd'
+        if not _os.path.exists(filename):
+            print(f"[ERROR] KRAKEN: {filename} not found !")
+
+        # optional frequency
+        freq = _np.NaN
     
+        # optional source (x,y) coordinate
+        xs = _np.NaN
+        ys = _np.NaN
+            
+        with open( filename, 'rb' ) as f:
+    
+            recl     = unpack('<I', f.read(4))[0];     #record length in bytes will be 4*recl
+            title    = unpack('80s', f.read(80))
+        
+            f.seek(4 * recl); #reposition to end of first record
+            PlotType = unpack('10s', f.read(10))
+        
+            f.seek(2 * 4 * recl); #reposition to end of second record
+            Nfreq  = unpack('<I', f.read(4))[0]
+            Ntheta = unpack('<I', f.read(4))[0]
+            Nsx    = unpack('<I', f.read(4))[0]
+            Nsy    = unpack('<I', f.read(4))[0]
+            Nsd    = unpack('<I', f.read(4))[0]
+            Nrd    = unpack('<I', f.read(4))[0]
+            Nrr    = unpack('<I', f.read(4))[0]
+            atten  = unpack('<I', f.read(4))[0]
+            f.seek(3 * 4 * recl); #reposition to end of record 3
+            freqVec = unpack(str(Nfreq) +'d', f.read(Nfreq*8))
+        
+            f.seek(4 * 4 * recl) ; #reposition to end of record 4
+            theta   = unpack(str(Ntheta) +'f', f.read(4*Ntheta))[0]
+        
+            if ( PlotType[ 1 : 2 ] != 'TL' ):
+                f.seek(5 * 4 * recl); #reposition to end of record 5
+                x     = unpack(str(Nsx)+'f',  f.read(Nsx*4))
+                f.seek( 6 * 4 * recl); #reposition to end of record 6
+                y     = unpack(str(Nsy) + 'f', f.read(Nsy*4))
+            else:   # compressed format for TL from FIELD3D
+                f.seek(5 * 4 * recl, -1 ); #reposition to end of record 5
+                x     = f.read(2,    'float32' )
+                x     = _np.linspace( x[0], x[-1], Nsx )
+                
+                f.seek(6 * 4 * recl, -1 ); #reposition to end of record 6
+                y     = f.read(2,    'float32' )
+                y     = _np.linspace( y[0], y[-1], Nsy )
+        
+            f.seek(7 * 4 * recl); #reposition to end of record 7
+            sdepth = unpack(str(Nsd)+'f', f.read(Nsd*4))
+            sdepth = _np.array(sdepth)
+        
+            f.seek(8 * 4 * recl); #reposition to end of record 8
+            rdepth = unpack(str(Nrd) + 'f', f.read(Nrd*4))
+            rdepth = _np.array(rdepth)
+        
+            f.seek(9 * 4 * recl); #reposition to end of record 9
+            rrange = unpack(str(Nrr) + 'f',f.read(Nrr*4))
+            # rrange = rrange';   # make it a row vector
+            rrange = _np.array(rrange)
+            rrange = _np.round(rrange, 3)
+            ##
+            # Each record holds data from one source depth/receiver depth pair
+        
+            if PlotType == 'rectilin  ':
+                pressure = _np.zeros(( Ntheta, Nsd, Nrd, Nrr ), dtype=_np.complex128)
+                Nrcvrs_per_range = Nrd
+            if PlotType == 'irregular ':
+                pressure = _np.zeros(( Ntheta, Nsd,   1, Nrr ), dtype=_np.complex128)
+                Nrcvrs_per_range = 1
+            else:
+                pressure = _np.zeros(( Ntheta, Nsd, Nrd, Nrr ), dtype=_np.complex128)
+                Nrcvrs_per_range = Nrd
+        
+            ##
+            if _np.isnan( xs ):    # Just read the first xs, ys, but all theta, sd, and rd
+                # get the index of the frequency if one was selected
+                ifreq = 0
+                if not _np.isnan(freq):
+                   freqdiff = [abs( x - freq ) for x in freqVec]
+                   ifreq = min( freqdiff )
+        
+                for itheta in range (Ntheta):
+                    for isd in range(Nsd):
+                        # disp( [ 'Reading data for source at depth ' num2str( isd ) ' of ' num2str( Nsd ) ] )
+                        for ird in range( Nrcvrs_per_range):
+                            recnum = 10 + ( ifreq   ) * Ntheta * Nsd * Nrcvrs_per_range + \
+                                          ( itheta  )          * Nsd * Nrcvrs_per_range + \
+                                          ( isd     )                * Nrcvrs_per_range + \
+                                            ird    
+                            status = f.seek(int(recnum) * 4 * recl); #Move to end of previous record
+                            if ( status == -1 ):
+                                raise ValueError( 'Seek to specified record failed in read_shd_bin' )
+                            temp = unpack(str(2*Nrr)+'f', f.read(2 * Nrr*4));    #Read complex data
+                            pressure[ itheta, isd, ird, : ] = temp[ 0 : 2 * Nrr -1 : 2 ] + complex(0,1) *_np.array((temp[ 1 : 2 * Nrr :2]))
+                            # Transmission loss matrix indexed by  theta x sd x rd x rr
+                            
+            else:              # read for a source at the desired x, y, z.
+                
+                xdiff = abs( x[0] - xs * 1000.0 )
+                [ holder, idxX ] = min( xdiff )
+                ydiff = abs( y - ys * 1000.0 )
+                [ holder, idxY ] = min( ydiff )
+                
+                # show the source x, y that was found to be closest
+                # [ x( idxX ) y( idxY ) ]
+                for itheta in range(Ntheta):
+                    for isd in range(Nsd):
+                        # disp( [ 'Reading data for source at depth ' num2str( isd ) ' of ' num2str( Nsd ) ] )
+                        for ird in range(Nrcvrs_per_range):
+                            recnum = 10 + ( idxX   - 1 ) * Nsy * Ntheta * Nsd * Nrcvrs_per_range +   \
+                                          ( idxY   - 1 )       * Ntheta * Nsd * Nrcvrs_per_range +  \
+                                          ( itheta - 1 )                * Nsd * Nrcvrs_per_range +  \
+                                          ( isd    - 1 )                      * Nrcvrs_per_range + ird - 1
+                            status = f.seek(recnum * 4 * recl); # Move to end of previous record
+                            if ( status == -1 ):
+                                raise ValueError( 'Seek to specified record failed in read_shd_bin' )
+                            
+                            temp = f.read(2 * Nrr, 'float32' );    #Read complex data
+                            pressure[ itheta, isd, ird, : ] = temp[ 1 : 2 : 2 * Nrr ] + complex(0,1) * _np.array(temp[ 2 : 2 : 2 * Nrr ])
+                            # Transmission loss matrix indexed by  theta x sd x rd x rr
+        
+        idx      = _np.where(self.env['rx_range'] >= 0)[0][0]
+
+        return pressure[0,0,:,idx:]
+        
 
 _models.append(('KRAKEN', KRAKEN))
 
@@ -2489,8 +2650,12 @@ class RAM:
                            ndz   = ndz,
                            zmplt = self.zbox
                            )
-        # Left propagation
-        ratio = iiMin/_np.size(self.env['rx_range'])
+        
+        # Left propagation     
+        if _np.max(self.env['rx_range']) == 0:
+            ratio = 1
+        else:
+            ratio = iiMin/_np.size(self.env['rx_range'])
                 
         if _np.size(self.env['rx_range']) > 1:
             ndr = _np.max((_np.round((self.env['rx_range'][1]-self.env['rx_range'][0])/(step)*ratio), 1))
@@ -2592,7 +2757,7 @@ class RAM:
                 cpg = _np.hstack((cpg,_np.fliplr(self.pyramL.cpg)))
             
             # Compute prpagation to the right side
-            if _np.max(self.env['rx_range']) >= 0:    
+            if _np.max(self.env['rx_range']) > 0:    
                 self.pyramR.run()
                 if tlg is None:
                     tlg = _np.empty((self.pyramR.tlg.shape[0], 0))
@@ -2731,8 +2896,9 @@ class RAM:
         
         # Re-compute map over grid
         for ii, x in enumerate(Xg):  # For all map pixels
+            intrepolation = _np.interp(x, rb, zb)
             for jj, y in enumerate(Yg):
-                if y > _np.interp(x, rb, zb):  # If in sediment (interpolation of bathymetry line between samples)
+                if y > intrepolation:  # If in sediment (interpolation of bathymetry line between samples)
                     x_idx = _np.argmin(_np.abs(Xb - x))
                     y_idx = _np.argmin(_np.abs(Yb - y))
                     Zg[jj, ii] = Zb[y_idx, x_idx]
@@ -2789,8 +2955,9 @@ class RAM:
             
             # Re-compute map over grid
             for ii, x in enumerate(Xg):
+                intrepolation = _np.interp(x, rb, zb)
                 for jj, y in enumerate(Yg):
-                    if y > _np.interp(x, rb, zb):  # If in sediment
+                    if y > intrepolation:  # If in sediment
                         y_idx = _np.argmin(_np.abs(Yb - y))
                         x_idx = _np.argmin(_np.abs(Xb - x))
                         Zg[jj, ii] = Zb[y_idx, x_idx]
@@ -2863,8 +3030,9 @@ class RAM:
     
         # Re-compute map over grid
         for ii, x in enumerate(Xg):  # For all map pixels
+            intrepolation = _np.interp(x, rb, zb)
             for jj, y in enumerate(Yg):
-                if y > _np.interp(x, rb, zb):  # If in sediment (interpolation of bathymetry line between samples)
+                if y > intrepolation:  # If in sediment (interpolation of bathymetry line between samples)
                     x_idx = _np.argmin(_np.abs(Xb - x))
                     y_idx = _np.argmin(_np.abs(Yb - y))
                     Zg[jj, ii] = Zb[y_idx, x_idx]
