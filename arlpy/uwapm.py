@@ -2249,7 +2249,7 @@ class KRAKEN:
         
         fig, ax = plt.subplots()
         
-        ax.plot(_np.real(self.modes.phi[:,1:n+1]), self.modes.z)
+        ax.plot(_np.real(self.modes.phi[:,0:n]), self.modes.z)
         ax.set_ylabel('Depth [m]')
         ax.grid()
         ax.set_ylim([0,_np.max(self.env['bot_interface'][:,1])])
