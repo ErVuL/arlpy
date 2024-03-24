@@ -3015,7 +3015,7 @@ class RAM:
         ax.set_xlim((Xg[0] / 1000, Xg[-1] / 1000))
         ax.set_ylim((Yg[0], Yg[-1]))
         cbar = fig.colorbar(im, ax=ax)
-        cbar.ax.set_ylabel('Density [$g.cm^{3}$]')
+        cbar.ax.set_ylabel('Density [$\mathrm{g.cm}^{3}$]')
         ax.set_xlabel('Range [km]')
         ax.set_ylabel('Depth [m]')
         ax.set_title(f"[RAM - Bottom density] {self.env['name']}")
