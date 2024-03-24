@@ -1696,74 +1696,62 @@ class KRAKEN:
         
         # Manage left propagation
         flip = False
-        if _np.min(self.env['rx_range']) < 0:
+        if _np.abs(_np.min(self.env['rx_range'])) > _np.max(self.env['rx_range']):
             self.env['rx_range'] = -_np.flip(self.env['rx_range'])
             flip = True
         
-            # Generate temporary env file and get base name used for all temporary files
-            fname_base = self._create_env_file(taskcode, debug=debug)
+        # Generate temporary env file and get base name used for all temporary files
+        fname_base = self._create_env_file(taskcode, debug=debug)
+            
+        if self._kraken(fname_base):
+            err = self._check_error(fname_base)
+            if err is not None:
+                raise RuntimeError(err) 
+            else:
+                try:
+                    self._create_flp_file(fname_base, debug=debug)
+                    if self._field(fname_base):
+                        try:
+                            self.modes = self._load_modes(fname_base)
+                            TL = self._load_shd(fname_base)
+                        except FileNotFoundError:
+                            raise FileNotFoundError('KRAKEN: Fortran execution did not generate expected output file !')
                 
-            if self._kraken(fname_base):
-                err = self._check_error(fname_base)
-                if err is not None:
-                    raise RuntimeError(err) 
-                else:
-                    try:
-                        self._create_flp_file(fname_base, debug=debug)
-                        if self._field(fname_base):
-                            try:
-                                self.modes = self._load_modes(fname_base)
-                                TL_L = self._load_shd(fname_base)
-                            except FileNotFoundError:
-                                raise FileNotFoundError('KRAKEN: Fortran execution did not generate expected output file !')
+                except Exception as e:
+                    raise Exception(e)
                     
-                    except Exception as e:
-                        raise Exception(e)
+        # Delete temporary generated files
+        self._unlink_all(fname_base)  
                         
-                # Delete temporary generated files
-                self._unlink_all(fname_base)  
-                        
-        # Manage right propagation
+        # Unflip env
         if flip:
             self.env['rx_range'] = -_np.flip(self.env['rx_range'])
             flip = False
         
-        if _np.max(self.env['rx_range']) >= 0:
-                    
-            # Generate temporary env file and get base name used for all temporary files
-            fname_base = self._create_env_file(taskcode, debug=debug)
-                
-            if self._kraken(fname_base):
-                err = self._check_error(fname_base)
-                if err is not None:
-                    raise RuntimeError(err) 
-                else:
-                    try:
-                        self._create_flp_file(fname_base, debug=debug)
-                        if self._field(fname_base):
-                            try:
-                                self.modes = self._load_modes(fname_base)
-                                TL_R = self._load_shd(fname_base)
-                            except FileNotFoundError:
-                                raise FileNotFoundError('KRAKEN: Fortran execution did not generate expected output file !')
-                    
-                    except Exception as e:
-                        raise Exception(e)
-                
-                # Delete temporary generated files
-                self._unlink_all(fname_base)  
-                
-        if TL_L is not None and TL_R is not None:
-            self.transmission_loss = _np.hstack((_np.fliplr(TL_L), TL_R))
-        elif TL_L is not None:
-            self.transmission_loss = _np.fliplr(TL_L)
-        elif TL_R is not None:
-            self.transmission_loss = TL_R
+        # Manage left and right propagation
+        if _np.max(self.env['rx_range']) > 0:
+            idx = _np.where(self.env['rx_range'] >= 0)[0][0]
+            TL_L = _np.fliplr(TL[:, :idx])
         else:
-            print("[ERROR] KRAKEN: Transmission loss results are empty !")
-            
-   
+            TL_L = None 
         
+        if TL_L is not None:  
+            rcols = _np.size(self.env['rx_range']) - TL_L.shape[1]
+        else:
+            rcols = _np.size(self.env['rx_range'])
+        
+        if rcols:
+            TL_R = TL[:,:rcols] 
+        else:
+            TL_R = None
+
+        if TL_L is not None and TL_R is not None:
+            self.transmission_loss = _np.hstack((TL_L, TL_R)) 
+        elif TL_L is not None:
+            self.transmission_loss = TL_L 
+        elif TL_R is not None:
+            self.transmission_loss = TL_R 
+
         return self.transmission_loss
 
     def compute_modes(self, debug=False, **kwargs):
