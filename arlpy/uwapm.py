@@ -191,7 +191,7 @@ def make_env2d(**kv):
             'tx_freq'         : None,                        # Source frequency in Hz
             'tx_depth'        : None,                        # m
             'tx_beam'         : None,                        # [[deg, dB]...]
-            'tx_nbeams'       : 0,                           # number of beams (0 = auto)
+            'tx_nbeam'        : 0,                           # number of beams (0 = auto)
             'tx_minAngle'     : -180,                        # deg
             'tx_maxAngle'     : 180,                         # deg
             
@@ -224,7 +224,7 @@ def make_env2d(**kv):
             'twy_radius2'     : None,                       # m (XI)
             'nmedia'          : 1,                          # Number of media except infinite top and bottom 
             'theory'          : adiabatic,                 
-            'nmodes'          : 9999,
+            'nmode'           : 999999999,
                     
             }
     
@@ -234,6 +234,8 @@ def make_env2d(**kv):
         env[k] = _np.array(v, dtype=_np.float64) if _np.size(v) > 1 else v
     
     # Ensure consistency of dimensions for SSP (Sound Speed Profile) and bottom settings    
+    if env['bot_interface'][0,0] is None or not _np.isfinite(env['bot_interface'][0,0]):
+        env['bot_interface'][0,0] = 0
     if _np.size(env['ssp_range']) == _np.size(env['ssp']):
         if _np.size(env['ssp']) > 1:
             env['ssp'] = _np.hstack(env['ssp'])
@@ -259,21 +261,25 @@ def make_env2d(**kv):
     # Adjust environment border by padding input data if required for OALIB and RAM
     if env['pad_inputData'] == True:
         
-        if _np.size(env['ssp_range']) == 1 and _np.size(env['ssp_depth']) == 1 and _np.size(env['ssp']) == 1:
-            env['ssp'] = _np.vstack([env['ssp'], env['ssp']])
-            env['ssp_depth'] = _np.array([0, _np.max((_np.max(env['rx_depth']), _np.max(env['bot_interface'][:,1])+_np.max(env['bot_interface'][:,1])/10))])
-        elif _np.size(env['ssp_depth']) == 1 and _np.size(env['ssp_range']) == _np.size(env['ssp']):
-            env['ssp'] = _np.vstack([env['ssp'], env['ssp']])
-            env['ssp_depth'] = _np.array([0, _np.max((_np.max(env['rx_depth']), _np.max(env['bot_interface'][:,1])+_np.max(env['bot_interface'][:,1])/10))])
-        
+        # Define OALIB numerical box
         rBox = 1.01*_np.max(_np.abs(env['rx_range']))
         zBox = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
+        
+        # Ensure top interface is initalize and sized
         if env['top_interface'] is not None:
             env['top_interface'] = _adjust_2D(env['top_interface'], -1.001*rBox, 1.001*rBox)
         else:
             env['top_interface'] = _np.array((0,0), ndmin=2)
+        zSSPmin = _np.min(env['top_interface'][:,1])-zBox/100
+        
+        # Get at least 2 ssp values at depth 0 and 1.001*zBox
+        if (_np.size(env['ssp_range']) == 1 and _np.size(env['ssp_depth']) == 1 and _np.size(env['ssp']) == 1) or (_np.size(env['ssp_depth']) == 1 and _np.size(env['ssp_range']) == _np.size(env['ssp'])) or _np.size(env['ssp']) == 1:
+            env['ssp'] = _np.vstack([env['ssp'], env['ssp']])
+            env['ssp_depth'] = _np.array([zSSPmin, 1.001*zBox])
+
+        # Ensure settings overlap and size 
         env['bot_interface'] = _adjust_2D(env['bot_interface'], -1.001*rBox, 1.001*rBox)
-        env['ssp'], env['ssp_range'], env['ssp_depth']  = _adjust_3D(env['ssp'], env['ssp_range'], env['ssp_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.max(_np.abs(env['top_interface'][:,1])),1.001*zBox)                                                               
+        env['ssp'], env['ssp_range'], env['ssp_depth']  = _adjust_3D(env['ssp'], env['ssp_range'], env['ssp_depth'], -1.001*rBox, 1.001*rBox, zSSPmin,1.001*zBox)                                                               
         env['bot_PwaveAttn'], _, _  = _adjust_3D(env['bot_PwaveAttn'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                 
         env['bot_density'], _, _  = _adjust_3D(env['bot_density'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                
         env['bot_PwaveSpeed'], env['bot_range'], env['bot_depth']  = _adjust_3D(env['bot_PwaveSpeed'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)
@@ -364,20 +370,24 @@ def print_env(env):
     keys = ['name'] + sorted(list(env.keys()-['name']))
     for k in keys:
         v = str(env[k])
-        if len(v) > 50:
+        if len(v) > 40:
             if '\n' in v:
                 v = v.split('\n')
-                print('%20s : '%(k) + v[0])
+                print('%20s : '%(k) + v[0] + '...')
                 print('%26s %s'%('...', v[-1]))
             else:
-                print('%20s : '%(k) + v[:25])
-                print('%26s %s'%('...', v[-25:]))
+                print('%20s : '%(k) + v[:20] + '...')
+                print('%26s %s'%('...', v[-20:]))
                 
         elif '\n' in v:
             v = v.split('\n')
-            print('%20s : '%(k) + v[0])
-            for v1 in v[1:]:
-                print('%20s   '%('') + v1)
+            if len(v) > 3:
+                print('%20s : '%(k) + v[0] ) 
+                print('%26s\n%30s'%('...', v[-1]))
+            else:
+                print('%20s : '%(k) + v[0])
+                for v1 in v[1:]:
+                    print('%20s   '%('') + v1)
         else:
             print('%20s : '%(k) + v)
 
@@ -906,7 +916,7 @@ class BELLHOP:
             botBdry = 'R'
         
         # Bottom options string
-        if self.env['bot_interface'].ndim == 2:
+        if _np.ndim(self.env['bot_interface']) == 2:
             self._print(fh, "'%c*' %0.6f" % (botBdry, self.env['bot_roughness']))
             if ((self.env['bot_interface'][-1,0]-self.env['bot_interface'][0,0])/self.env['bot_interface'][:,0].size) < (_np.mean(self.env['ssp'])/self.env['tx_freq']*10) :
                 self._create_bty_ati_file(fname_base+'.bty', self.env['bot_interface'], curvilinear, debug=debug)
@@ -919,32 +929,32 @@ class BELLHOP:
         # Bottom halfspace extra lines (6a) (6b)
         # @todo     Add Grain size 
         if  _np.size(self.env['bot_PwaveSpeed']) > 1:
-            print("[INFO] BELLHOP: Do not support multiple Pwave speed definition, using average value instead.")
-            bot_PwaveSpeed = _np.mean(self.env['bot_PwaveSpeed'])
+            print("[INFO] BELLHOP: Do not support multiple Pwave speed definition, using median value instead.")
+            bot_PwaveSpeed = _np.median(self.env['bot_PwaveSpeed'])
         else:
             bot_PwaveSpeed = self.env['bot_PwaveSpeed']
         
         if  _np.size(self.env['bot_SwaveSpeed']) > 1:
-            print("[INFO] BELLHOP: Do not support multiple Swave speed definition, using average value instead.")
-            bot_SwaveSpeed = _np.mean(self.env['bot_SwaveSpeed'])
+            print("[INFO] BELLHOP: Do not support multiple Swave speed definition, using median value instead.")
+            bot_SwaveSpeed = _np.median(self.env['bot_SwaveSpeed'])
         else:
             bot_SwaveSpeed = self.env['bot_SwaveSpeed']
             
         if  _np.size(self.env['bot_density']) > 1:
-            print("[INFO] BELLHOP: Do not support multiple bottom density definition, using average value instead.")
-            bot_density = _np.mean(self.env['bot_density'])
+            print("[INFO] BELLHOP: Do not support multiple bottom density definition, using median value instead.")
+            bot_density = _np.median(self.env['bot_density'])
         else:
             bot_density = self.env['bot_density']    
             
         if  _np.size(self.env['bot_PwaveAttn']) > 1:
-            print("[INFO] BELLHOP: Do not support multiple Pwave attn definition, using average value instead.")
-            bot_PwaveAttn = _np.mean(self.env['bot_PwaveAttn'])
+            print("[INFO] BELLHOP: Do not support multiple Pwave attn definition, using median value instead.")
+            bot_PwaveAttn = _np.median(self.env['bot_PwaveAttn'])
         else:
             bot_PwaveAttn = self.env['bot_PwaveAttn']   
             
         if  _np.size(self.env['bot_SwaveAttn']) > 1:
-            print("[INFO] BELLHOP: Do not support multiple Swave speed definition, using average value instead.")
-            bot_SwaveAttn = _np.mean(self.env['bot_SwaveAttn'])
+            print("[INFO] BELLHOP: Do not support multiple Swave speed definition, using median value instead.")
+            bot_SwaveAttn = _np.median(self.env['bot_SwaveAttn'])
         else:
             bot_SwaveAttn = self.env['bot_SwaveAttn']     
      
@@ -969,7 +979,7 @@ class BELLHOP:
             self._create_sbp_file(fname_base+'.sbp', self.env['tx_beam'], debug=debug)
             
         # Beam fan (9)
-        self._print(fh, "%d" % (self.env['tx_nbeams']))
+        self._print(fh, "%d" % (self.env['tx_nbeam']))
         self._print(fh, "%0.6f %0.6f /" % (self.env['tx_minAngle'], self.env['tx_maxAngle']))
         
         # Numerical integrator info (10)
@@ -1080,7 +1090,11 @@ class BELLHOP:
         """
         fig, ax = plt.subplots()
         
-        if _np.size(self.env['ssp_range']) > 1:
+        vmax = kwargs.get('vmax', _np.max(self.env['ssp'])+_np.abs(_np.mean(self.env['ssp']))/100)
+        vmin = kwargs.get('vmin', _np.min(self.env['ssp'])-_np.abs(_np.mean(self.env['ssp']))/100)
+        
+        if _np.size(self.env['ssp_range']) > 1: # 2D SSP data
+        
             X, Y, Z = _np.array(self.env['ssp_range']), _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
             
             Zb = kwargs.get('vmax', _np.max(self.env['ssp']) * 4) 
@@ -1123,10 +1137,13 @@ class BELLHOP:
             ax.invert_yaxis()
             plt.tight_layout()
             plt.show()
-        else:
-            vmax = kwargs.get('vmax', _np.max(self.env['ssp']))
-            vmin = kwargs.get('vmin', _np.min(self.env['ssp']))
-            Y, Z = _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
+            
+        else: # 1D SSP data
+        
+            if _np.size(self.env['ssp_depth']) > 1:
+                Y, Z = _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
+            else:
+                Y, Z = _np.array([0, _np.max(self.env['bot_interface'][:,1])]), _np.array([self.env['ssp'], self.env['ssp']])
             ax.set_title(f"[BELLHOP - Sound speed profile] {self.env['name']}")
             ax.set_xlim((vmin, vmax))
             ax.invert_yaxis()
@@ -1307,7 +1324,7 @@ class BELLHOP:
         
         return fig, ax
     
-    def plot_impulse_response(self, dB=False, color='steelblue', **kwargs):
+    def plot_impulse_response(self, dB=False, nArrivals=10, color='steelblue', **kwargs):
         
         # If dB is True, convert the impulse response to dB
         if dB:
@@ -1315,12 +1332,22 @@ class BELLHOP:
         else:
             ir = self.impulse_response.real
 
+        irlen = 0
+        nn    = 0
+        for ii,val in enumerate(ir):
+            if val != 0:
+                nn += 1
+                irlen = ii
+            if nn == nArrivals:
+                break
+        
         # Plot the impulse response using stem plot
         fig, ax = plt.subplots()
         ax.plot(ir)
+        ax.set_xlim([0, irlen])
         ax.set_xlabel('Sample [S]')
         ax.set_ylabel('Amplitude')
-        ax.set_title(f"[BELLHOP - Impulse response @ {self.impulse_response_fs} S/s] {self.env['name']}")
+        ax.set_title(f"[BELLHOP - Impulse response for {nn} arr @ {self.impulse_response_fs} S/s] {self.env['name']}")
         ax.grid('all')
         plt.tight_layout()
         plt.show()
@@ -1826,8 +1853,8 @@ class KRAKEN:
             self._print(fh, "'%c%c%c%c'" % (rx_type, th, bp, mode))
             
             # NUMBER OF MODES (3)
-            nmodes = self.env['nmodes']
-            self._print(fh, "%d" % (nmodes))
+            nmode = self.env['nmode']
+            self._print(fh, "%d" % (nmode))
             
             # PROFILE RANGES (4)
             # Nprof
@@ -2017,8 +2044,8 @@ class KRAKEN:
                 
                 # Sound speed profile (5a)
                 if _np.size(env['ssp'],axis=1) > 1:
-                    print(f"[INFO] {env['model']}: Multiple sound profiles not supported, using average value.")
-                    mn = _np.mean(env['ssp'], axis=1)
+                    print(f"[INFO] {env['model']}: Multiple sound profiles not supported, using median value.")
+                    mn = _np.median(env['ssp'], axis=1)
                     ssp = _np.column_stack((env['ssp_depth'], mn))
                 else:
                     ssp = _np.column_stack((env['ssp_depth'], env['ssp']))
@@ -2034,27 +2061,27 @@ class KRAKEN:
         
         
         if _np.size(self.env['ssp_range']) > 1:
-            print("[WARNING] KRAKEN: Range dependant ssp not supported, using average values instead !")
+            print("[WARNING] KRAKEN: Range dependant ssp not supported, using median values instead !")
             try:
-                ssp = _np.mean(self.env['ssp'], axis=1)
+                ssp = _np.median(self.env['ssp'], axis=1)
             except:
                 try:
-                    ssp = _np.mean(self.env['ssp'], axis=0)
+                    ssp = _np.median(self.env['ssp'], axis=0)
                 except:
                     ssp = self.env['ssp']
         else:
             ssp = self.env['ssp']
         
-        if _np.size(self.env['ssp_depth']) > 1 and _np.size(self.env['ssp']) > 1:             
+        if _np.size(self.env['ssp_depth']) > 1 and _np.size(self.env['ssp']) > 1:      
             self._print(fh, "%d %0.1f %0.6f" % (nmesh, self.env['top_roughness'], _np.max(self.env['ssp_depth'])))
             firstLine = True
             for j in range(self.env['ssp_depth'].size):
-                if self.env['ssp_depth'][j] >= 0.0:
-                    if firstLine:
-                        firstLine = False
-                        self._print(fh, "%0.6f %0.6f 0.0 %0.6f 0.0 0.0 /" % (_np.abs(self.env['ssp_depth'][j]), ssp[j], self.env['water_density']))
-                    else:
-                        self._print(fh, "%0.6f %0.6f /" % (_np.abs(self.env['ssp_depth'][j]), ssp[j]))
+                if firstLine:
+                    firstLine = False
+                    self._print(fh, "%0.6f %0.6f 0.0 %0.6f 0.0 0.0 /" % (_np.abs(self.env['ssp_depth'][j]), ssp[j], self.env['water_density']))
+                else:
+                    self._print(fh, "%0.6f %0.6f /" % (_np.abs(self.env['ssp_depth'][j]), ssp[j]))
+                    
         else:
             self._print(fh, "%0.6f %0.6f /" % (_np.min(self.env['rx_depth']), ssp))
             self._print(fh, "%0.6f %0.6f /" % (_np.max(self.env['rx_depth']), ssp))
@@ -2091,32 +2118,32 @@ class KRAKEN:
         # Bottom halfspace extra lines (6a) (6b)
         # @todo     Add Grain size 
         if  _np.size(self.env['bot_PwaveSpeed']) > 1:
-            print("[INFO] KRAKEN: Do not support multiple Pwave speed definition, using average value instead.")
-            bot_PwaveSpeed = _np.mean(self.env['bot_PwaveSpeed'])
+            print("[INFO] KRAKEN: Do not support multiple Pwave speed definition, using median value instead.")
+            bot_PwaveSpeed = _np.median(self.env['bot_PwaveSpeed'])
         else:
             bot_PwaveSpeed = self.env['bot_PwaveSpeed']
         
         if  _np.size(self.env['bot_SwaveSpeed']) > 1:
-            print("[INFO] KRAKEN: Do not support multiple Swave speed definition, using average value instead.")
-            bot_SwaveSpeed = _np.mean(self.env['bot_SwaveSpeed'])
+            print("[INFO] KRAKEN: Do not support multiple Swave speed definition, using median value instead.")
+            bot_SwaveSpeed = _np.median(self.env['bot_SwaveSpeed'])
         else:
             bot_SwaveSpeed = self.env['bot_SwaveSpeed']
             
         if  _np.size(self.env['bot_density']) > 1:
-            print("[INFO] KRAKEN: Do not support multiple bottom density definition, using average value instead.")
-            bot_density = _np.mean(self.env['bot_density'])
+            print("[INFO] KRAKEN: Do not support multiple bottom density definition, using median value instead.")
+            bot_density = _np.median(self.env['bot_density'])
         else:
             bot_density = self.env['bot_density']    
             
         if  _np.size(self.env['bot_PwaveAttn']) > 1:
-            print("[INFO] KRAKEN: Do not support multiple Pwave attn definition, using average value instead.")
-            bot_PwaveAttn = _np.mean(self.env['bot_PwaveAttn'])
+            print("[INFO] KRAKEN: Do not support multiple Pwave attn definition, using median value instead.")
+            bot_PwaveAttn = _np.median(self.env['bot_PwaveAttn'])
         else:
             bot_PwaveAttn = self.env['bot_PwaveAttn']   
             
         if  _np.size(self.env['bot_SwaveAttn']) > 1:
-            print("[INFO] KRAKEN: Do not support multiple Swave speed definition, using average value instead.")
-            bot_SwaveAttn = _np.mean(self.env['bot_SwaveAttn'])
+            print("[INFO] KRAKEN: Do not support multiple Swave speed definition, using median value instead.")
+            bot_SwaveAttn = _np.median(self.env['bot_SwaveAttn'])
         else:
             bot_SwaveAttn = self.env['bot_SwaveAttn']     
      
@@ -2149,14 +2176,15 @@ class KRAKEN:
     def plot_ssp(self, **kwargs):
         
         fig, ax = plt.subplots()
-        vmax = kwargs.get('vmax', _np.max(self.env['ssp'])+_np.abs(_np.max(self.env['ssp']))/10)
-        vmin = kwargs.get('vmin', _np.min(self.env['ssp'])-_np.abs(_np.min(self.env['ssp']))/10)
+        vmax = kwargs.get('vmax', _np.max(self.env['ssp'])+_np.abs(_np.mean(self.env['ssp']))/100)
+        vmin = kwargs.get('vmin', _np.min(self.env['ssp'])-_np.abs(_np.mean(self.env['ssp']))/100)
+        
         if _np.size(_np.array(self.env['ssp_range'])) > 1:
-            print("[INFO] KRAKEN: Do not support range dependant sound speed, using average values instead !")
+            print("[INFO] KRAKEN: Do not support range dependant sound speed, using median values instead !")
             try:
-                ssp = _np.mean(self.env['ssp'], axis=1)
+                ssp = _np.median(self.env['ssp'], axis=1)
             except:
-                ssp = _np.mean(self.env['ssp'], axis=0)
+                ssp = _np.median(self.env['ssp'], axis=0)
         else:
             ssp = self.env['ssp']
             
@@ -2660,12 +2688,11 @@ class RAM:
             self.step = 0
         
         # Pad bottom settings to minimum required size of 2x2
-        bot_ssp = self.env['bot_PwaveSpeed']
-        bot_attn = self.env['bot_PwaveAttn']
+        bot_ssp     = self.env['bot_PwaveSpeed']
+        bot_attn    = self.env['bot_PwaveAttn']
         bot_density = self.env['bot_density']
-        bot_range = self.env['bot_range']
-        bot_depth = self.env['bot_depth']
-        
+        bot_range   = self.env['bot_range']
+        bot_depth   = self.env['bot_depth']
         if _np.size(self.env['bot_range']) == 1 and _np.size(self.env['bot_depth']) == 1:
             if _np.size(self.env['bot_PwaveSpeed']) == 1:
                 bot_ssp = _np.array([[self.env['bot_PwaveSpeed'], self.env['bot_PwaveSpeed']],
@@ -2998,7 +3025,7 @@ class RAM:
     
         return fig, ax
 
-    def plot_ssp(self, vmin=1200, vmax=7500, Nxy=500, **kwargs):
+    def plot_ssp(self, Nxy=500, **kwargs):
         """
         Plots the sound speed profile of the environment.
         
@@ -3010,9 +3037,12 @@ class RAM:
             fig, ax: Figure and axis objects for the plot.
         """
         fig, ax = plt.subplots()
-        
-        if _np.size(self.env['ssp_range']) > 1:  # 3D SSP data
+
+        if _np.size(self.env['ssp_range']) > 1:  # 2D SSP data
             
+            vmin = kwargs.get('vmin', _np.min(self.env['ssp'])-_np.abs(_np.mean(self.env['bot_ssp']))/20)
+            vmax = kwargs.get('vmax', _np.max(self.env['bot_ssp'])+_np.abs(_np.mean(self.env['bot_ssp']))/20)
+        
             # Extract data
             X, Y, Z = _np.array(self.env['ssp_range']), _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
             Xb, Yb, Zb = _np.array(self.env['bot_range']), _np.array(self.env['bot_depth']), _np.array(self.env['bot_PwaveSpeed'], ndmin=2)
@@ -3054,11 +3084,15 @@ class RAM:
             plt.tight_layout()
             plt.show()
             
-        else:  # 2D SSP data
+        else:  # 1D SSP data
+  
+            vmin = kwargs.get('vmin', _np.min(self.env['ssp'])-_np.abs(_np.mean(self.env['ssp']))/100)
+            vmax = kwargs.get('vmax', _np.max(self.env['ssp'])+_np.abs(_np.mean(self.env['ssp']))/100)
             
-            vmax = kwargs.get('vmax', _np.max(self.env['ssp']))
-            vmin = kwargs.get('vmin', _np.min(self.env['ssp']))
-            Y, Z = _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
+            if _np.size(self.env['ssp_depth']) > 1:
+                Y, Z = _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
+            else:
+                Y, Z = _np.array([0, _np.max(self.env['bot_interface'][:,1])]), _np.array([self.env['ssp'], self.env['ssp']])
             ax.set_title(f"[RAM - Sound speed profile] {self.env['name']}")
             ax.set_xlim((vmin, vmax))
             ax.invert_yaxis()
@@ -3157,7 +3191,7 @@ def plot_recwPSD(Fxx, Pxx, maxval=2**24-1, vpk=3, sh=-205, gain=0, Title='', **k
     """
     
     fig, ax = plt.subplots()
-    ax.semilogx(Fxx, 10*_np.log10(Pxx)+20*_np.log10(vpk/maxval)-sh-gain, **kwargs)
+    ax.semilogx(Fxx, 10*_np.log10(_np.finfo(float).eps+Pxx)+20*_np.log10(_np.finfo(float).eps+vpk/maxval)-sh-gain, **kwargs)
     ax.set_xlabel('Frequency [Hz]')
     ax.set_ylabel('Level [dB re 1$\mu Pa / \sqrt{Hz}$]')
     ax.set_title(f"[ WELCH - Power Spectral Density ] {Title}")
