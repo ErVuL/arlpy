@@ -172,7 +172,7 @@ def make_env2d(**kv):
             'dimension'       : '2D',                        # 2D only
             'pad_inputData'   : True,                        # pad input data to the border of the calculation range
 
-            'mode'            : incoherent,                  # Propagation loss mode
+            'mode'            : coherent,                    # Propagation loss mode
             'volume_attn'     : None,                        # Added volume attenuation
             
             'rx_depth'        : None,                        # m
@@ -198,9 +198,9 @@ def make_env2d(**kv):
             'bot_boundary'    : rigid,
             'bot_interface'   : None,                        # m
             'bot_roughness'   : 0,                           # m (rms) 
-            'bot_range'       : None,                        # m (bottom settings range for ssp, density and absorption)
-            'bot_depth'       : None,                        # m (bottom settings depth for ssp, density and absorption)
-            'bot_ssp'         : None,                        # m/s
+            'bot_range'       : 0,                           # m (bottom settings range for ssp, density and absorption)
+            'bot_depth'       : 0,                           # m (bottom settings depth for ssp, density and absorption)
+            'bot_ssp'         : 6000,                        # m/s
             
 
             # OALIB ONLY
@@ -225,40 +225,47 @@ def make_env2d(**kv):
             'nmedia'          : 1,                          # Number of media except infinite top and bottom 
             'theory'          : adiabatic,                 
             'nmodes'          : 9999,
-            
-            # RAM ONLY
-            'bot_attn'  : None,                       # dB/wavelength
-        
+                    
             }
     
     for k, v in kv.items():
         if k not in env.keys():
             raise KeyError('Unknown key: '+k)
-        env[k] = _np.asarray(v, dtype=_np.float64) if _np.size(v) > 1 else v
+        env[k] = _np.array(v, dtype=_np.float64) if _np.size(v) > 1 else v
     
     # Ensure consistency of dimensions for SSP (Sound Speed Profile) and bottom settings    
     if _np.size(env['ssp_range']) == _np.size(env['ssp']):
-        env['ssp'] = _np.hstack(env['ssp'])
+        if _np.size(env['ssp']) > 1:
+            env['ssp'] = _np.hstack(env['ssp'])
     if _np.size(env['ssp_depth']) == _np.size(env['ssp']):
-        env['ssp'] = _np.vstack(env['ssp'])
-    if env['bot_attn'] is not None and _np.size(env['bot_attn']) > 1:
-        if _np.size(env['bot_range']) == _np.size(env['bot_attn']):
-            env['bot_attn'] = _np.hstack(env['bot_attn'])
-        if _np.size(env['bot_depth']) == _np.size(env['bot_attn']):
-            env['bot_attn'] = _np.vstack(env['bot_attn'])
-    if env['bot_ssp'] is not None and _np.size(env['bot_ssp']) > 1:
-        if _np.size(env['bot_range']) == _np.size(env['bot_ssp']):
-            env['bot_ssp'] = _np.hstack(env['bot_ssp'])
-        if _np.size(env['bot_depth']) == _np.size(env['bot_ssp']):
-            env['bot_ssp'] = _np.vstack(env['bot_ssp'])
+        if _np.size(env['ssp']) > 1:
+            env['ssp'] = _np.vstack(env['ssp'])
+    if env['bot_PwaveAttn'] is not None and _np.size(env['bot_PwaveAttn']) > 1:
+        if _np.size(env['bot_range']) == _np.size(env['bot_PwaveAttn']):
+            env['bot_PwaveAttn'] = _np.hstack(env['bot_PwaveAttn'])
+        if _np.size(env['bot_depth']) == _np.size(env['bot_PwaveAttn']):
+            env['bot_PwaveAttn'] = _np.vstack(env['bot_PwaveAttn'])
+    if env['bot_PwaveSpeed'] is not None and _np.size(env['bot_PwaveSpeed']) > 1:
+        if _np.size(env['bot_range']) == _np.size(env['bot_PwaveSpeed']):
+            env['bot_PwaveSpeed'] = _np.hstack(env['bot_PwaveSpeed'])
+        if _np.size(env['bot_depth']) == _np.size(env['bot_PwaveSpeed']):
+            env['bot_PwaveSpeed'] = _np.vstack(env['bot_PwaveSpeed'])
     if env['bot_density'] is not None and _np.size(env['bot_density']) > 1:
         if _np.size(env['bot_range']) == _np.size(env['bot_density']):
             env['bot_density'] = _np.hstack(env['bot_density'])
         if _np.size(env['bot_depth']) == _np.size(env['bot_density']):
             env['bot_density'] = _np.vstack(env['bot_density'])
 
-    # Adjust environment border by padding input data if required for OALIB (BELLHOP, KRAKEN, ...) also works for RAM
+    # Adjust environment border by padding input data if required for OALIB and RAM
     if env['pad_inputData'] == True:
+        
+        if _np.size(env['ssp_range']) == 1 and _np.size(env['ssp_depth']) == 1 and _np.size(env['ssp']) == 1:
+            env['ssp'] = _np.vstack([env['ssp'], env['ssp']])
+            env['ssp_depth'] = _np.array([0, _np.max((_np.max(env['rx_depth']), _np.max(env['bot_interface'][:,1])+_np.max(env['bot_interface'][:,1])/10))])
+        elif _np.size(env['ssp_depth']) == 1 and _np.size(env['ssp_range']) == _np.size(env['ssp']):
+            env['ssp'] = _np.vstack([env['ssp'], env['ssp']])
+            env['ssp_depth'] = _np.array([0, _np.max((_np.max(env['rx_depth']), _np.max(env['bot_interface'][:,1])+_np.max(env['bot_interface'][:,1])/10))])
+        
         rBox = 1.01*_np.max(_np.abs(env['rx_range']))
         zBox = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
         if env['top_interface'] is not None:
@@ -267,9 +274,9 @@ def make_env2d(**kv):
             env['top_interface'] = _np.array((0,0), ndmin=2)
         env['bot_interface'] = _adjust_2D(env['bot_interface'], -1.001*rBox, 1.001*rBox)
         env['ssp'], env['ssp_range'], env['ssp_depth']  = _adjust_3D(env['ssp'], env['ssp_range'], env['ssp_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.max(_np.abs(env['top_interface'][:,1])),1.001*zBox)                                                               
-        env['bot_attn'], _, _  = _adjust_3D(env['bot_attn'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                 
+        env['bot_PwaveAttn'], _, _  = _adjust_3D(env['bot_PwaveAttn'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                 
         env['bot_density'], _, _  = _adjust_3D(env['bot_density'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                
-        env['bot_ssp'], env['bot_range'], env['bot_depth']  = _adjust_3D(env['bot_ssp'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)
+        env['bot_PwaveSpeed'], env['bot_range'], env['bot_depth']  = _adjust_3D(env['bot_PwaveSpeed'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)
 
     # @todo 
     # env = check_env2d(env)
@@ -357,7 +364,16 @@ def print_env(env):
     keys = ['name'] + sorted(list(env.keys()-['name']))
     for k in keys:
         v = str(env[k])
-        if '\n' in v:
+        if len(v) > 50:
+            if '\n' in v:
+                v = v.split('\n')
+                print('%20s : '%(k) + v[0])
+                print('%26s %s'%('...', v[-1]))
+            else:
+                print('%20s : '%(k) + v[:25])
+                print('%26s %s'%('...', v[-25:]))
+                
+        elif '\n' in v:
             v = v.split('\n')
             print('%20s : '%(k) + v[0])
             for v1 in v[1:]:
@@ -763,11 +779,11 @@ class BELLHOP:
             print('[INFO] BELLHOP: Range dependant SSP require quadrilatteral sound speed interpolation.')
             print('[INFO] BELLHOP: Quadrilatteral interpolation used instead of the selected one.')
             ssp_interp = 'Q'
-        elif self.env['ssp'].ndim == 1 and self.env['ssp_interp'] == quadrilatteral:
+        elif _np.ndim(self.env['ssp']) == 1 and self.env['ssp_interp'] == quadrilatteral:
             print('[INFO] BELLHOP: Quadrilatteral interpollation is for range dependant SSP.')
             print('[INFO] BELLHOP: C-linear interpolation used instead of the selected one.')
             ssp_interp = 'C'
-        elif self.env['ssp'].ndim == 2 and self.env['ssp_interp'] == quadrilatteral:
+        elif _np.ndim(self.env['ssp']) == 2 and self.env['ssp_interp'] == quadrilatteral:
             ssp_interp = 'Q'
         elif self.env['ssp_interp'] == spline:
             ssp_interp = 'S'
@@ -859,7 +875,7 @@ class BELLHOP:
             for j in range(len(self.env['ssp_depth'])):
                 self._print(fh, "%0.6f %0.6f /" % (self.env['ssp_depth'][j], self.env['ssp'][j,0]))
             self._create_ssp_file(fname_base+'.ssp',self.env['ssp_range'], self.env['ssp'], debug=debug)
-        elif self.env['ssp_depth'].size > 1:
+        elif _np.size(self.env['ssp_depth']) > 1:
             for j in range(self.env['ssp_depth'].size):
                 self._print(fh, "%0.6f %0.6f /" % (self.env['ssp_depth'][j], self.env['ssp'][j]))
         else:
@@ -1012,19 +1028,24 @@ class BELLHOP:
                 if depth_val > ylim:
                     tlossplt[j, i] = vmax
 
-        if self.env['top_interface'] is not None:
+        if _np.size(self.env['bot_interface'][:, 0]) > 1:
             for i, range_val in enumerate(X):
                 ylim = _np.interp(range_val, self.env['top_interface'][:, 0], self.env['top_interface'][:, 1])
                 for j, depth_val in enumerate(Y):
                     if depth_val < ylim:
                         tlossplt[j, i] = _np.NaN
             ax.plot(self.env['top_interface'][:, 0] / 1000, self.env['top_interface'][:, 1], 'b', linewidth=3)
-
+        else:
+            ax.plot([X[0] / 1000, X[-1] / 1000], [self.env['top_interface'][0, 1], self.env['top_interface'][0, 1]], 'b', linewidth=3)
+            
         # Plot the transmission loss map using imshow
         im1 = ax.imshow(tlossplt, extent=[X[0] / 1000, X[-1] / 1000, Y[-1], Y[0]], cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
         
         # Plot the bottom interface
-        ax.plot(self.env['bot_interface'][:, 0] / 1000, self.env['bot_interface'][:, 1], 'k', linewidth=3)
+        if _np.size(self.env['bot_interface'][:, 0]) > 1:
+            ax.plot(self.env['bot_interface'][:, 0] / 1000, self.env['bot_interface'][:, 1], 'k', linewidth=3)
+        else:
+            ax.plot([X[0] / 1000, X[-1] / 1000], [self.env['bot_interface'][0, 1], self.env['bot_interface'][0, 1]], 'k', linewidth=3)
         
         # Set plot properties
         ax.set_xlim((X[0] / 1000, X[-1] / 1000))
@@ -2125,6 +2146,33 @@ class KRAKEN:
         return fname_base
 
 
+    def plot_ssp(self, **kwargs):
+        
+        fig, ax = plt.subplots()
+        vmax = kwargs.get('vmax', _np.max(self.env['ssp'])+_np.abs(_np.max(self.env['ssp']))/10)
+        vmin = kwargs.get('vmin', _np.min(self.env['ssp'])-_np.abs(_np.min(self.env['ssp']))/10)
+        if _np.size(_np.array(self.env['ssp_range'])) > 1:
+            print("[INFO] KRAKEN: Do not support range dependant sound speed, using average values instead !")
+            try:
+                ssp = _np.mean(self.env['ssp'], axis=1)
+            except:
+                ssp = _np.mean(self.env['ssp'], axis=0)
+        else:
+            ssp = self.env['ssp']
+            
+        Y, Z = _np.array(self.env['ssp_depth']), _np.array(ssp)
+        ax.set_title(f"[KRAKEN - Sound speed profile] {self.env['name']}")
+        ax.set_xlim((vmin, vmax))
+        ax.invert_yaxis()
+        ax.grid(True)
+        ax.set_ylabel('Depth [m]')
+        ax.set_xlabel('Sound speed [m/s]')
+        ax.plot(Z, Y, 'k', linewidth=3)
+        plt.tight_layout()
+        plt.show()
+            
+        return fig, ax
+    
     def plot_transmission_loss(self, vmin=-120, vmax=0, **kwargs):
         """
         Plots the transmission loss of the environment.
@@ -2181,14 +2229,15 @@ class KRAKEN:
     # @todo     Remove useless file creation.
 
 
-    def plot_modes(self, n=10):
+    def plot_modes(self, n=10, vmin=-0.2, vmax=0.2):
         
         fig, ax = plt.subplots()
         
-        ax.plot(_np.real(self.modes.phi[:,0:n]), self.modes.z)
+        ax.plot(_np.real(self.modes.phi[:,1:n+1]), self.modes.z)
         ax.set_ylabel('Depth [m]')
         ax.grid()
         ax.set_ylim([0,_np.max(self.env['bot_interface'][:,1])])
+        ax.set_xlim([vmin, vmax])
         ax.set_title(f"[KRAKEN - Modes] First {n} Shapes")
         ax.invert_yaxis()
         
@@ -2609,7 +2658,27 @@ class RAM:
         else:
             step = _np.mean(self.env['ssp'])/self.env['tx_freq']/8 # lambda/8
             self.step = 0
-         
+        
+        # Pad bottom settings to minimum required size of 2x2
+        bot_ssp = self.env['bot_PwaveSpeed']
+        bot_attn = self.env['bot_PwaveAttn']
+        bot_density = self.env['bot_density']
+        bot_range = self.env['bot_range']
+        bot_depth = self.env['bot_depth']
+        
+        if _np.size(self.env['bot_range']) == 1 and _np.size(self.env['bot_depth']) == 1:
+            if _np.size(self.env['bot_PwaveSpeed']) == 1:
+                bot_ssp = _np.array([[self.env['bot_PwaveSpeed'], self.env['bot_PwaveSpeed']],
+                                     [self.env['bot_PwaveSpeed'], self.env['bot_PwaveSpeed']]])
+            if _np.size(self.env['bot_PwaveAttn']) == 1:
+                bot_attn = _np.array([[self.env['bot_PwaveAttn'], self.env['bot_PwaveAttn']],
+                                      [self.env['bot_PwaveAttn'], self.env['bot_PwaveAttn']]])
+            if _np.size(self.env['bot_density']) == 1:
+                bot_density = _np.array([[self.env['bot_density'], self.env['bot_density']],
+                                         [self.env['bot_density'], self.env['bot_density']]])
+            bot_range = _np.array([_np.min(self.env['rx_range']), _np.max(self.env['rx_range'])])
+            bot_depth = _np.array([_np.min(self.env['bot_interface'][:,1]), _np.max((_np.max(self.env['rx_depth']), _np.max(self.env['bot_interface'][:,1])))])
+                           
         # Right propagation
         iiMin = _np.where(self.env['rx_range'] >= 0)[0][0]
         ratio = 1-iiMin/_np.size(self.env['rx_range'])
@@ -2636,12 +2705,12 @@ class RAM:
                            _np.max(self.env['rx_depth']),
                            _np.array(self.env['ssp_depth']),
                            _np.array(self.env['ssp_range']),
-                           _np.array(self.env['ssp']),
-                           _np.array(self.env['bot_depth']),
-                           _np.array(self.env['bot_range']),
-                           _np.array(self.env['bot_ssp'],ndmin=2),
-                           _np.array(self.env['bot_density'],ndmin=2),
-                           _np.array(self.env['bot_attn'],ndmin=2),
+                           _np.array(self.env['ssp'], ndmin=2),
+                           _np.array(bot_depth),
+                           _np.array(bot_range),
+                           _np.array(bot_ssp,ndmin=2),
+                           _np.array(bot_density,ndmin=2),
+                           _np.array(bot_attn,ndmin=2),
                            _np.array(self.env['bot_interface'],ndmin=2),
                            rmax  = self.rbox,
                            dr    = dr,
@@ -2673,11 +2742,11 @@ class RAM:
                            _np.array(self.env['ssp_depth']),
                            _np.flip(-_np.array(self.env['ssp_range'])),
                            _np.fliplr(_np.array(self.env['ssp'],ndmin=2)),
-                           _np.array(self.env['bot_depth']),
-                           _np.flip(-_np.array(self.env['bot_range'])),
-                           _np.fliplr(_np.array(self.env['bot_ssp'],ndmin=2)),
-                           _np.fliplr(_np.array(self.env['bot_density'],ndmin=2)),
-                           _np.fliplr(_np.array(self.env['bot_attn'],ndmin=2)),
+                           _np.array(bot_depth),
+                           _np.flip(-_np.array(bot_range)),
+                           _np.fliplr(_np.array(bot_ssp,ndmin=2)),
+                           _np.fliplr(_np.array(bot_density,ndmin=2)),
+                           _np.fliplr(_np.array(bot_attn,ndmin=2)),
                            _np.column_stack((_np.flip(-self.env['bot_interface'][:,0]), _np.flip(self.env['bot_interface'][:,1]))),
                            rmax  = self.rbox,
                            dr    = dr,
@@ -2721,9 +2790,9 @@ class RAM:
                            _np.array(self.env['ssp']),
                            _np.array(self.env['bot_depth']),
                            _np.array(self.env['bot_range']),
-                           _np.array(self.env['bot_ssp'],ndmin=2),
+                           _np.array(self.env['bot_PwaveSpeed'],ndmin=2),
                            _np.array(self.env['bot_density'],ndmin=2),
-                           _np.array(self.env['bot_attn'],ndmin=2),
+                           _np.array(self.env['bot_PwaveAttn'],ndmin=2),
                            _np.array(self.env['bot_interface'],ndmin=2),
                            rmax  = ndr*dr*(_np.size(self.env['rx_range'])*ratio),
                            dr    = dr,
@@ -2842,7 +2911,10 @@ class RAM:
         im1 = ax.imshow(tlossplt, extent=[X[0] / 1000, X[-1] / 1000, Y[-1], Y[0]], cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
 
         # Plot the bottom interface
-        ax.plot(self.env['bot_interface'][:, 0] / 1000, self.env['bot_interface'][:, 1], 'k', linewidth=3)
+        if _np.size(self.env['bot_interface'][:, 0]) > 1:
+            ax.plot(self.env['bot_interface'][:, 0] / 1000, self.env['bot_interface'][:, 1], 'k', linewidth=3)
+        else:
+            ax.plot([X[0] / 1000, X[-1] / 1000], [self.env['bot_interface'][0, 1], self.env['bot_interface'][0, 1]], 'k', linewidth=3)
 
         # Set plot properties
         ax.set_xlim((X[0] / 1000, X[-1] / 1000))
@@ -2943,7 +3015,7 @@ class RAM:
             
             # Extract data
             X, Y, Z = _np.array(self.env['ssp_range']), _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
-            Xb, Yb, Zb = _np.array(self.env['bot_range']), _np.array(self.env['bot_depth']), _np.array(self.env['bot_ssp'], ndmin=2)
+            Xb, Yb, Zb = _np.array(self.env['bot_range']), _np.array(self.env['bot_depth']), _np.array(self.env['bot_PwaveSpeed'], ndmin=2)
             
             # Generate grid
             Xg = _np.linspace(self.env['rx_range'][0], self.env['rx_range'][-1], Nxy)
@@ -3018,7 +3090,7 @@ class RAM:
         # Extract absorption data
         Xb = _np.array(self.env['bot_range'])
         Yb = _np.array(self.env['bot_depth'])
-        Zb = _np.array(_np.array(self.env['bot_attn'], ndmin=2))
+        Zb = _np.array(_np.array(self.env['bot_PwaveAttn'], ndmin=2))
     
         # Generate grid
         Xg = _np.linspace(self.env['rx_range'][0], self.env['rx_range'][-1], Nxy)
