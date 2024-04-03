@@ -199,9 +199,7 @@ def make_env2d(**kv):
             'bot_interface'   : None,                        # m
             'bot_roughness'   : 0,                           # m (rms) 
             'bot_range'       : 0,                           # m (bottom settings range for ssp, density and absorption)
-            'bot_depth'       : 0,                           # m (bottom settings depth for ssp, density and absorption)
-            'bot_ssp'         : 6000,                        # m/s
-            
+            'bot_depth'       : 0,                           # m (bottom settings depth for ssp, density and absorption)            
 
             # OALIB ONLY
             ## Acouso-elastic boundary condition, bottom typical values for rock
@@ -786,12 +784,10 @@ class BELLHOP:
         
         # Option (1:1) SSP interp      
         if _np.size(self.env['ssp_range']) > 1 and self.env['ssp_interp'] != quadrilatteral:
-            print('[INFO] BELLHOP: Range dependant SSP require quadrilatteral sound speed interpolation.')
-            print('[INFO] BELLHOP: Quadrilatteral interpolation used instead of the selected one.')
+            print('[INFO] BELLHOP: SSP interp replaced by quadrilatteral for range dependant SSP.')
             ssp_interp = 'Q'
         elif _np.ndim(self.env['ssp']) == 1 and self.env['ssp_interp'] == quadrilatteral:
-            print('[INFO] BELLHOP: Quadrilatteral interpollation is for range dependant SSP.')
-            print('[INFO] BELLHOP: C-linear interpolation used instead of the selected one.')
+            print('[INFO] BELLHOP: Quadrilatteral interpolation is for range dependant SSP only, using C-linear instead.')
             ssp_interp = 'C'
         elif _np.ndim(self.env['ssp']) == 2 and self.env['ssp_interp'] == quadrilatteral:
             ssp_interp = 'Q'
@@ -1696,62 +1692,74 @@ class KRAKEN:
         
         # Manage left propagation
         flip = False
-        if _np.abs(_np.min(self.env['rx_range'])) > _np.max(self.env['rx_range']):
+        if _np.min(self.env['rx_range']) < 0:
             self.env['rx_range'] = -_np.flip(self.env['rx_range'])
             flip = True
         
-        # Generate temporary env file and get base name used for all temporary files
-        fname_base = self._create_env_file(taskcode, debug=debug)
+            # Generate temporary env file and get base name used for all temporary files
+            fname_base = self._create_env_file(taskcode, debug=debug)
             
-        if self._kraken(fname_base):
-            err = self._check_error(fname_base)
-            if err is not None:
-                raise RuntimeError(err) 
-            else:
-                try:
-                    self._create_flp_file(fname_base, debug=debug)
-                    if self._field(fname_base):
-                        try:
-                            self.modes = self._load_modes(fname_base)
-                            TL = self._load_shd(fname_base)
-                        except FileNotFoundError:
-                            raise FileNotFoundError('KRAKEN: Fortran execution did not generate expected output file !')
-                
-                except Exception as e:
-                    raise Exception(e)
-                    
-        # Delete temporary generated files
-        self._unlink_all(fname_base)  
+            if self._kraken(fname_base):
+                err = self._check_error(fname_base)
+                if err is not None:
+                    raise RuntimeError(err) 
+                else:
+                    try:
+                        self._create_flp_file(fname_base, debug=debug)
+                        if self._field(fname_base):
+                            try:
+                                self.modes = self._load_modes(fname_base)
+                                TL_L = self._load_shd(fname_base)
+                            except FileNotFoundError:
+                                raise FileNotFoundError('KRAKEN: Fortran execution did not generate expected output file !')
+                    except Exception as e:
+                        raise Exception(e)   
                         
+                # Delete temporary files
+                self._unlink_all(fname_base)  
+         
+
+        # Manage right propagation      
+         
         # Unflip env
         if flip:
             self.env['rx_range'] = -_np.flip(self.env['rx_range'])
             flip = False
         
-        # Manage left and right propagation
-        if _np.max(self.env['rx_range']) > 0:
-            idx = _np.where(self.env['rx_range'] >= 0)[0][0]
-            TL_L = _np.fliplr(TL[:, :idx])
-        else:
-            TL_L = None 
-        
-        if TL_L is not None:  
-            rcols = _np.size(self.env['rx_range']) - TL_L.shape[1]
-        else:
-            rcols = _np.size(self.env['rx_range'])
-        
-        if rcols:
-            TL_R = TL[:,:rcols] 
-        else:
-            TL_R = None
+        if _np.max(self.env['rx_range']) >= 0:
+    
+             # Generate temporary env file and get base name used for all temporary files
+             fname_base = self._create_env_file(taskcode, debug=debug)
+    
+             if self._kraken(fname_base):
+                 err = self._check_error(fname_base)
+                 if err is not None:
+                     raise RuntimeError(err) 
+                 else:
+                     try:
+                         self._create_flp_file(fname_base, debug=debug)
+                         if self._field(fname_base):
+                             try:
+                                 self.modes = self._load_modes(fname_base)
+                                 TL_R = self._load_shd(fname_base)
+                             except FileNotFoundError:
+                                 raise FileNotFoundError('KRAKEN: Fortran execution did not generate expected output file !')
+    
+                     except Exception as e:
+                         raise Exception(e)
+    
+                 # Delete temporary files
+                 self._unlink_all(fname_base) 
 
         if TL_L is not None and TL_R is not None:
-            self.transmission_loss = _np.hstack((TL_L, TL_R)) 
+            self.transmission_loss = _np.maximum(_np.fliplr(TL_L), TL_R)
         elif TL_L is not None:
-            self.transmission_loss = TL_L 
+            self.transmission_loss = _np.fliplr(TL_L)
         elif TL_R is not None:
-            self.transmission_loss = TL_R 
-
+            self.transmission_loss = TL_R
+        else:
+            print("[ERROR] KRAKEN: Transmission loss results are empty !")
+            
         return self.transmission_loss
 
     def compute_modes(self, debug=False, **kwargs):
@@ -2524,14 +2532,8 @@ class KRAKEN:
             PlotType = unpack('10s', f.read(10))
         
             f.seek(2 * 4 * recl); #reposition to end of second record
-            Nfreq  = unpack('<I', f.read(4))[0]
-            Ntheta = unpack('<I', f.read(4))[0]
-            Nsx    = unpack('<I', f.read(4))[0]
-            Nsy    = unpack('<I', f.read(4))[0]
-            Nsd    = unpack('<I', f.read(4))[0]
-            Nrd    = unpack('<I', f.read(4))[0]
-            Nrr    = unpack('<I', f.read(4))[0]
-            atten  = unpack('<I', f.read(4))[0]
+            Nfreq, Ntheta, Nsx, Nsy, Nsd, Nrd, Nrr, atten = _unpack('iiiiiiif', f.read(32))
+            
             f.seek(3 * 4 * recl); #reposition to end of record 3
             freqVec = unpack(str(Nfreq) +'d', f.read(Nfreq*8))
         
@@ -2547,24 +2549,25 @@ class KRAKEN:
                 f.seek(5 * 4 * recl, -1 ); #reposition to end of record 5
                 x     = f.read(2,    'float32' )
                 x     = _np.linspace( x[0], x[-1], Nsx )
-                
                 f.seek(6 * 4 * recl, -1 ); #reposition to end of record 6
                 y     = f.read(2,    'float32' )
                 y     = _np.linspace( y[0], y[-1], Nsy )
         
+            # Source depth
             f.seek(7 * 4 * recl); #reposition to end of record 7
             sdepth = unpack(str(Nsd)+'f', f.read(Nsd*4))
             sdepth = _np.array(sdepth)
         
+            # Receiver depth
             f.seek(8 * 4 * recl); #reposition to end of record 8
-            rdepth = unpack(str(Nrd) + 'f', f.read(Nrd*4))
-            rdepth = _np.array(rdepth)
+            rdepth = _np.fromfile(f, dtype=_np.float32, count=Nrd)
+            rdepth = rdepth.reshape((1,-1))
         
+            # Receiver range
             f.seek(9 * 4 * recl); #reposition to end of record 9
-            rrange = unpack(str(Nrr) + 'f',f.read(Nrr*4))
-            # rrange = rrange';   # make it a row vector
-            rrange = _np.array(rrange)
-            rrange = _np.round(rrange, 3)
+            rrange = _np.fromfile(f, dtype=_np.float64, count=Nrr)
+            rrange = rrange.reshape((1,-1))
+
             ##
             # Each record holds data from one source depth/receiver depth pair
         
@@ -2625,10 +2628,8 @@ class KRAKEN:
                             temp = f.read(2 * Nrr, 'float32' );    #Read complex data
                             pressure[ itheta, isd, ird, : ] = temp[ 1 : 2 : 2 * Nrr ] + complex(0,1) * _np.array(temp[ 2 : 2 : 2 * Nrr ])
                             # Transmission loss matrix indexed by  theta x sd x rd x rr
-        
-        idx      = _np.where(self.env['rx_range'] >= 0)[0][0]
-
-        return pressure[0,0,:,idx:]
+                            
+        return _np.nan_to_num(pressure[0,0,:,:], nan=-_np.inf)
         
 
 _models.append(('KRAKEN', KRAKEN))
@@ -2676,14 +2677,14 @@ class RAM:
             self.step = 0
         
         # Pad bottom settings to minimum required size of 2x2
-        bot_ssp     = self.env['bot_PwaveSpeed']
+        bot_PwaveSpeed     = self.env['bot_PwaveSpeed']
         bot_attn    = self.env['bot_PwaveAttn']
         bot_density = self.env['bot_density']
         bot_range   = self.env['bot_range']
         bot_depth   = self.env['bot_depth']
         if _np.size(self.env['bot_range']) == 1 and _np.size(self.env['bot_depth']) == 1:
             if _np.size(self.env['bot_PwaveSpeed']) == 1:
-                bot_ssp = _np.array([[self.env['bot_PwaveSpeed'], self.env['bot_PwaveSpeed']],
+                bot_PwaveSpeed = _np.array([[self.env['bot_PwaveSpeed'], self.env['bot_PwaveSpeed']],
                                      [self.env['bot_PwaveSpeed'], self.env['bot_PwaveSpeed']]])
             if _np.size(self.env['bot_PwaveAttn']) == 1:
                 bot_attn = _np.array([[self.env['bot_PwaveAttn'], self.env['bot_PwaveAttn']],
@@ -2697,12 +2698,14 @@ class RAM:
         # Right propagation
         iiMin = _np.where(self.env['rx_range'] >= 0)[0][0]
         ratio = 1-iiMin/_np.size(self.env['rx_range'])
+        
+        print(self.env['rx_range'])
            
         if _np.size(self.env['rx_range']) > 1:
             ndr = _np.max((_np.round((self.env['rx_range'][1]-self.env['rx_range'][0])/(step)*ratio), 1))
             dr = (self.env['rx_range'][1]-self.env['rx_range'][0])/ndr
         else:
-            ndr = _np.max((_np.round((self.env['rx_range'])/(step)*ratio), 1))
+            ndr = _np.max((_np.round((self.env['rx_range'][iiMin:])/(step)*ratio), 1))
             dr = self.env['rx_range']/ndr
             
         if _np.size(self.env['rx_depth']) > 1:
@@ -2723,7 +2726,7 @@ class RAM:
                            _np.array(self.env['ssp'], ndmin=2),
                            _np.array(bot_depth),
                            _np.array(bot_range),
-                           _np.array(bot_ssp,ndmin=2),
+                           _np.array(bot_PwaveSpeed,ndmin=2),
                            _np.array(bot_density,ndmin=2),
                            _np.array(bot_attn,ndmin=2),
                            _np.array(self.env['bot_interface'],ndmin=2),
@@ -2759,7 +2762,7 @@ class RAM:
                            _np.fliplr(_np.array(self.env['ssp'],ndmin=2)),
                            _np.array(bot_depth),
                            _np.flip(-_np.array(bot_range)),
-                           _np.fliplr(_np.array(bot_ssp,ndmin=2)),
+                           _np.fliplr(_np.array(bot_PwaveSpeed,ndmin=2)),
                            _np.fliplr(_np.array(bot_density,ndmin=2)),
                            _np.fliplr(_np.array(bot_attn,ndmin=2)),
                            _np.column_stack((_np.flip(-self.env['bot_interface'][:,0]), _np.flip(self.env['bot_interface'][:,1]))),
@@ -2770,7 +2773,7 @@ class RAM:
                            ndz   = ndz,
                            zmplt = self.zbox
                            )
-    
+        
     def set_step(self, step):
         self.step = step
         self.set_env(self.env)
@@ -2796,7 +2799,7 @@ class RAM:
             ndz = _np.max((_np.round((self.env['rx_depth'])/(step)), 1))
             dz = self.env['rx_depth']/ndz
 
-
+        
         return self.pyramR.check_inputs(self.env['tx_freq'],
                            self.env['tx_depth'],
                            self.env['rx_depth'][-1],
@@ -2817,21 +2820,16 @@ class RAM:
                            zmplt = ndz*dz*_np.size(self.env['rx_depth'])
                            )
     
+    
     def compute_transmission_loss(self, debug=False):
         """
         Compute Transmission Loss.
         """
-        if _np.size(self.env['top_interface']) > 2:
-            print("[INFO] RAM: Surface not supported, considering flat air/water interface.")
-        
-        if _np.size(self.env['tx_beam']) > 2:
-            print("[INFO] RAM: Beam pattern not supported, using omnidirectionnal instead.")
         
         if _np.size(self.env['rx_range']) > 1 or _np.size(self.env['rx_depth']) > 1:
             
             tlg = None
             
-            # Compute prpagation to the left side
             if _np.min(self.env['rx_range']) < 0:
                 self.pyramL.run()
                 if tlg is None:
@@ -3028,8 +3026,8 @@ class RAM:
 
         if _np.size(self.env['ssp_range']) > 1:  # 2D SSP data
             
-            vmin = kwargs.get('vmin', _np.min(self.env['ssp'])-_np.abs(_np.mean(self.env['bot_ssp']))/20)
-            vmax = kwargs.get('vmax', _np.max(self.env['bot_ssp'])+_np.abs(_np.mean(self.env['bot_ssp']))/20)
+            vmin = kwargs.get('vmin', _np.min(self.env['ssp'])-_np.abs(_np.mean(self.env['bot_PwaveSpeed']))/20)
+            vmax = kwargs.get('vmax', _np.max(self.env['bot_PwaveSpeed'])+_np.abs(_np.mean(self.env['bot_PwaveSpeed']))/20)
         
             # Extract data
             X, Y, Z = _np.array(self.env['ssp_range']), _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
