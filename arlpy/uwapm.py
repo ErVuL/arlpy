@@ -428,42 +428,6 @@ def arrivals_to_impulse_response(arrivals, fs, abs_time=False):
         ir[ndx] = row.arrival_amplitude
         
     return ir
-    
-def models(env=None, task=None):
-    """List available models.
-
-    :param env: environment to model
-    :param task: arrivals/eigenrays/rays/coherent/incoherent/semicoherent
-    :returns: list of models that can be used
-
-    >>> import arlpy.uwapm as pm
-    >>> pm.models()
-    ['bellhop']
-    >>> env = pm.create_env2d()
-    >>> pm.models(env, task=coherent)
-    ['bellhop']
-    """
-    if env is not None:
-        env = check_env2d(env)
-    if (env is None and task is not None) or (env is not None and task is None):
-        raise ValueError('env and task should be both specified together')
-    rv = []
-    for m in _models:
-        if m[1]().supports(env, task):
-            rv.append(m[0])
-    return rv
-
-def _select_model(env, task, model):
-    if model is not None:
-        for m in _models:
-            if m[0] == model:
-                return (m[0], m[1]())
-        raise ValueError('Unknown model: '+model)
-    for m in _models:
-        mm = m[1]()
-        if mm.supports(env, task):
-            return (m[0], mm)
-    raise ValueError('No suitable propagation model available')
 
 ### Bellhop propagation model ###
 class BELLHOP:
@@ -534,12 +498,19 @@ class BELLHOP:
                 raise RuntimeError(err) 
             else:
                 try:
-                    self.transmission_loss = self._load_shd(fname_base)
+                    self.transmission_loss = _np.array(self._load_shd(fname_base))
                 except FileNotFoundError:
                     raise FileNotFoundError('BELLHOP: Fortran execution did not generate expected output file !')
         
         # Delete temporary generated files
         self._unlink_all(fname_base)     
+        
+        # Remove values over surface
+        for ii,d in enumerate(self.env['rx_depth']):
+            if d >= _np.min(self.env['top_interface'][:,1]):
+                break
+            else:
+                self.transmission_loss[ii, :] = _np.nan
         
         return self.transmission_loss
      
@@ -1792,6 +1763,13 @@ class KRAKEN:
         else:
             print("[ERROR] KRAKEN: Transmission loss results are empty !")
             
+        # Remove values over surface
+        for ii,d in enumerate(self.env['rx_depth']):
+            if d >= 0:
+                break
+            else:
+                self.transmission_loss[ii, :] = _np.nan
+                    
         return self.transmission_loss
 
     def compute_modes(self, debug=False, **kwargs):
