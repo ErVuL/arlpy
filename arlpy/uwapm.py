@@ -1027,13 +1027,6 @@ class BELLHOP:
 
         tlossplt = 20 * _np.log10(_np.finfo(float).eps + _np.abs(_np.array(self.transmission_loss)))
 
-        # Remove TL in sediment/surface
-        for i, range_val in enumerate(X):
-            ylim = _np.interp(range_val, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
-            for j, depth_val in enumerate(Y):
-                if depth_val > ylim:
-                    tlossplt[j, i] = vmax
-
         if _np.size(self.env['bot_interface'][:, 0]) > 1:
             for i, range_val in enumerate(X):
                 ylim = _np.interp(range_val, self.env['top_interface'][:, 0], self.env['top_interface'][:, 1])
@@ -1052,6 +1045,10 @@ class BELLHOP:
             ax.plot(self.env['bot_interface'][:, 0] / 1000, self.env['bot_interface'][:, 1], 'k', linewidth=3)
         else:
             ax.plot([X[0] / 1000, X[-1] / 1000], [self.env['bot_interface'][0, 1], self.env['bot_interface'][0, 1]], 'k', linewidth=3)
+        
+        # Remove transmission loss in sediment/surface
+        interp_y = _np.interp(X, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
+        ax.fill_between(X / 1000, interp_y, Y[-1], color='brown')
         
         # Set plot properties
         ax.set_xlim((X[0] / 1000, X[-1] / 1000))
@@ -2654,13 +2651,19 @@ class RAM:
     # @todo     Understand and manage CP task
     
     def __init__(self, env=None, cp=False):
-                
+              
+        self.transmission_loss = None 
+        self.step              = 0  # 0:Automatic => lambda/8
+        self.PadeTerm          = 8
+        self.attnLayerWidth    = 20 # wavelength
+        self.nStabConst        = 1
+        self.maxStabRange      = 0  # Automatic => rbox
+        
         if env is None:
             self.env           = None
         else:
             self.set_env(env, cp=cp)
-        self.transmission_loss = None 
-        self.step              = 0
+
         
 
     def set_env(self, env, cp=False, **kwargs):
@@ -2676,6 +2679,19 @@ class RAM:
             step = _np.mean(self.env['ssp'])/self.env['tx_freq']/8 # lambda/8
             self.step = 0
         
+        if _np.min(_np.abs(self.env['rx_range'])) != 0:          
+            neg_min = _np.max(self.env['rx_range'][self.env['rx_range'] < 0])
+            pos_min = _np.min(self.env['rx_range'][self.env['rx_range'] > 0])
+            if _np.abs(neg_min) > pos_min:
+                err = neg_min
+            else:
+                err = pos_min
+            print(f"[WARNING] RAM: Output grid range is not 0 centered, maximum relative error = {err:.3f} m !")   
+         
+        if _np.min(_np.abs(self.env['rx_depth'])) != 0:          
+            err = _np.max(self.env['rx_depth'][self.env['rx_depth'] < 0])
+            print(f"[WARNING] RAM: Output grid depth is not 0 centered, maximum relative error = {err:.3f} m !")   
+            
         # Pad bottom settings to minimum required size of 2x2
         bot_PwaveSpeed     = self.env['bot_PwaveSpeed']
         bot_attn    = self.env['bot_PwaveAttn']
@@ -2694,30 +2710,44 @@ class RAM:
                                          [self.env['bot_density'], self.env['bot_density']]])
             bot_range = _np.array([_np.min(self.env['rx_range']), _np.max(self.env['rx_range'])])
             bot_depth = _np.array([_np.min(self.env['bot_interface'][:,1]), _np.max((_np.max(self.env['rx_depth']), _np.max(self.env['bot_interface'][:,1])))])
-                           
+          
+        # Positive depth only
+        if _np.size(_np.where(self.env['rx_depth'] > 0)):
+            dMin = _np.where(self.env['rx_depth'] > 0)[0][0]
+        else: 
+            dMin = _np.size(self.env['rx_depth'])-1
+        ratio_d = 1-dMin/_np.size(self.env['rx_depth'])
+            
         # Right propagation
-        iiMin = _np.where(self.env['rx_range'] >= 0)[0][0]
+        if _np.size(_np.where(self.env['rx_range'] >= 0)):
+            iiMin = _np.where(self.env['rx_range'] >= 0)[0][0]
+        else: 
+            iiMin = _np.size(self.env['rx_range'])-1
         ratio = 1-iiMin/_np.size(self.env['rx_range'])
-        
-        print(self.env['rx_range'])
-           
+  
         if _np.size(self.env['rx_range']) > 1:
-            ndr = _np.max((_np.round((self.env['rx_range'][1]-self.env['rx_range'][0])/(step)*ratio), 1))
+            ndr = _np.max((_np.ceil((self.env['rx_range'][1]-self.env['rx_range'][0])/step*ratio), 1))
             dr = (self.env['rx_range'][1]-self.env['rx_range'][0])/ndr
         else:
-            ndr = _np.max((_np.round((self.env['rx_range'][iiMin:])/(step)*ratio), 1))
+            ndr = _np.max((_np.ceil((self.env['rx_range'][iiMin:])/step*ratio), 1))
             dr = self.env['rx_range']/ndr
             
         if _np.size(self.env['rx_depth']) > 1:
-            ndz = _np.max((_np.round((self.env['rx_depth'][1]-self.env['rx_depth'][0])/(step)), 1))
+            ndz = _np.max((_np.ceil((self.env['rx_depth'][1]-self.env['rx_depth'][0])/step*ratio_d), 1))
             dz = (self.env['rx_depth'][1]-self.env['rx_depth'][0])/ndz
         else:
-            ndz = _np.max((_np.round((self.env['rx_depth'])/(step)), 1))
+            ndz = _np.max((_np.ceil((self.env['rx_depth'])/step*ratio_d), 1))
             dz = self.env['rx_depth']/ndz
     
-        self.rbox  = ndr*dr*(_np.size(self.env['rx_range'])*ratio)
-        self.zbox  = ndz*dz*_np.size(self.env['rx_depth'])
+        self.rbox  = ndr*dr*_np.size(self.env['rx_range'])*ratio+1e-6
+        self.zbox  = ndz*dz*_np.size(self.env['rx_depth'])*ratio_d+1e-6
 
+        if self.maxStabRange == 0:
+            self.maxStabRange = self.rbox
+            rs_auto = True
+        else:
+            rs_auto = False
+            
         self.pyramR = ram.PyRAM(self.env['tx_freq'],
                            self.env['tx_depth'],
                            _np.max(self.env['rx_depth']),
@@ -2735,24 +2765,28 @@ class RAM:
                            dz    = dz,
                            ndr   = ndr,
                            ndz   = ndz,
-                           zmplt = self.zbox
+                           zmplt = self.zbox,
+                           np    = self.PadeTerm,
+                           lyrw  = self.attnLayerWidth,
+                           ns    = self.nStabConst,
+                           rs    = self.maxStabRange
                            )
         
-        # Left propagation     
-        if _np.max(self.env['rx_range']) == 0:
-            ratio = 1
-        else:
-            ratio = iiMin/_np.size(self.env['rx_range'])
+        # Left propagation  
+        ratio = 1-ratio
                 
         if _np.size(self.env['rx_range']) > 1:
-            ndr = _np.max((_np.round((self.env['rx_range'][1]-self.env['rx_range'][0])/(step)*ratio), 1))
+            ndr = _np.max((_np.floor((self.env['rx_range'][1]-self.env['rx_range'][0])/step*ratio), 1))
             dr = (self.env['rx_range'][1]-self.env['rx_range'][0])/ndr
         else:
-            ndr = _np.max(_np.round(((self.env['rx_range'])/(step)*ratio), 1))
+            ndr = _np.max(_np.floor(((self.env['rx_range'])/step*ratio), 1))
             dr = self.env['rx_range']/ndr
 
-        self.rbox  = ndr*dr*(_np.size(self.env['rx_range'])*ratio)
-        self.zbox  = ndz*dz*_np.size(self.env['rx_depth'])
+        self.rbox  = ndr*dr*_np.size(self.env['rx_range'])*ratio+1e-6
+        self.zbox  = ndz*dz*_np.size(self.env['rx_depth'])*ratio_d+1e-6
+        
+        if rs_auto:
+            self.maxStabRange = self.rbox
             
         self.pyramL = ram.PyRAM(self.env['tx_freq'],
                            self.env['tx_depth'],
@@ -2771,7 +2805,11 @@ class RAM:
                            dz    = dz,
                            ndr   = ndr,
                            ndz   = ndz,
-                           zmplt = self.zbox
+                           zmplt = self.zbox,
+                           np    = self.PadeTerm,
+                           lyrw  = self.attnLayerWidth,
+                           ns    = self.nStabConst,
+                           rs    = self.maxStabRange
                            )
         
     def set_step(self, step):
@@ -2828,24 +2866,59 @@ class RAM:
         
         if _np.size(self.env['rx_range']) > 1 or _np.size(self.env['rx_depth']) > 1:
             
-            tlg = None
-            
-            if _np.min(self.env['rx_range']) < 0:
-                self.pyramL.run()
-                if tlg is None:
-                    tlg = _np.empty((self.pyramL.tlg.shape[0], 0))
-                    cpg = _np.empty((self.pyramL.cpg.shape[0], 0))
-                tlg = _np.hstack((tlg,_np.fliplr(self.pyramL.tlg)))
-                cpg = _np.hstack((cpg,_np.fliplr(self.pyramL.cpg)))
-            
-            # Compute prpagation to the right side
+            tlgL       = None
+            tlgR       = None
+            replicated = False
+
+            # Right propagation
             if _np.max(self.env['rx_range']) > 0:    
                 self.pyramR.run()
-                if tlg is None:
-                    tlg = _np.empty((self.pyramR.tlg.shape[0], 0))
-                    cpg = _np.empty((self.pyramR.cpg.shape[0], 0))
-                tlg = _np.hstack((tlg,self.pyramR.tlg))
-                cpg = _np.hstack((cpg,self.pyramR.cpg))
+                if _np.min(_np.abs(self.env['rx_range'])) == 0:
+                    replicated_column = self.pyramR.tlg[:, [0]]
+                    tlgR = _np.hstack((replicated_column, self.pyramR.tlg))
+                    replicated_column = self.pyramR.cpg[:, [0]]
+                    cpgR = _np.hstack((replicated_column, self.pyramR.cpg))
+                    replicated = True
+                else:
+                    tlgR = self.pyramR.tlg
+                    cpgR = self.pyramR.cpg
+             
+            # Left propagation
+            if _np.min(self.env['rx_range']) < 0:
+                self.pyramL.run()
+                if _np.min(_np.abs(self.env['rx_range'])) == 0 and not replicated:
+                    replicated_column = self.pyramL.tlg[:, [0]]
+                    tlgL = _np.hstack((replicated_column, self.pyramL.tlg))
+                    replicated_column = self.pyramL.cpg[:, [0]]
+                    cpgL = _np.hstack((replicated_column, self.pyramL.cpg))
+                else:
+                    tlgL = self.pyramL.tlg
+                    cpgL = self.pyramL.cpg
+        
+        if tlgL is not None and tlgR is not None:
+            tlg = _np.hstack((_np.fliplr(tlgL), tlgR))
+            cpg = _np.hstack((_np.fliplr(cpgL), cpgR))
+        elif tlgL is not None:
+            tlg = _np.fliplr(tlgL)
+            cpg = _np.fliplr(cpgL)
+        elif tlgR is not None:
+            tlg = tlgR
+            cpg = cpgR
+        else:
+            print("[ERROR] RAM: No results found !")
+                         
+        if _np.size(tlg[:,0]) < _np.size(self.env['rx_depth']):
+            tlg = _np.vstack((tlg[0,:],tlg))
+            cpg = _np.vstack((cpg[0,:],cpg))
+                
+        num_columns = tlg.shape[1]
+        nan_array = _np.empty((1, num_columns))
+        nan_array[:] = _np.nan
+        
+        while _np.size(tlg[:,0]) < _np.size(self.env['rx_depth']):
+            tlg = _np.vstack((nan_array,tlg))
+            cpg = _np.vstack((nan_array,cpg))
+                
         
         self.transmission_loss = 10**(-tlg/20)
         self.complex_pressure  = cpg
@@ -2876,16 +2949,16 @@ class RAM:
                 if tlg is None:
                     tlg = _np.empty((self.pyramL.tlg.shape[0], 0))
                     cpg = _np.empty((self.pyramL.cpg.shape[0], 0))
-                tlg = _np.hstack((tlg,_np.fliplr(self.pyramL.tlg)))
-                cpg = _np.hstack((cpg,_np.fliplr(self.pyramL.cpg)))
+                tlg = _np.hstack((_np.fliplr(self.pyramL.tlg), tlg))
+                cpg = _np.hstack((_np.fliplr(self.pyramL.cpg), cpg))
                 
             if _np.max(self.env['rx_range']) >= 0:    
                 self.pyramR.run()
                 if tlg is None:
                     tlg = _np.empty((self.pyramR.tlg.shape[0], 0))
                     cpg = _np.empty((self.pyramR.cpg.shape[0], 0))
-                tlg = _np.hstack((tlg,self.pyramR.tlg))
-                cpg = _np.hstack((cpg,self.pyramR.cpg))
+                tlg = _np.hstack((self.pyramR.tlg, tlg))
+                cpg = _np.hstack((self.pyramR.cpg, cpg))
                 
         self.transmission_loss = 10**(-tlg/20)
         self.complex_pressure  = cpg
@@ -2911,11 +2984,8 @@ class RAM:
         tlossplt = 20 * _np.log10(_np.finfo(float).eps + _np.abs(_np.array(self.transmission_loss)))
 
         # Remove transmission loss in sediment/surface
-        for i, x in enumerate(X):
-            ylim = _np.interp(x, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
-            for j, y in enumerate(Y):
-                if y > ylim:
-                    tlossplt[j, i] = vmax
+        interp_y = _np.interp(X, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
+        ax.fill_between(X / 1000, interp_y, Y[-1], color='brown')
 
         # Plot the surface
         ax.plot([X[0]/1000, X[-1]/1000], [0, 0], 'b', linewidth=3)
@@ -3054,7 +3124,7 @@ class RAM:
                         x_idx = _np.argmin(_np.abs(X - x))
                         Zg[jj, ii] = Z[y_idx, x_idx]
             
-            # Plot
+            # Plot            
             ax.plot([Xg[0] / 1000, Xg[-1] / 1000], [0, 0], 'b', linewidth=3)  # Flat surface
             im = ax.imshow(Zg, cmap='jet', extent=[Xg[0] / 1000, Xg[-1] / 1000, Yg[-1], Yg[0]], aspect='auto', vmin=vmin, vmax=vmax)
             ax.plot(rb / 1000, zb, 'k', linewidth=3)  # Bathy
