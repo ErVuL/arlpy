@@ -168,7 +168,7 @@ def make_env2d(**kv):
             - hard_boss_amp: Kraken only
     """
     env = {
-            'name'            : '',                     
+            'name'            : '',                          # Title
             'dimension'       : '2D',                        # 2D only
             'pad_inputData'   : True,                        # pad input data to the border of the calculation range
 
@@ -178,7 +178,7 @@ def make_env2d(**kv):
             'rx_depth'        : None,                        # m
             'rx_range'        : None,                        # m
             
-            'top_boundary'    : vacuum,
+            'top_boundary'    : vacuum,                      # Toop boundary condition (rigid, vacuum, acoustico_elastic)
             'top_interface'   : None,                        # surface profile
             'top_roughness'   : 0,                           # m (rms)
             
@@ -195,7 +195,7 @@ def make_env2d(**kv):
             'tx_minAngle'     : -180,                        # deg
             'tx_maxAngle'     : 180,                         # deg
             
-            'bot_boundary'    : rigid,
+            'bot_boundary'    : rigid,                       # Bottom boundary condition (rigid, vacuum, acoustico_elastic)
             'bot_interface'   : None,                        # m
             'bot_roughness'   : 0,                           # m (rms) 
             'bot_range'       : 0,                           # m (bottom settings range for ssp, density and absorption)
@@ -217,12 +217,12 @@ def make_env2d(**kv):
         
             # KRAKEN ONLY
             # Twersky scatter parameters for soft/hard-boss Twersky top boundary condition only (4c)
-            'twy_bumpDensity' : None,                       # ridges/km (BUMDEN)
-            'twy_radius1'     : None,                       # m (ETA)
-            'twy_radius2'     : None,                       # m (XI)
-            'nmedia'          : 1,                          # Number of media except infinite top and bottom 
-            'theory'          : adiabatic,                 
-            'nmode'           : 999999999,
+            'twy_bumpDensity' : None,                        # ridges/km (BUMDEN)
+            'twy_radius1'     : None,                        # m (ETA)
+            'twy_radius2'     : None,                        # m (XI)
+            'nmedia'          : 1,                           # Number of media except infinite top and bottom 
+            'theory'          : adiabatic,                   # Coupling mode theory 
+            'nmode'           : 999999999,                   # Number of modes to compute
                     
             }
     
@@ -745,10 +745,10 @@ class BELLHOP:
         if _np.size(self.env['ssp_range']) > 1 and self.env['ssp_interp'] != quadrilatteral:
             print('[INFO] BELLHOP: SSP interp replaced by quadrilatteral for range dependant SSP.')
             ssp_interp = 'Q'
-        elif _np.ndim(self.env['ssp']) == 1 and self.env['ssp_interp'] == quadrilatteral:
+        elif _np.size(self.env['ssp_range']) == 1 and self.env['ssp_interp'] == quadrilatteral:
             print('[INFO] BELLHOP: Quadrilatteral interpolation is for range dependant SSP only, using C-linear instead.')
             ssp_interp = 'C'
-        elif _np.ndim(self.env['ssp']) == 2 and self.env['ssp_interp'] == quadrilatteral:
+        elif _np.size(self.env['ssp_range']) > 1 and self.env['ssp_interp'] == quadrilatteral:
             ssp_interp = 'Q'
         elif self.env['ssp_interp'] == spline:
             ssp_interp = 'S'
