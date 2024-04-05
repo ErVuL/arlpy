@@ -356,61 +356,77 @@ def check_env2d(env):
         raise ValueError(e.args)
 
 def print_env(env):
-    """Display the environment in a human readable form.
+    """
+    Display the environment in a human-readable form.
 
-    :param env: environment definition
+    Parameters:
+        env (dict): Environment definition.
 
+    Example:
     >>> import arlpy.uwapm as pm
     >>> env = pm.create_env2d(depth=40, soundspeed=1540)
     >>> pm.print_env(env)
     """
-    #env = check_env2d(env)
-    keys = ['name'] + sorted(list(env.keys()-['name']))
+    # Sort keys and include 'name' first
+    keys = ['name'] + sorted(list(env.keys() - {'name'}))
+    
+    # Iterate through each key-value pair in the environment
     for k in keys:
         v = str(env[k])
+        
+        # If the value is too long, truncate it
         if len(v) > 40:
             if '\n' in v:
                 v = v.split('\n')
-                print('%20s : '%(k) + v[0] + '...')
-                print('%26s %s'%('...', v[-1]))
+                print('%20s : ' % (k) + v[0] + '...')
+                print('%26s %s' % ('...', v[-1]))
             else:
-                print('%20s : '%(k) + v[:20] + '...')
-                print('%26s %s'%('...', v[-20:]))
+                print('%20s : ' % (k) + v[:20] + '...')
+                print('%26s %s' % ('...', v[-20:]))
                 
+        # If the value contains newline characters, format it accordingly
         elif '\n' in v:
             v = v.split('\n')
             if len(v) > 3:
-                print('%20s : '%(k) + v[0] ) 
-                print('%26s\n%30s'%('...', v[-1]))
+                print('%20s : ' % (k) + v[0])
+                print('%26s\n%30s' % ('...', v[-1]))
             else:
-                print('%20s : '%(k) + v[0])
+                print('%20s : ' % (k) + v[0])
                 for v1 in v[1:]:
-                    print('%20s   '%('') + v1)
+                    print('%20s   ' % ('') + v1)
         else:
-            print('%20s : '%(k) + v)
+            # Print the key-value pair
+            print('%20s : ' % (k) + v)
 
 def arrivals_to_impulse_response(arrivals, fs, abs_time=False):
-    """Convert arrival times and coefficients to an impulse response.
+    """
+    Convert arrival times and coefficients to an impulse response.
 
-    :param arrivals: arrivals times (s) and coefficients
-    :param fs: sampling rate (Hz)
-    :param abs_time: absolute time (True) or relative time (False)
-    :returns: impulse response
+    Parameters:
+        arrivals (DataFrame): Arrivals times (s) and coefficients.
+        fs (int): Sampling rate (Hz).
+        abs_time (bool): Absolute time (True) or relative time (False).
+
+    Returns:
+        ndarray: Impulse response.
 
     If `abs_time` is set to True, the impulse response is placed such that
     the zero time corresponds to the time of transmission of signal.
-
-    >>> import arlpy.uwapm as pm
-    >>> env = pm.create_env2d()
-    >>> arrivals = pm.compute_arrivals(env)
-    >>> ir = pm.arrivals_to_impulse_response(arrivals, fs=192000)
     """
+    # Determine the reference time for the impulse response
     t0 = 0 if abs_time else min(arrivals.time_of_arrival)
-    irlen = int(_np.ceil((max(arrivals.time_of_arrival)-t0)*fs))+1
+    
+    # Calculate the length of the impulse response
+    irlen = int(_np.ceil((max(arrivals.time_of_arrival) - t0) * fs)) + 1
+    
+    # Initialize the impulse response array
     ir = _np.zeros(irlen, dtype=_np.complex128)
+    
+    # Fill the impulse response array with arrival coefficients
     for _, row in arrivals.iterrows():
-        ndx = int(_np.round((row.time_of_arrival.real-t0)*fs))
+        ndx = int(_np.round((row.time_of_arrival.real - t0) * fs))
         ir[ndx] = row.arrival_amplitude
+        
     return ir
     
 def models(env=None, task=None):
@@ -487,102 +503,6 @@ class BELLHOP:
         self.check_env()
 
         return self.env
-      
-    def _adjust_2D(self, vect2D, vmin, vmax):
-        
-        if _np.size(vect2D) > 2:
-            if vect2D[0,0] > vmin:
-                lineF = _np.array([vmin, vect2D[0,1]])
-                vect2D = _np.vstack((lineF, vect2D))
-            
-            if vect2D[-1,0] < vmax:
-                lineF = _np.array([vmax, vect2D[-1,1]])
-                vect2D = _np.vstack((vect2D, lineF))
-                
-        return vect2D
-        
-    
-    def _adjust_3D(self,  vect2D, x, y, xmin, xmax, ymin, ymax):
-        
-        vect2D, x = self._adjust_3D_vertical(vect2D, x, y, xmin, xmax)
-        vect2D, y = self._adjust_3D_horizontal(vect2D, x, y, ymin, ymax)
-        
-        return vect2D, x, y
-    
-    def _adjust_3D_vertical(self, vect2D, x, y, xmin, xmax):
-        '''
-        Do vertical before horizontal.
-        '''
-        if _np.size(vect2D) > 1:
-            
-            if _np.size(x) > 1:
-                
-                if _np.ndim(vect2D) == 1:
-                    
-                    if _np.size(y) > 1:
-                        raise Exception("[ERROR] BELLHOP: Size of input vector is inconsistent !")  
-                    vect2D = _np.vstack(vect2D)
-                    
-                    if x[0] > xmin:
-                        vect2D = _np.vstack((vect2D[0],vect2D))
-                        x = _np.hstack((xmin, x))
-                    if x[-1] < xmax:
-                        vect2D = _np.vstack((vect2D,vect2D[-1]))
-                        x = _np.hstack((x, xmax))
-                        
-                else:
-                    
-                    if x[0] > xmin:
-                        first_column = vect2D[:, 0]
-                        if first_column.ndim == 1:
-                            first_column = _np.expand_dims(first_column, axis=1)
-                        vect2D = _np.concatenate((first_column, vect2D), axis=1)
-                        x = _np.hstack((xmin, x))
-                        
-                    if x[-1] < xmax:
-                        last_column = vect2D[:, -1]
-                        if last_column.ndim == 1:
-                            last_column = _np.expand_dims(last_column, axis=1)
-                        vect2D = _np.concatenate((vect2D, last_column), axis=1)
-                        x = _np.hstack((x, xmax))
-                    
-        return vect2D, x
-
-    def _adjust_3D_horizontal(self, vect2D, x, y, ymin, ymax):
-        '''
-        Do vertical before horizontal.
-        '''
-        if _np.size(vect2D) > 1:
-            
-            if _np.size(y) > 1 or _np.size(x) > 1:
-                
-                if _np.ndim(vect2D) == 1:
-                    
-                    vect2D = _np.hstack(vect2D)
-                
-                    if y[0] > ymin:
-                        vect2D = _np.hstack((vect2D[0],vect2D))
-                        y = _np.hstack((ymin, y))
-                    if y[-1] < ymax:
-                        vect2D = _np.hstack((vect2D,vect2D[-1]))
-                        y = _np.hstack((y, ymax))
-                else:
-                    
-                    if y[0] > ymin:
-                        first_row = vect2D[0]
-                        if first_row.ndim == 1:
-                            first_row = _np.expand_dims(first_row, axis=0)
-                        vect2D = _np.concatenate((first_row, vect2D), axis=0)
-                        y = _np.hstack((ymin, y))
-                        
-                    if y[-1] < ymax:
-                        last_row = vect2D[-1]
-                        if last_row.ndim == 1:
-                            last_row = _np.expand_dims(last_row, axis=0)
-                        vect2D = _np.concatenate((vect2D, last_row), axis=0)
-                        y = _np.hstack((y, ymax))
-                    
-        return vect2D, y        
         
     def check_env(self):
         # @todo
@@ -592,7 +512,7 @@ class BELLHOP:
     def compute_transmission_loss(self, debug=False, **kwargs):
         
         # Assert environment
-        self.check_env()
+        self.check_env
         
         # Define mode taskcode
         if self.env['mode'] == coherent:
@@ -744,10 +664,10 @@ class BELLHOP:
             
         return self.eigen_rays
     
-    def compute_impulse_respsonse(self, fs=24000, nArrivals=10, debug=False):
+    def compute_impulse_respsonse(self, fs=24000, nArrival=10, debug=False):
         
         self.compute_arrivals(debug=debug)
-        self.impulse_response = arrivals_to_impulse_response(self.arrivals[0:min(nArrivals, len(self.arrivals)-1)], fs, abs_time=False)
+        self.impulse_response = arrivals_to_impulse_response(self.arrivals[0:min(nArrival, len(self.arrivals)-1)], fs, abs_time=False)
         self.impulse_response_fs = fs
         return self.impulse_response
         
@@ -1033,21 +953,34 @@ class BELLHOP:
         pass
     
     def plot_beam(self, vmin=-60, vmax=20, **kwargs):
-        
+        """
+        Plots the beam pattern.
+
+        Parameters:
+            vmin (float): Minimum value in dB (default: -60).
+            vmax (float): Maximum value in dB (default: 20).
+            **kwargs: Additional keyword arguments for customization.
+
+        Returns:
+            fig, ax: Figure and axis objects for the plot.
+        """
         fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-        
+
         if self.env['tx_beam'] is not None:
-            ax.plot((self.env['tx_beam'][:, 0]+180)/360*2*_np.pi-_np.pi, self.env['tx_beam'][:, 1])
+            # Plot the beam pattern if available
+            ax.plot((self.env['tx_beam'][:, 0] + 180) / 360 * 2 * _np.pi - _np.pi, self.env['tx_beam'][:, 1])
         else:
-            ax.plot(_np.linspace(0,2*_np.pi,1000), _np.zeros(1000))
-            
-        ax.set_rlabel_position(-22.5)  # Move radial labels away from plotted line
+            # Plot a flat line if beam pattern data is not available
+            ax.plot(_np.linspace(0, 2 * _np.pi, 1000), _np.zeros(1000))
+
+        # Move radial labels away from the plotted line
+        ax.set_rlabel_position(-22.5)
         ax.grid(True)
         ax.set_ylim(vmin, vmax)
         ax.set_title(f"[BELLHOP - Source directivity [dB]] {self.env['name']}", va='bottom')
         plt.tight_layout()
         plt.show()
-        
+
         return fig, ax
     
     def plot_transmission_loss(self, vmin=-120, vmax=0, debug=False):
@@ -1055,8 +988,8 @@ class BELLHOP:
         Plots transmission loss.
 
         Parameters:
-            vmin (float): Minimum value for color scale (default: -120).
-            vmax (float): Maximum value for color scale (default: 0).
+            vmin (float): Minimum value for color scale (default: -120 dB).
+            vmax (float): Maximum value for color scale (default: 0 dB).
             debug (bool): Whether to enable debug mode (default: False).
 
         Returns:
@@ -1239,14 +1172,26 @@ class BELLHOP:
 
         return fig, ax
     
-    def plot_rays(self, number=_np.Inf, invert_colors=False, **kwargs):
+    def plot_rays(self, nRay=100, invert_colors=False, **kwargs):
+        """
+        Plot rays.
 
-        # Sorting rays by bottom bounces in descending order
+        Parameters:
+        - number: Number of rays to plot (default: np.Inf).
+        - invert_colors: If True, invert colors of the plot (default: False).
+
+        Returns:
+        - fig: The figure object.
+        - ax: The axes object.
+        """
+        
+        nInit = nRay
+        
+        # Sorting rays by bottom bounces in ascending order
         self.rays = self.rays.sort_values('surface_bounces', ascending=True)
 
         # Determine the maximum amplitude of bottom bounces
         max_amp = _np.max(_np.abs(self.rays.bottom_bounces)) if len(self.rays.bottom_bounces) > 0 else 0
-
         if max_amp <= 0:
             max_amp = 1
 
@@ -1258,66 +1203,81 @@ class BELLHOP:
         for _, row in self.rays.iterrows():
             r += list(row.ray[:, 0])
 
+        # Check if range exceeds 10,000 meters, if so, change divisor and x-label
         if max(r) - min(r) > 10000:
             divisor = 1000
             xlabel = 'Range [km]'
 
+        # Create figure and axes
         fig, ax = plt.subplots()
-        tot = len(self.rays)
-        ii = 0
-        for _, row in self.rays.iterrows():
-            ii += 1
-            if ii%(int(tot/number)) == 0:
-                num_bnc = row.bottom_bounces + row.surface_bounces
-                if row.bottom_bounces == 0 and row.surface_bounces == 0:
-                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='r', alpha=.5)
-                    number -= 1
-                elif num_bnc > 1:
-                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='k', alpha=.5)
-                    number -= 1
-                elif row.surface_bounces == 1:
-                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='b', alpha=.5)
-                    number -= 1
-                elif row.bottom_bounces == 1:
-                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='g', alpha=.5)
-                    number -= 1
-    
-            if number == 0:
-                break
 
+        # Plot rays
+        for _, row in self.rays.iterrows():
+            num_bnc = row.bottom_bounces + row.surface_bounces
+            if nRay > 0:
+                if row.bottom_bounces == 0 and row.surface_bounces == 0:
+                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='r', alpha=.5)  # Plot direct path
+                    nRay -= 1
+                elif num_bnc > 1:
+                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='k', alpha=.5)  # Plot multi-bounce path
+                    nRay -= 1
+                elif row.surface_bounces == 1:
+                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='b', alpha=.5)  # Plot surface bounce path
+                    nRay -= 1
+                elif row.bottom_bounces == 1:
+                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='g', alpha=.5)  # Plot bottom bounce path
+                    nRay -= 1
+            else:
+                break
+            
+        # Check if receiver range is negative, if so, flip x-axis
         if self.env['rx_range'] < 0:
             ax.plot(-_np.flip(self.env['bot_interface'][:, 0]) / divisor, _np.flip(self.env['bot_interface'][:, 1]), 'k', linewidth=3)
             ax.plot(-_np.flip(self.env['top_interface'][:, 0]) / divisor, _np.flip(self.env['top_interface'][:, 1]), 'b', linewidth=3)
-            ax.scatter(-self.env['rx_range']/divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
-            ax.set_xlim((0, -self.env['rx_range'] / divisor))
+            ax.scatter(-self.env['rx_range'] / divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+            ax.set_xlim((-self.env['rx_range'] / divisor, 0))
         else:
             ax.plot(self.env['bot_interface'][:, 0] / divisor, self.env['bot_interface'][:, 1], 'k', linewidth=3)
             ax.plot(self.env['top_interface'][:, 0] / divisor, self.env['top_interface'][:, 1], 'b', linewidth=3)
-            ax.scatter(self.env['rx_range']/divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+            ax.scatter(self.env['rx_range'] / divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
             ax.set_xlim((0, self.env['rx_range'] / divisor))
-            
+
+        # Set labels, title, and legend
         ax.set_xlabel(xlabel)
         ax.set_ylabel("Depth [m]")
         ax.set_ylim((_np.min(self.env['top_interface'][:,1]), _np.max(self.env['bot_interface'][:, 1])))
-        ax.set_title(f"[BELLHOP - Rays] {self.env['name']}")
+        ax.set_title(f"[BELLHOP - Rays ({nInit-nRay})] {self.env['name']}")
         ax.scatter(0, self.env['tx_depth'], label="Source", color="k", s=250, marker="*")
+
+        # Invert y-axis, add grid, and display plot
         ax.invert_yaxis()
         ax.grid('all')
         plt.tight_layout()
         plt.show()
-        
+
         return fig, ax
     
-    def plot_eigen_rays(self, number=10, invert_colors=False, **kwargs):
-
+    def plot_eigen_rays(self, nRay=10, invert_colors=False, **kwargs):
+        """
+        Plot eigen rays.
+        
+        Parameters:
+        - number: Number of eigen rays to plot (default: 10).
+        - invert_colors: If True, invert colors of the plot (default: False).
+        
+        Returns:
+        - fig: The figure object.
+        - ax: The axes object.
+        """
+        
+        nInit = nRay
+        
         # Sorting rays by bottom bounces in descending order
         self.eigen_rays = self.eigen_rays.sort_values('bottom_bounces', ascending=True)
 
         # Determine the maximum amplitude of bottom bounces
         max_amp = _np.max(_np.abs(self.eigen_rays.bottom_bounces)) if len(self.eigen_rays.bottom_bounces) > 0 else 0
-
-        if max_amp <= 0:
-            max_amp = 1
+        max_amp = max_amp if max_amp > 0 else 1
 
         divisor = 1
         xlabel = 'Range [m]'
@@ -1325,63 +1285,80 @@ class BELLHOP:
 
         # Flatten ray coordinates for determining the range
         for _, row in self.eigen_rays.iterrows():
-            r += list(row.ray[:, 0])
+            r.extend(list(row.ray[:, 0]))
 
+        # Check if range exceeds 10,000 meters, if so, change divisor and x-label
         if max(r) - min(r) > 10000:
             divisor = 1000
             xlabel = 'Range [km]'
 
+        # Create figure and axes
         fig, ax = plt.subplots()
-        
+
+        # Plot each eigen ray
         for _, row in self.eigen_rays.iterrows():
             num_bnc = row.bottom_bounces + row.surface_bounces
-            if row.bottom_bounces == 0 and row.surface_bounces == 0:
-                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='r', alpha=.5)
-                number -= 1
-            elif num_bnc > 1:
-                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='k', alpha=.5)
-                number -= 1
-            elif row.surface_bounces == 1:
-                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='b', alpha=.5)
-                number -= 1
-            elif row.bottom_bounces == 1:
-                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='g', alpha=.5)
-                number -= 1
-
-            if number == 0:
+            if nRay > 0:
+                if row.bottom_bounces == 0 and row.surface_bounces == 0:
+                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='r', alpha=.5)  # Plot direct path
+                    nRay -= 1
+                elif num_bnc > 1:
+                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='k', alpha=.5)  # Plot multi-bounce path
+                    nRay -= 1
+                elif row.surface_bounces == 1:
+                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='b', alpha=.5)  # Plot surface bounce path
+                    nRay -= 1
+                elif row.bottom_bounces == 1:
+                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='g', alpha=.5)  # Plot bottom bounce path
+                    nRay -= 1
+            else:
                 break
 
+        # Check if receiver range is negative, if so, flip x-axis
         if self.env['rx_range'] < 0:
             ax.plot(-_np.flip(self.env['bot_interface'][:, 0]) / divisor, _np.flip(self.env['bot_interface'][:, 1]), 'k', linewidth=3)
             ax.plot(-_np.flip(self.env['top_interface'][:, 0]) / divisor, _np.flip(self.env['top_interface'][:, 1]), 'b', linewidth=3)
-            ax.scatter(-self.env['rx_range']/divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
-            ax.set_xlim((0, -self.env['rx_range'] / divisor))
+            ax.scatter(-self.env['rx_range'] / divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+            ax.set_xlim((-self.env['rx_range'] / divisor, 0))
         else:
             ax.plot(self.env['bot_interface'][:, 0] / divisor, self.env['bot_interface'][:, 1], 'k', linewidth=3)
             ax.plot(self.env['top_interface'][:, 0] / divisor, self.env['top_interface'][:, 1], 'b', linewidth=3)
-            ax.scatter(self.env['rx_range']/divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+            ax.scatter(self.env['rx_range'] / divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
             ax.set_xlim((0, self.env['rx_range'] / divisor))
-            
+
+        # Set labels, title, and legend
         ax.set_xlabel(xlabel)
         ax.set_ylabel("Depth [m]")
-        ax.set_ylim((_np.min(self.env['top_interface'][:,1]), _np.max(self.env['bot_interface'][:, 1])))
-        ax.set_title(f"[BELLHOP - Eigen rays] {self.env['name']}")
+        ax.set_ylim((_np.min(self.env['top_interface'][:, 1]), _np.max(self.env['bot_interface'][:, 1])))
+        ax.set_title(f"[BELLHOP - Eigen rays ({nInit-nRay})] {self.env['name']}")
         ax.scatter(0, self.env['tx_depth'], label="Source", color="k", s=250, marker="*")
-        
+
+        # Invert y-axis, add grid, and display plot
         ax.invert_yaxis()
         ax.grid('all')
         plt.tight_layout()
         plt.show()
-        
+
         return fig, ax
     
-    def plot_impulse_response(self, dB=False, nArrivals=10, color='steelblue', **kwargs):
-        
+    def plot_impulse_response(self, dB=False, nArrival=10, color='steelblue', **kwargs):
+        """
+        Plot impulse response.
+
+        Parameters:
+        - dB: If True, convert the impulse response to dB (default: False).
+        - nArrival: Number of arrivals to plot (default: 10).
+        - color: Color of the plot (default: 'steelblue').
+
+        Returns:
+        - fig: The figure object.
+        - ax: The axes object.
+        """
         # If dB is True, convert the impulse response to dB
         if dB:
-            ir = 20 * _np.log10(_np.abs(self.impulse_response) + _np.finfo(float).eps)
+            ir = 20 * _np.log10(_np.abs(self.impulse_response) + _np.finfo(float).eps)  # Convert to dB
         else:
-            ir = self.impulse_response.real
+            ir = self.impulse_response.real  # Use real part of impulse response
 
         irlen = 0
         nn    = 0
@@ -1389,19 +1366,19 @@ class BELLHOP:
             if val != 0:
                 nn += 1
                 irlen = ii
-            if nn == nArrivals:
+            if nn == nArrival:
                 break
         
         # Plot the impulse response using stem plot
         fig, ax = plt.subplots()
-        ax.plot(ir)
-        ax.set_xlim([0, irlen])
-        ax.set_xlabel('Sample [S]')
-        ax.set_ylabel('Amplitude')
-        ax.set_title(f"[BELLHOP - Impulse response for {nn} arr @ {self.impulse_response_fs} S/s] {self.env['name']}")
-        ax.grid('all')
-        plt.tight_layout()
-        plt.show()
+        ax.plot(ir, color=color)  # Plot impulse response
+        ax.set_xlim([0, irlen])  # Set x-axis limit
+        ax.set_xlabel('Sample [S]')  # Set x-axis label
+        ax.set_ylabel('Amplitude')  # Set y-axis label
+        ax.set_title(f"[BELLHOP - Impulse response ({nn} @ {self.impulse_response_fs} S/s)] {self.env['name']}")  # Set title
+        ax.grid('all')  # Add grid
+        plt.tight_layout()  # Adjust layout
+        plt.show()  # Show plot
 
         return fig, ax
     
@@ -2321,7 +2298,7 @@ class KRAKEN:
         ax.grid()
         ax.set_ylim([0,_np.max(self.env['bot_interface'][:,1])])
         ax.set_xlim([vmin, vmax])
-        ax.set_title(f"[KRAKEN - Modes] First {n} Shapes")
+        ax.set_title(f"[KRAKEN - Modes ({n})] {self.env['name']}")
         ax.invert_yaxis()
         
         return fig, ax
@@ -2926,6 +2903,7 @@ class RAM:
         Compute Transmission Loss.
         """
         
+        # Check if there are multiple receiver ranges or depths
         if _np.size(self.env['rx_range']) > 1 or _np.size(self.env['rx_depth']) > 1:
             
             tlgL       = None
@@ -2935,7 +2913,7 @@ class RAM:
             # Right propagation
             if _np.max(self.env['rx_range']) > 0:    
                 self.pyramR.run()
-                if _np.min(_np.abs(self.env['rx_range'])) == 0:
+                if _np.any(self.env['rx_range'] == 0):
                     replicated_column = self.pyramR.tlg[:, [0]]
                     tlgR = _np.hstack((replicated_column, self.pyramR.tlg))
                     replicated_column = self.pyramR.cpg[:, [0]]
@@ -2948,7 +2926,7 @@ class RAM:
             # Left propagation
             if _np.min(self.env['rx_range']) < 0:
                 self.pyramL.run()
-                if _np.min(_np.abs(self.env['rx_range'])) == 0 and not replicated:
+                if _np.any(self.env['rx_range'] == 0) and not replicated:
                     replicated_column = self.pyramL.tlg[:, [0]]
                     tlgL = _np.hstack((replicated_column, self.pyramL.tlg))
                     replicated_column = self.pyramL.cpg[:, [0]]
@@ -2957,6 +2935,7 @@ class RAM:
                     tlgL = self.pyramL.tlg
                     cpgL = self.pyramL.cpg
         
+        # Combine the transmission loss matrices
         if tlgL is not None and tlgR is not None:
             tlg = _np.hstack((_np.fliplr(tlgL), tlgR))
             cpg = _np.hstack((_np.fliplr(cpgL), cpgR))
@@ -2968,20 +2947,19 @@ class RAM:
             cpg = cpgR
         else:
             print("[ERROR] RAM: No results found !")
-                         
+         
+        # Handle cases where the result matrix depth is smaller than expected   
         if _np.size(tlg[:,0]) < _np.size(self.env['rx_depth']):
             tlg = _np.vstack((tlg[0,:],tlg))
             cpg = _np.vstack((cpg[0,:],cpg))
-                
         num_columns = tlg.shape[1]
         nan_array = _np.empty((1, num_columns))
-        nan_array[:] = _np.nan
-        
+        nan_array[:] = _np.nan        
         while _np.size(tlg[:,0]) < _np.size(self.env['rx_depth']):
             tlg = _np.vstack((nan_array,tlg))
             cpg = _np.vstack((nan_array,cpg))
                 
-        
+        # Compute transmission loss and complex pressure
         self.transmission_loss = 10**(-tlg/20)
         self.complex_pressure  = cpg
                 
@@ -2997,31 +2975,64 @@ class RAM:
         Returns:
             array-like: Complex pressure.
         """
-        if _np.size(self.env['top_interface']) > 2:
-            print("[INFO] RAM: Surface not supported, considering flat air/water interface.")
         
-        if _np.size(self.env['tx_beam']) > 2:
-            print("[INFO] RAM: Beam pattern not supported, using omnidirectionnal instead.")
-        
+        # Check if there are multiple receiver ranges or depths
         if _np.size(self.env['rx_range']) > 1 or _np.size(self.env['rx_depth']) > 1:
             
-            tlg = None
+            tlgL       = None
+            tlgR       = None
+            replicated = False
+
+            # Right propagation
+            if _np.max(self.env['rx_range']) > 0:    
+                self.pyramR.run()
+                if _np.any(self.env['rx_range'] == 0):
+                    replicated_column = self.pyramR.tlg[:, [0]]
+                    tlgR = _np.hstack((replicated_column, self.pyramR.tlg))
+                    replicated_column = self.pyramR.cpg[:, [0]]
+                    cpgR = _np.hstack((replicated_column, self.pyramR.cpg))
+                    replicated = True
+                else:
+                    tlgR = self.pyramR.tlg
+                    cpgR = self.pyramR.cpg
+             
+            # Left propagation
             if _np.min(self.env['rx_range']) < 0:
                 self.pyramL.run()
-                if tlg is None:
-                    tlg = _np.empty((self.pyramL.tlg.shape[0], 0))
-                    cpg = _np.empty((self.pyramL.cpg.shape[0], 0))
-                tlg = _np.hstack((_np.fliplr(self.pyramL.tlg), tlg))
-                cpg = _np.hstack((_np.fliplr(self.pyramL.cpg), cpg))
+                if _np.any(self.env['rx_range'] == 0) and not replicated:
+                    replicated_column = self.pyramL.tlg[:, [0]]
+                    tlgL = _np.hstack((replicated_column, self.pyramL.tlg))
+                    replicated_column = self.pyramL.cpg[:, [0]]
+                    cpgL = _np.hstack((replicated_column, self.pyramL.cpg))
+                else:
+                    tlgL = self.pyramL.tlg
+                    cpgL = self.pyramL.cpg
+        
+        # Combine the transmission loss matrices
+        if tlgL is not None and tlgR is not None:
+            tlg = _np.hstack((_np.fliplr(tlgL), tlgR))
+            cpg = _np.hstack((_np.fliplr(cpgL), cpgR))
+        elif tlgL is not None:
+            tlg = _np.fliplr(tlgL)
+            cpg = _np.fliplr(cpgL)
+        elif tlgR is not None:
+            tlg = tlgR
+            cpg = cpgR
+        else:
+            print("[ERROR] RAM: No results found !")
+         
+        # Handle cases where the result matrix depth is smaller than x grid (values over 0)   
+        if _np.size(tlg[:,0]) < _np.size(self.env['rx_depth']):
+            tlg = _np.vstack((tlg[0,:],tlg))
+            cpg = _np.vstack((cpg[0,:],cpg))
+        num_columns = tlg.shape[1]
+        nan_array = _np.empty((1, num_columns))
+        nan_array[:] = _np.nan        
+        while _np.size(tlg[:,0]) < _np.size(self.env['rx_depth']):
+            tlg = _np.vstack((nan_array,tlg))
+            cpg = _np.vstack((nan_array,cpg))
                 
-            if _np.max(self.env['rx_range']) >= 0:    
-                self.pyramR.run()
-                if tlg is None:
-                    tlg = _np.empty((self.pyramR.tlg.shape[0], 0))
-                    cpg = _np.empty((self.pyramR.cpg.shape[0], 0))
-                tlg = _np.hstack((self.pyramR.tlg, tlg))
-                cpg = _np.hstack((self.pyramR.cpg, cpg))
-                
+        # Compute transmission loss and complex pressure
         self.transmission_loss = 10**(-tlg/20)
         self.complex_pressure  = cpg
         
@@ -3045,7 +3056,7 @@ class RAM:
 
         tlossplt = 20 * _np.log10(_np.finfo(float).eps + _np.abs(_np.array(self.transmission_loss)))
 
-        # Remove transmission loss in sediment/surface
+        # Remove transmission loss in sediment
         interp_y = _np.interp(X, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
         ax.fill_between(X / 1000, interp_y, Y[-1], color='brown')
 
@@ -3133,7 +3144,7 @@ class RAM:
         ax.set_xlim((Xg[0] / 1000, Xg[-1] / 1000))
         ax.set_ylim((Yg[0], Yg[-1]))
         cbar = fig.colorbar(im, ax=ax)
-        cbar.ax.set_ylabel('Density [$\mathrm{g.cm}^{3}$]')
+        cbar.ax.set_ylabel('Density [g/cm$^{3}$]')
         ax.set_xlabel('Range [km]')
         ax.set_ylabel('Depth [m]')
         ax.set_title(f"[RAM - Bottom density] {self.env['name']}")
