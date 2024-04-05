@@ -2289,16 +2289,16 @@ class KRAKEN:
     # @todo     Remove useless file creation.
 
 
-    def plot_modes(self, n=10, vmin=-0.2, vmax=0.2):
+    def plot_modes(self, nMode=10, vmin=-0.2, vmax=0.2):
         
         fig, ax = plt.subplots()
         
-        ax.plot(_np.real(self.modes.phi[:,0:n]), self.modes.z)
+        ax.plot(_np.real(self.modes.phi[:,0:nMode]), self.modes.z)
         ax.set_ylabel('Depth [m]')
         ax.grid()
         ax.set_ylim([0,_np.max(self.env['bot_interface'][:,1])])
         ax.set_xlim([vmin, vmax])
-        ax.set_title(f"[KRAKEN - Modes ({n})] {self.env['name']}")
+        ax.set_title(f"[KRAKEN - Modes ({nMode})] {self.env['name']}")
         ax.invert_yaxis()
         
         return fig, ax
