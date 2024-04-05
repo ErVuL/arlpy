@@ -622,6 +622,17 @@ class BELLHOP:
         self._unlink_all(fname_base)     
         
         return self.transmission_loss
+     
+    def flip_env(self):
+        
+        self.env['rx_range']           = -_np.flip( self.env['rx_range'])
+        self.env['bot_interface'][:,0] = -_np.flip(self.env['bot_interface'][:,0])
+        self.env['bot_interface'][:,1] =  _np.flip(self.env['bot_interface'][:,1])
+        self.env['top_interface'][:,0] = -_np.flip(self.env['top_interface'][:,0])
+        self.env['top_interface'][:,1] =  _np.flip(self.env['top_interface'][:,1])
+        if _np.size(self.env['ssp_range']) > 1:
+            self.env['ssp']                =  _np.fliplr(self.env['ssp'])
+            self.env['ssp_range']          = -_np.flip(self.env['ssp_range'])
         
     def compute_arrivals(self, debug=False):
         
@@ -630,6 +641,10 @@ class BELLHOP:
         
         # Define mode taskcode
         taskcode = 'A'
+        flip = False
+        if self.env['rx_range'] < 0:
+            self.flip_env()
+            flip = True
            
         # Generate temporary env file and get base name used for all temporary files
         fname_base = self._create_env_file(taskcode, debug=debug)
@@ -646,7 +661,11 @@ class BELLHOP:
                     raise FileNotFoundError('BELLHOP: Fortran execution did not generate expected output file !')
         
         # Delete temporary generated files
-        self._unlink_all(fname_base)     
+        self._unlink_all(fname_base)    
+        
+        if flip:
+            self.flip_env()
+            flip = False
         
         return self.arrivals
         
@@ -658,7 +677,12 @@ class BELLHOP:
         
         # Define mode taskcode
         taskcode = 'R'
-           
+        
+        flip = False
+        if self.env['rx_range'] < 0:
+            self.flip_env()
+            flip = True
+              
         # Generate temporary env file and get base name used for all temporary files
         fname_base = self._create_env_file(taskcode, debug=debug)
         
@@ -676,6 +700,10 @@ class BELLHOP:
         # Delete temporary generated files
         self._unlink_all(fname_base)     
         
+        if flip:
+            self.flip_env()
+            flip = False
+            
         return self.rays
     
     def compute_eigen_rays(self, debug=False):
@@ -686,6 +714,13 @@ class BELLHOP:
         # Define mode taskcode
         taskcode = 'E'
            
+        flip = False
+        
+        if self.env['rx_range'] < 0:
+            self.flip_env()
+            flip = True
+           
+            
         # Generate temporary env file and get base name used for all temporary files
         fname_base = self._create_env_file(taskcode, debug=debug)
         
@@ -703,6 +738,10 @@ class BELLHOP:
         # Delete temporary generated files
         self._unlink_all(fname_base)     
         
+        if flip:
+            self.flip_env()
+            flip = False
+            
         return self.eigen_rays
     
     def compute_impulse_respsonse(self, fs=24000, nArrivals=10, debug=False):
@@ -997,7 +1036,10 @@ class BELLHOP:
         
         fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
         
-        ax.plot((self.env['tx_beam'][:, 0]+180)/360*2*_np.pi-_np.pi, self.env['tx_beam'][:, 1])
+        if self.env['tx_beam'] is not None:
+            ax.plot((self.env['tx_beam'][:, 0]+180)/360*2*_np.pi-_np.pi, self.env['tx_beam'][:, 1])
+        else:
+            ax.plot(_np.linspace(0,2*_np.pi,1000), _np.zeros(1000))
             
         ax.set_rlabel_position(-22.5)  # Move radial labels away from plotted line
         ax.grid(True)
@@ -1103,12 +1145,9 @@ class BELLHOP:
             for ii, x in enumerate(Xg):
                 interpolation = _np.interp(x, rb, zb)
                 for jj, y in enumerate(Yg):
-                    if y > interpolation:  
-                        Zg[jj, ii] = Zb
-                    else:  
-                        y_idx = _np.argmin(_np.abs(Y - y))
-                        x_idx = _np.argmin(_np.abs(X - x))
-                        Zg[jj, ii] = Z[y_idx, x_idx]
+                    y_idx = _np.argmin(_np.abs(Y - y))
+                    x_idx = _np.argmin(_np.abs(X - x))
+                    Zg[jj, ii] = Z[y_idx, x_idx]
              
             # Plot surface
             for ii, x in enumerate(Xg):
@@ -1116,6 +1155,10 @@ class BELLHOP:
                 Zg[Yg < ylim, ii] = _np.nan
             ax.plot(self.env['top_interface'][:, 0] / 1000, self.env['top_interface'][:, 1], 'b', linewidth=3)    
     
+            # Remove transmission loss in sediment/surface
+            interp_y = _np.interp(Xg, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
+            ax.fill_between(Xg / 1000, interp_y, Y[-1], color='brown')
+            
             # Plot
             im = ax.imshow(Zg, cmap='jet', aspect='auto', extent=[Xg[0]/1000, Xg[-1]/1000, Yg[-1], Yg[0]], **kwargs)
             ax.plot(rb / 1000, zb, 'k', linewidth=3)
@@ -1242,15 +1285,22 @@ class BELLHOP:
             if number == 0:
                 break
 
-        ax.plot(self.env['bot_interface'][:, 0] / divisor, self.env['bot_interface'][:, 1], 'k', linewidth=3)
-        ax.plot(self.env['top_interface'][:, 0] / divisor, self.env['top_interface'][:, 1], 'b', linewidth=3)
+        if self.env['rx_range'] < 0:
+            ax.plot(-_np.flip(self.env['bot_interface'][:, 0]) / divisor, _np.flip(self.env['bot_interface'][:, 1]), 'k', linewidth=3)
+            ax.plot(-_np.flip(self.env['top_interface'][:, 0]) / divisor, _np.flip(self.env['top_interface'][:, 1]), 'b', linewidth=3)
+            ax.scatter(-self.env['rx_range']/divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+            ax.set_xlim((0, -self.env['rx_range'] / divisor))
+        else:
+            ax.plot(self.env['bot_interface'][:, 0] / divisor, self.env['bot_interface'][:, 1], 'k', linewidth=3)
+            ax.plot(self.env['top_interface'][:, 0] / divisor, self.env['top_interface'][:, 1], 'b', linewidth=3)
+            ax.scatter(self.env['rx_range']/divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+            ax.set_xlim((0, self.env['rx_range'] / divisor))
+            
         ax.set_xlabel(xlabel)
         ax.set_ylabel("Depth [m]")
         ax.set_ylim((_np.min(self.env['top_interface'][:,1]), _np.max(self.env['bot_interface'][:, 1])))
-        ax.set_xlim((0, self.env['rx_range'] / divisor))
         ax.set_title(f"[BELLHOP - Rays] {self.env['name']}")
         ax.scatter(0, self.env['tx_depth'], label="Source", color="k", s=250, marker="*")
-        ax.scatter(self.env['rx_range']/1000, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
         ax.invert_yaxis()
         ax.grid('all')
         plt.tight_layout()
@@ -1301,15 +1351,23 @@ class BELLHOP:
             if number == 0:
                 break
 
-        ax.plot(self.env['bot_interface'][:, 0] / divisor, self.env['bot_interface'][:, 1], 'k', linewidth=3)
-        ax.plot(self.env['top_interface'][:, 0] / divisor, self.env['top_interface'][:, 1], 'b', linewidth=3)
+        if self.env['rx_range'] < 0:
+            ax.plot(-_np.flip(self.env['bot_interface'][:, 0]) / divisor, _np.flip(self.env['bot_interface'][:, 1]), 'k', linewidth=3)
+            ax.plot(-_np.flip(self.env['top_interface'][:, 0]) / divisor, _np.flip(self.env['top_interface'][:, 1]), 'b', linewidth=3)
+            ax.scatter(-self.env['rx_range']/divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+            ax.set_xlim((0, -self.env['rx_range'] / divisor))
+        else:
+            ax.plot(self.env['bot_interface'][:, 0] / divisor, self.env['bot_interface'][:, 1], 'k', linewidth=3)
+            ax.plot(self.env['top_interface'][:, 0] / divisor, self.env['top_interface'][:, 1], 'b', linewidth=3)
+            ax.scatter(self.env['rx_range']/divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+            ax.set_xlim((0, self.env['rx_range'] / divisor))
+            
         ax.set_xlabel(xlabel)
         ax.set_ylabel("Depth [m]")
         ax.set_ylim((_np.min(self.env['top_interface'][:,1]), _np.max(self.env['bot_interface'][:, 1])))
-        ax.set_xlim((0, self.env['rx_range'] / divisor))
         ax.set_title(f"[BELLHOP - Eigen rays] {self.env['name']}")
         ax.scatter(0, self.env['tx_depth'], label="Source", color="k", s=250, marker="*")
-        ax.scatter(self.env['rx_range']/1000, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+        
         ax.invert_yaxis()
         ax.grid('all')
         plt.tight_layout()
@@ -2218,7 +2276,11 @@ class KRAKEN:
             for j, y in enumerate(Y):
                 if y > ylim:
                     tlossplt[j, i] = vmax
-
+                    
+        # Remove transmission loss in sediment/surface
+        interp_y = _np.interp(X, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
+        ax.fill_between(X, _np.mean(self.env['bot_interface'][:,1]), Y[-1], color='brown')
+        
         # Plot the surface
         ax.plot([X[0]/1000, X[-1]/1000], [0, 0], 'b', linewidth=3)
 
