@@ -13,6 +13,7 @@
 import numbers as _num
 import numpy as _np
 import scipy.signal as _sp
+import matplotlib.pyplot as plt
 
 def soundspeed(temperature=27, salinity=35, depth=10):
     """Get the speed of sound in water.
@@ -278,3 +279,277 @@ def spl(x, ref=1):
     """
     rmsx = _np.sqrt(_np.mean(_np.power(_np.abs(x), 2)))
     return 20*_np.log10(rmsx/ref)
+
+def plot_recwPSD(Fxx, Pxx, maxval=2**24-1, vpk=3, sh=-205, gain=0, Title='', **kwargs):
+    """
+    Plot Welch Power Spectral Density (PSD) of a recorded signal.
+
+    Parameters:
+    - Fxx: Frequency vector of the Welch periodogram.
+    - Pxx: Welch periodogram computed with the recorded signal.
+    - maxval: Recorded signal maximum limit value (e.g., 2**24-1 for a 24-bit signal). Default is 2**24-1.
+    - vpk: Electrical voltage corresponding to maxval. Default is 3.
+    - sh: Hydrophone sensitivity in dB re V/uPa. Default is -205.
+    - gain: Preamplification gain in dB. Default is 0.
+    - Title: Title for the plot. Default is an empty string.
+    - **kwargs: Additional keyword arguments to pass to the plot.
+
+    Returns:
+    - fig: Matplotlib figure.
+    - ax: Matplotlib axis.
+
+    """
+    
+    fig, ax = plt.subplots()
+    ax.semilogx(Fxx, 10*_np.log10(_np.finfo(float).eps+Pxx)+20*_np.log10(_np.finfo(float).eps+vpk/maxval)-sh-gain, **kwargs)
+    ax.set_xlabel('Frequency [Hz]')
+    ax.set_ylabel('Level [dB re 1$\mu Pa / \sqrt{Hz}$]')
+    ax.set_title(f"[WELCH - Power Spectral Density] {Title}")
+    ax.grid(True)
+    ax.invert_yaxis()
+    plt.tight_layout()
+    plt.show()
+    
+    return fig, ax
+
+
+def plot_PSD(Fxx, Lvl_dB, Title='', **kwargs):
+    """
+    Plot Power Spectral Density (PSD).
+
+    Parameters:
+    - Fxx: Frequency vector of the PSD.
+    - Lvl_dB: PSD expressed in dB re 1uPa/vHz.
+    - Title: Title for the plot. Default is an empty string.
+    - **kwargs: Additional keyword arguments to pass to the plot.
+
+    Returns:
+    - fig: Matplotlib figure.
+    - ax: Matplotlib axis.
+
+    Code adapted from the original version by [Original Authors].
+    """
+    
+    fig, ax = plt.subplots()
+    ax.semilogx(Fxx, Lvl_dB, **kwargs)
+    ax.set_xlabel('Frequency [Hz]')
+    ax.set_ylabel('Level [dB re 1$\mu Pa / \sqrt{Hz}$]')
+    ax.set_title(f"[Power Spectral Density] {Title}")
+    ax.grid(True)
+    ax.invert_yaxis()
+    plt.tight_layout()
+    plt.show()
+    
+    return fig, ax
+    
+
+
+def compute_windnoise(f, u, water_depth='deep', sumOnly=False):
+    """
+    Calculates wind-based noise (in dB re uPa) with adjustment for shallow water based on Piggot (1964).
+    Adapted from IDL code originally by Dan Hutt, rewritten by Vic Young,
+    and obtained through Sean Pecknold.
+    Any mistakes propagated could have been theirs.
+
+    Parameters:
+        f (_np.ndarray or float): Single frequency or vector of frequencies (Hz). Assumes a 1-Hz band for a single frequency.
+        u (float): Wind speed (knots).
+        water_depth (str): 'shallow' or 'deep' (default: 'deep').
+
+    Optional Parameters:
+        sumOnly (bool): If True, the noise is summed across frequency bands. Default is False.
+                       In this case, the calculation is still valid for non-constant bandwidth -
+                       band limits are assumed to be halfway between input frequencies.
+
+    Returns:
+        NL (_np.ndarray): Vector containing the noise (dB per muPa^2/Hz) at frequencies f.
+                         If sumOnly is True, the output is the wind noise summed across the band.
+
+    Code translated from "A simple yet practical ambient noise model"
+    by Cristina D. S. Tollefsen and Sean Pecknold.
+    """
+    
+    # This all breaks down if u == 0 so account for that
+    if u == 0:
+        NL = _np.zeros_like(f)
+    else:
+        n2 = f.size
+        f = _np.array(f).flatten()  # Make sure f is a 1D array
+        if sumOnly:
+            f2 = _np.concatenate(([0], f, 2 * f[-1] - f[-2]))
+            df = (f2[2:] - f2[:-2]) / 2
+        else:
+            df = _np.ones_like(f)
+
+        # Bookkeeping:
+        # Some constants
+        f_wind = 2000  # Cutoff for wind noise section
+        s1w    = 1.5   # Constant in wind calcs
+        s2w    = -5.0  # Constant in wind calc
+        a      = -25   # Curve melding exponent
+        slope  = s2w * (0.1 / _np.log10(2))  # Slope at high freq
+        NL     = _np.zeros_like(f)
+
+        # Do the wind part for f <= 2000 Hz
+        if water_depth == 'shallow':
+            cst = 45
+        elif water_depth == 'deep':
+            cst = 42
+        else:
+            cst = 42 # default
+            
+        i_wind = f <= f_wind
+        f_temp = f[i_wind] if _np.any(i_wind) else _np.array([2000])  # so that it doesn’t crash if only f > 2000 are entered, admittedly this is a total arbitrary hack
+
+        # These confusing letters were taken directly from the old code
+        f0w             = 770 - 100 * _np.log10(u)
+        L0w             = cst + 20 * _np.log10(u) - 17 * _np.log10(f0w / 770)
+        L1w             = L0w + (s1w / _np.log10(2)) * _np.log10(f_temp / f0w)
+        L2w             = L0w + (s2w / _np.log10(2)) * _np.log10(f_temp / f0w)
+        Lw              = L1w * (1 + (L1w / L2w) ** (-a)) ** (1 / a)
+        temp_noise_dist = 10 ** (Lw / 10)
+
+        if _np.any(i_wind):
+            NL[i_wind] = temp_noise_dist * df[i_wind]
+
+        # Meld with a sensible line at freqs greater than 2000 Hz
+        if _np.any(~i_wind):
+            prop_const  = temp_noise_dist[-1] / f_temp[-1] ** slope
+            NL[~i_wind] = prop_const * f[~i_wind] ** slope * df[~i_wind]
+
+        NL = 10 * _np.log10(NL)
+
+        if n2 != 1:
+            NL = NL.reshape((n2,))
+
+    return NL
+
+
+
+def compute_wenz(f, u, rain_rate='none', water_depth='deep', shipping_level='medium', totalOnly=False):
+    """
+    Calculates the noise level (in dB re uPa) based on five components:
+    (1) Shipping noise (Wenz, 1962)
+    (2) Wind noise (Merklinger, 1979, and Piggott, 1964)
+    (3) Rain noise (Torres and Costa, 2019)
+    (4) Thermal noise (Mellen, 1952)
+    (5) Turbulence noise (Nichols and Bradley, 2016)
+
+    Parameters:
+        f (_np.ndarray or float): Single frequency or vector of frequencies (Hz). Assumes a 1-Hz band for a single frequency.
+        u (float): Wind speed (knots).
+        shipping_level (str): 'no', 'low', 'medium', or 'high' (default: 'medium').
+        water_depth (str): 'shallow' or 'deep' (default: 'deep').
+        rain_rate (str): 'no', 'light', 'moderate', 'heavy', or 'veryheavy' (default: 'none').
+        totalOnly (bool): False to get all noises separately, including the total; True to get only the total.
+
+    Returns:
+        NL (_np.ndarray): Column vector containing the noise (dB per muPa^2/Hz) at frequencies f. 
+        If totalOnly is True, NL includes [total, noise_ship, noise_wind, noise_rain, noise_therm, noise_turb].
+
+    Code translated from "A simple yet practical ambient noise model"
+    by Cristina D. S. Tollefsen and Sean Pecknold.
+    
+    Table 1-1. Beaufort Wind Force and Sea State Numbers Vs Wind Speed
+               ("AMBIENT NOISE IN THE SEA" R.J.URICK, 1984)
+                                             Wind Speed
+    Beaufort Number     Sea State       Knots       Meters/Sec
+    0                   0               <1          0 - 0.2
+    1                   1/2             1 - 3       0.3 - 1.5
+    2                   1               4 - 6       1.6 - 3.3
+    3                   2               7 - 10      3.4 - 5.4
+    4                   3               11 - 16     5.5 - 7.9
+    5                   4               17 - 21     8.0 - 10.7
+    6                   5               22 - 27     10.8 - 13.8
+    7                   6               28 - 33     13.9 - 17.1
+    8                   6               34 - 40     17.2 - 20.7
+    """
+    
+    f = _np.array(f).flatten()
+
+    # Thermal noise
+    noise_therm                   = -75.0 + 20.0 * _np.log10(f)
+    noise_therm[noise_therm <= 0] = 1
+
+    # Wind noise
+    noise_wind = compute_windnoise(f, u, water_depth)
+
+    # Shipping noise
+    c1 = 30 if water_depth == 'deep'   else 65 if water_depth == 'shallow'   else 30
+    c2 = 1  if shipping_level == 'low' else 4  if shipping_level == 'medium' else 7  if shipping_level == 'high' else 4
+    
+    if shipping_level != 'no':
+        noise_ship                  = 76 - 20 * (_np.log10(f) - _np.log10(c1))**2 + 5 * (c2 - 4)
+        noise_ship[noise_ship <= 0] = 1
+    else:
+        noise_ship = _np.zeros_like(f)
+     
+    # Turbulence noise
+    noise_turb                  = 108.5 - 32.5 * _np.log10(f)
+    noise_turb[noise_turb <= 0] = 1
+
+    # Rain rate noise
+    r0 = [0, 51.0769, 61.5358, 65.1107, 74.3464]
+    r1 = [0, 1.4687, 1.0147, 0.8226, 1.0131]
+    r2 = [0, -0.5232, -0.4255, -0.3825, -0.4258]
+    r3 = [0, 0.0335, 0.0277, 0.0251, 0.0277]
+
+    i_rain     = {'no': 0, 'light': 1, 'moderate': 2, 'heavy': 3, 'veryheavy': 4}.get(rain_rate, 1)
+    fk         = f / 1000  # convert to kHz for this equation
+    noise_rain = r0[i_rain] + r1[i_rain] * fk + r2[i_rain] * fk**2 + r3[i_rain] * fk**3
+
+    # Only good up to about 7 kHz, so meld with a sensible line above that
+    # Technique borrowed from wind-driven noise
+    slope                = -5.0 * (0.1 / _np.log10(2))  # slope at high freq
+    ind                  = _np.where(f < 7000)[0][-1]
+    temp_noise           = 10**(noise_rain[ind] / 10)
+    prop_const           = temp_noise / f[ind]**slope
+    noise_rain[f > 7000] = 10 * _np.log10(prop_const * f[f > 7000]**slope)
+
+    # Sum
+    if totalOnly:
+        NL = 10 * _np.log10(10**(noise_therm / 10) + 10**(noise_wind / 10) + 10**(noise_ship / 10) + 10**(noise_turb / 10) + 10**(noise_rain / 10))
+    else:
+        total = 10 * _np.log10(10**(noise_therm / 10) + 10**(noise_wind / 10) + 10**(noise_ship / 10) + 10**(noise_turb / 10) + 10**(noise_rain / 10))
+        NL    = _np.column_stack((total, noise_ship, noise_wind, noise_rain, noise_therm, noise_turb))
+
+    return NL
+
+
+
+def plot_wenz(Fxx, NL, wind_speed, rain_rate, water_depth, shipping_level, Title=''):
+    """
+    Plot noise levels estimated with the WENZ model.
+
+    Parameters:
+        Fxx (array): Frequency vector.
+        NL (array): Noise levels in dB re 1uPa calculated for different components.
+
+    Returns:
+        fig, ax: Matplotlib figure and axis objects.
+    """
+    fig, ax = plt.subplots()
+
+    if NL.shape[1] == 1:
+        # If only total noise is provided, plot it
+        ax.semilogx(Fxx, NL, label=f'Total noise ({water_depth} water, {shipping_level} traffic, {wind_speed} kn, {rain_rate} rain)', color='black')
+    else:
+        # Plot noise levels for different components
+        ax.semilogx(Fxx, NL[:, 0], label=f'Total noise ({water_depth} water)', color='black')
+        ax.semilogx(Fxx, NL[:, 1], label=f'Shipping noise ({shipping_level} traffic)', color='blue', linestyle='dashed')
+        ax.semilogx(Fxx, NL[:, 2], label=f'Wind noise ({wind_speed} kn)', color='green', linestyle='dashed')
+        ax.semilogx(Fxx, NL[:, 3], label=f'Rain noise ({rain_rate} rain)', color='orange', linestyle='dashed')
+        ax.semilogx(Fxx, NL[:, 4], label='Thermal noise', color='red', linestyle='dashed')
+        ax.semilogx(Fxx, NL[:, 5], label='Turbulence noise', color='purple', linestyle='dashed')
+
+    ax.set_xlabel('Frequency [Hz]')
+    ax.set_ylabel('Noise Level [dB re 1$\mu$Pa]')
+    ax.set_title(f'[WENZ - Noise Level Estimate] {Title}')
+    ax.set_xlim((Fxx[0], Fxx[-1]))
+    ax.set_ylim((6, 146))  # Adjusted y-axis limits for better visibility
+    ax.legend()
+    ax.grid(True)
+    plt.tight_layout()
+    plt.show()
+    
+    return fig, ax

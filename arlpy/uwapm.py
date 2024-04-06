@@ -230,31 +230,40 @@ def make_env2d(**kv):
         if k not in env.keys():
             raise KeyError('Unknown key: '+k)
         env[k] = _np.array(v, dtype=_np.float64) if _np.size(v) > 1 else v
+ 
+    # Sediment matrix dimension assertion
+    if env['bot_density'] is not None and env['bot_PwaveAttn'] is not None and env['bot_PwaveSpeed'] is not None and env['bot_SwaveAttn'] is not None and env['bot_SwaveSpeed'] is not None:
     
-    # Ensure consistency of dimensions for SSP (Sound Speed Profile) and bottom settings    
+        ## If only range dependant
+        if _np.size(env['bot_range']) > 1 and _np.size(env['bot_depth']) == 1:
+            env['bot_density']    = _np.hstack(env['bot_density'])
+            env['bot_PwaveAttn']  = _np.hstack(env['bot_PwaveAttn'])
+            env['bot_PwaveSpeed'] = _np.hstack(env['bot_PwaveSpeed'])
+            env['bot_SwaveAttn']  = _np.hstack(env['bot_SwaveAttn'])
+            env['bot_SwaveSpeed'] = _np.hstack(env['bot_SwaveSpeed'])
+            
+        ## If only depth dependant
+        if _np.size(env['bot_depth']) > 1 and _np.size(env['bot_range']) == 1:
+            env['bot_density']    = _np.vstack(env['bot_density'])
+            env['bot_PwaveAttn']  = _np.vstack(env['bot_PwaveAttn'])
+            env['bot_PwaveSpeed'] = _np.vstack(env['bot_PwaveSpeed'])
+            env['bot_SwaveAttn']  = _np.vstack(env['bot_SwaveAttn'])
+            env['bot_SwaveSpeed'] = _np.vstack(env['bot_SwaveSpeed'])
+        
+    # SSP matrix dimension assertion
+    if env['ssp'] is not None:
+        
+        ## If only range dependant
+        if _np.size(env['ssp_range']) > 1 and _np.size(env['ssp_depth']) == 1:
+            env['ssp'] = _np.vstack(env['ssp'])
+            
+        ## If only depth dependant
+        if _np.size(env['ssp_depth']) > 1 and _np.size(env['ssp_range']) == 1:
+            env['ssp'] = _np.hstack(env['ssp'])
+        
+    # Bottom interface matrix dimension assertion
     if env['bot_interface'][0,0] is None or not _np.isfinite(env['bot_interface'][0,0]):
         env['bot_interface'][0,0] = 0
-    if _np.size(env['ssp_range']) == _np.size(env['ssp']):
-        if _np.size(env['ssp']) > 1:
-            env['ssp'] = _np.hstack(env['ssp'])
-    if _np.size(env['ssp_depth']) == _np.size(env['ssp']):
-        if _np.size(env['ssp']) > 1:
-            env['ssp'] = _np.vstack(env['ssp'])
-    if env['bot_PwaveAttn'] is not None and _np.size(env['bot_PwaveAttn']) > 1:
-        if _np.size(env['bot_range']) == _np.size(env['bot_PwaveAttn']):
-            env['bot_PwaveAttn'] = _np.hstack(env['bot_PwaveAttn'])
-        if _np.size(env['bot_depth']) == _np.size(env['bot_PwaveAttn']):
-            env['bot_PwaveAttn'] = _np.vstack(env['bot_PwaveAttn'])
-    if env['bot_PwaveSpeed'] is not None and _np.size(env['bot_PwaveSpeed']) > 1:
-        if _np.size(env['bot_range']) == _np.size(env['bot_PwaveSpeed']):
-            env['bot_PwaveSpeed'] = _np.hstack(env['bot_PwaveSpeed'])
-        if _np.size(env['bot_depth']) == _np.size(env['bot_PwaveSpeed']):
-            env['bot_PwaveSpeed'] = _np.vstack(env['bot_PwaveSpeed'])
-    if env['bot_density'] is not None and _np.size(env['bot_density']) > 1:
-        if _np.size(env['bot_range']) == _np.size(env['bot_density']):
-            env['bot_density'] = _np.hstack(env['bot_density'])
-        if _np.size(env['bot_depth']) == _np.size(env['bot_density']):
-            env['bot_density'] = _np.vstack(env['bot_density'])
 
     # Adjust environment border by padding input data if required for OALIB and RAM
     if env['pad_inputData'] == True:
@@ -268,19 +277,19 @@ def make_env2d(**kv):
             env['top_interface'] = _adjust_2D(env['top_interface'], -1.001*rBox, 1.001*rBox)
         else:
             env['top_interface'] = _np.array((0,0), ndmin=2)
-        zSSPmin = _np.min(env['top_interface'][:,1])-zBox/100
-        
-        # Get at least 2 ssp values at depth 0 and 1.001*zBox
-        if (_np.size(env['ssp_range']) == 1 and _np.size(env['ssp_depth']) == 1 and _np.size(env['ssp']) == 1) or (_np.size(env['ssp_depth']) == 1 and _np.size(env['ssp_range']) == _np.size(env['ssp'])) or _np.size(env['ssp']) == 1:
-            env['ssp'] = _np.vstack([env['ssp'], env['ssp']])
-            env['ssp_depth'] = _np.array([zSSPmin, 1.001*zBox])
-
-        # Ensure settings overlap and size 
-        env['bot_interface'] = _adjust_2D(env['bot_interface'], -1.001*rBox, 1.001*rBox)
-        env['ssp'], env['ssp_range'], env['ssp_depth']  = _adjust_3D(env['ssp'], env['ssp_range'], env['ssp_depth'], -1.001*rBox, 1.001*rBox, zSSPmin,1.001*zBox)                                                               
-        env['bot_PwaveAttn'], _, _  = _adjust_3D(env['bot_PwaveAttn'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                 
-        env['bot_density'], _, _  = _adjust_3D(env['bot_density'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                
+ 
+        # Ensure settings overlap and size
+        zSSPmin                                                    = _np.min(env['top_interface'][:,1])-zBox/100
+        env['bot_interface']                                       = _adjust_2D(env['bot_interface'], -1.001*rBox, 1.001*rBox)
+        env['ssp'], env['ssp_range'], env['ssp_depth']             = _adjust_3D(env['ssp'], env['ssp_range'], env['ssp_depth'], -1.001*rBox, 1.001*rBox, zSSPmin,1.001*zBox)                                                               
+        env['bot_PwaveAttn'], _, _                                 = _adjust_3D(env['bot_PwaveAttn'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                 
+        env['bot_density'], _, _                                   = _adjust_3D(env['bot_density'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                
         env['bot_PwaveSpeed'], env['bot_range'], env['bot_depth']  = _adjust_3D(env['bot_PwaveSpeed'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)
+
+        # Get at least 2 ssp values at depth 0 and 1.001*zBox
+        if (_np.size(env['ssp_range']) == 1 and _np.size(env['ssp_depth']) == 1 and _np.size(env['ssp']) == 1):
+            env['ssp']       = _np.vstack([env['ssp'], env['ssp']])
+            env['ssp_depth'] = _np.array([zSSPmin, 1.001*zBox])
 
     # @todo 
     # env = check_env2d(env)
@@ -512,6 +521,14 @@ class BELLHOP:
             else:
                 self.transmission_loss[ii, :] = _np.nan
         
+        # Remove artifact at range 0 if exist
+        if _np.any(self.env['rx_range'] == 0):
+            index_of_zero = _np.where(self.env['rx_range'] == 0)[0][0]
+            try:
+                self.transmission_loss[:,index_of_zero] = self.transmission_loss[:,index_of_zero+1]
+            except:
+                self.transmission_loss[:,index_of_zero] = self.transmission_loss[:,index_of_zero-1]
+                
         return self.transmission_loss
      
     def flip_env(self):
@@ -2689,7 +2706,7 @@ class RAM:
             self.env =  dict(env)
         else:
             self.env = env
-        
+               
         if hasattr(self, 'step') and self.step is not None and self.step > 0:
             step  = self.step
         else:
@@ -2710,11 +2727,11 @@ class RAM:
             print(f"[WARNING] RAM: Output grid depth is not 0 centered, maximum relative error = {err:.3f} m !")   
             
         # Pad bottom settings to minimum required size of 2x2
-        bot_PwaveSpeed     = self.env['bot_PwaveSpeed']
-        bot_attn    = self.env['bot_PwaveAttn']
-        bot_density = self.env['bot_density']
-        bot_range   = self.env['bot_range']
-        bot_depth   = self.env['bot_depth']
+        bot_PwaveSpeed = self.env['bot_PwaveSpeed']
+        bot_attn       = self.env['bot_PwaveAttn']
+        bot_density    = self.env['bot_density']
+        bot_range      = self.env['bot_range']
+        bot_depth      = self.env['bot_depth']
         if _np.size(self.env['bot_range']) == 1 and _np.size(self.env['bot_depth']) == 1:
             if _np.size(self.env['bot_PwaveSpeed']) == 1:
                 bot_PwaveSpeed = _np.array([[self.env['bot_PwaveSpeed'], self.env['bot_PwaveSpeed']],
@@ -2727,7 +2744,7 @@ class RAM:
                                          [self.env['bot_density'], self.env['bot_density']]])
             bot_range = _np.array([_np.min(self.env['rx_range']), _np.max(self.env['rx_range'])])
             bot_depth = _np.array([_np.min(self.env['bot_interface'][:,1]), _np.max((_np.max(self.env['rx_depth']), _np.max(self.env['bot_interface'][:,1])))])
-          
+                
         # Positive depth only
         if _np.size(_np.where(self.env['rx_depth'] > 0)):
             dMin = _np.where(self.env['rx_depth'] > 0)[0][0]
@@ -3102,15 +3119,14 @@ class RAM:
         
         # Re-compute map over grid
         for ii, x in enumerate(Xg):  # For all map pixels
-            intrepolation = _np.interp(x, rb, zb)
             for jj, y in enumerate(Yg):
-                if y > intrepolation:  # If in sediment (interpolation of bathymetry line between samples)
-                    x_idx = _np.argmin(_np.abs(Xb - x))
-                    y_idx = _np.argmin(_np.abs(Yb - y))
-                    Zg[jj, ii] = Zb[y_idx, x_idx]
-                else:  # Else it is in water column
-                    # Set minimum value
-                    Zg[jj, ii] = vmin
+                x_idx = _np.argmin(_np.abs(Xb - x))
+                y_idx = _np.argmin(_np.abs(Yb - y))
+                Zg[jj, ii] = Zb[y_idx, x_idx]
+
+        # Plot water
+        interp_y = _np.interp(Xg, rb, zb)
+        ax.fill_between(Xg / 1000, interp_y, Yg[0], color='blue')
     
         # Plot surface
         ax.plot([Xg[0]/1000, Xg[-1]/1000], [0, 0], 'b', linewidth=3)
@@ -3243,15 +3259,14 @@ class RAM:
     
         # Re-compute map over grid
         for ii, x in enumerate(Xg):  # For all map pixels
-            intrepolation = _np.interp(x, rb, zb)
             for jj, y in enumerate(Yg):
-                if y > intrepolation:  # If in sediment (interpolation of bathymetry line between samples)
-                    x_idx = _np.argmin(_np.abs(Xb - x))
-                    y_idx = _np.argmin(_np.abs(Yb - y))
-                    Zg[jj, ii] = Zb[y_idx, x_idx]
-                else:  # Else it is in water column
-                    # Set minimum value
-                    Zg[jj, ii] = vmin
+                x_idx = _np.argmin(_np.abs(Xb - x))
+                y_idx = _np.argmin(_np.abs(Yb - y))
+                Zg[jj, ii] = Zb[y_idx, x_idx]
+
+        # Plot water
+        interp_y = _np.interp(Xg, rb, zb)
+        ax.fill_between(Xg / 1000, interp_y, Yg[0], color='blue')
     
         # Plot surface
         ax.plot([Xg[0]/1000, Xg[-1]/1000], [0, 0], 'b', linewidth=3)
@@ -3276,280 +3291,6 @@ class RAM:
     
 # Add model to available models
 _models.append(('RAM', RAM))
-
-def plot_recwPSD(Fxx, Pxx, maxval=2**24-1, vpk=3, sh=-205, gain=0, Title='', **kwargs):
-    """
-    Plot Welch Power Spectral Density (PSD) of a recorded signal.
-
-    Parameters:
-    - Fxx: Frequency vector of the Welch periodogram.
-    - Pxx: Welch periodogram computed with the recorded signal.
-    - maxval: Recorded signal maximum limit value (e.g., 2**24-1 for a 24-bit signal). Default is 2**24-1.
-    - vpk: Electrical voltage corresponding to maxval. Default is 3.
-    - sh: Hydrophone sensitivity in dB re V/uPa. Default is -205.
-    - gain: Preamplification gain in dB. Default is 0.
-    - Title: Title for the plot. Default is an empty string.
-    - **kwargs: Additional keyword arguments to pass to the plot.
-
-    Returns:
-    - fig: Matplotlib figure.
-    - ax: Matplotlib axis.
-
-    """
-    
-    fig, ax = plt.subplots()
-    ax.semilogx(Fxx, 10*_np.log10(_np.finfo(float).eps+Pxx)+20*_np.log10(_np.finfo(float).eps+vpk/maxval)-sh-gain, **kwargs)
-    ax.set_xlabel('Frequency [Hz]')
-    ax.set_ylabel('Level [dB re 1$\mu Pa / \sqrt{Hz}$]')
-    ax.set_title(f"[ WELCH - Power Spectral Density ] {Title}")
-    ax.grid(True)
-    ax.invert_yaxis()
-    plt.tight_layout()
-    plt.show()
-    
-    return fig, ax
-
-
-def plot_PSD(Fxx, Lvl_dB, Title='', **kwargs):
-    """
-    Plot Power Spectral Density (PSD).
-
-    Parameters:
-    - Fxx: Frequency vector of the PSD.
-    - Lvl_dB: PSD expressed in dB re 1uPa/vHz.
-    - Title: Title for the plot. Default is an empty string.
-    - **kwargs: Additional keyword arguments to pass to the plot.
-
-    Returns:
-    - fig: Matplotlib figure.
-    - ax: Matplotlib axis.
-
-    Code adapted from the original version by [Original Authors].
-    """
-    
-    fig, ax = plt.subplots()
-    ax.semilogx(Fxx, Lvl_dB, **kwargs)
-    ax.set_xlabel('Frequency [Hz]')
-    ax.set_ylabel('Level [dB re 1$\mu Pa / \sqrt{Hz}$]')
-    ax.set_title(f"[ Power Spectral Density ] {Title}")
-    ax.grid(True)
-    ax.invert_yaxis()
-    plt.tight_layout()
-    plt.show()
-    
-    return fig, ax
-    
-
-
-def compute_windnoise(f, u, water_depth='deep', sumOnly=False):
-    """
-    Calculates wind-based noise (in dB re uPa) with adjustment for shallow water based on Piggot (1964).
-    Adapted from IDL code originally by Dan Hutt, rewritten by Vic Young,
-    and obtained through Sean Pecknold.
-    Any mistakes propagated could have been theirs.
-
-    Parameters:
-        f (_np.ndarray or float): Single frequency or vector of frequencies (Hz). Assumes a 1-Hz band for a single frequency.
-        u (float): Wind speed (knots).
-        water_depth (str): 'shallow' or 'deep' (default: 'deep').
-
-    Optional Parameters:
-        sumOnly (bool): If True, the noise is summed across frequency bands. Default is False.
-                       In this case, the calculation is still valid for non-constant bandwidth -
-                       band limits are assumed to be halfway between input frequencies.
-
-    Returns:
-        NL (_np.ndarray): Vector containing the noise (dB per muPa^2/Hz) at frequencies f.
-                         If sumOnly is True, the output is the wind noise summed across the band.
-
-    Code translated from "A simple yet practical ambient noise model"
-    by Cristina D. S. Tollefsen and Sean Pecknold.
-    """
-    
-    # This all breaks down if u == 0 so account for that
-    if u == 0:
-        NL = _np.zeros_like(f)
-    else:
-        n2 = f.size
-        f = _np.array(f).flatten()  # Make sure f is a 1D array
-        if sumOnly:
-            f2 = _np.concatenate(([0], f, 2 * f[-1] - f[-2]))
-            df = (f2[2:] - f2[:-2]) / 2
-        else:
-            df = _np.ones_like(f)
-
-        # Bookkeeping:
-        # Some constants
-        f_wind = 2000  # Cutoff for wind noise section
-        s1w    = 1.5   # Constant in wind calcs
-        s2w    = -5.0  # Constant in wind calc
-        a      = -25   # Curve melding exponent
-        slope  = s2w * (0.1 / _np.log10(2))  # Slope at high freq
-        NL     = _np.zeros_like(f)
-
-        # Do the wind part for f <= 2000 Hz
-        if water_depth == 'shallow':
-            cst = 45
-        elif water_depth == 'deep':
-            cst = 42
-        else:
-            cst = 42 # default
-            
-        i_wind = f <= f_wind
-        f_temp = f[i_wind] if _np.any(i_wind) else _np.array([2000])  # so that it doesn’t crash if only f > 2000 are entered, admittedly this is a total arbitrary hack
-
-        # These confusing letters were taken directly from the old code
-        f0w             = 770 - 100 * _np.log10(u)
-        L0w             = cst + 20 * _np.log10(u) - 17 * _np.log10(f0w / 770)
-        L1w             = L0w + (s1w / _np.log10(2)) * _np.log10(f_temp / f0w)
-        L2w             = L0w + (s2w / _np.log10(2)) * _np.log10(f_temp / f0w)
-        Lw              = L1w * (1 + (L1w / L2w) ** (-a)) ** (1 / a)
-        temp_noise_dist = 10 ** (Lw / 10)
-
-        if _np.any(i_wind):
-            NL[i_wind] = temp_noise_dist * df[i_wind]
-
-        # Meld with a sensible line at freqs greater than 2000 Hz
-        if _np.any(~i_wind):
-            prop_const  = temp_noise_dist[-1] / f_temp[-1] ** slope
-            NL[~i_wind] = prop_const * f[~i_wind] ** slope * df[~i_wind]
-
-        NL = 10 * _np.log10(NL)
-
-        if n2 != 1:
-            NL = NL.reshape((n2,))
-
-    return NL
-
-
-
-def compute_wenz(f, u, rain_rate='none', water_depth='deep', shipping_level='medium', totalOnly=False):
-    """
-    Calculates the noise level (in dB re uPa) based on five components:
-    (1) Shipping noise (Wenz, 1962)
-    (2) Wind noise (Merklinger, 1979, and Piggott, 1964)
-    (3) Rain noise (Torres and Costa, 2019)
-    (4) Thermal noise (Mellen, 1952)
-    (5) Turbulence noise (Nichols and Bradley, 2016)
-
-    Parameters:
-        f (_np.ndarray or float): Single frequency or vector of frequencies (Hz). Assumes a 1-Hz band for a single frequency.
-        u (float): Wind speed (knots).
-        shipping_level (str): 'no', 'low', 'medium', or 'high' (default: 'medium').
-        water_depth (str): 'shallow' or 'deep' (default: 'deep').
-        rain_rate (str): 'no', 'light', 'moderate', 'heavy', or 'veryheavy' (default: 'none').
-        totalOnly (bool): False to get all noises separately, including the total; True to get only the total.
-
-    Returns:
-        NL (_np.ndarray): Column vector containing the noise (dB per muPa^2/Hz) at frequencies f. 
-        If totalOnly is True, NL includes [total, noise_ship, noise_wind, noise_rain, noise_therm, noise_turb].
-
-    Code translated from "A simple yet practical ambient noise model"
-    by Cristina D. S. Tollefsen and Sean Pecknold.
-    
-    Table 1-1. Beaufort Wind Force and Sea State Numbers Vs Wind Speed
-               ("AMBIENT NOISE IN THE SEA" R.J.URICK, 1984)
-                                             Wind Speed
-    Beaufort Number     Sea State       Knots       Meters/Sec
-    0                   0               <1          0 - 0.2
-    1                   1/2             1 - 3       0.3 - 1.5
-    2                   1               4 - 6       1.6 - 3.3
-    3                   2               7 - 10      3.4 - 5.4
-    4                   3               11 - 16     5.5 - 7.9
-    5                   4               17 - 21     8.0 - 10.7
-    6                   5               22 - 27     10.8 - 13.8
-    7                   6               28 - 33     13.9 - 17.1
-    8                   6               34 - 40     17.2 - 20.7
-    """
-    
-    f = _np.array(f).flatten()
-
-    # Thermal noise
-    noise_therm                   = -75.0 + 20.0 * _np.log10(f)
-    noise_therm[noise_therm <= 0] = 1
-
-    # Wind noise
-    noise_wind = compute_windnoise(f, u, water_depth)
-
-    # Shipping noise
-    c1 = 30 if water_depth == 'deep'   else 65 if water_depth == 'shallow'   else 30
-    c2 = 1  if shipping_level == 'low' else 4  if shipping_level == 'medium' else 7  if shipping_level == 'high' else 4
-    
-    if shipping_level != 'no':
-        noise_ship                  = 76 - 20 * (_np.log10(f) - _np.log10(c1))**2 + 5 * (c2 - 4)
-        noise_ship[noise_ship <= 0] = 1
-    else:
-        noise_ship = _np.zeros_like(f)
-     
-    # Turbulence noise
-    noise_turb                  = 108.5 - 32.5 * _np.log10(f)
-    noise_turb[noise_turb <= 0] = 1
-
-    # Rain rate noise
-    r0 = [0, 51.0769, 61.5358, 65.1107, 74.3464]
-    r1 = [0, 1.4687, 1.0147, 0.8226, 1.0131]
-    r2 = [0, -0.5232, -0.4255, -0.3825, -0.4258]
-    r3 = [0, 0.0335, 0.0277, 0.0251, 0.0277]
-
-    i_rain     = {'no': 0, 'light': 1, 'moderate': 2, 'heavy': 3, 'veryheavy': 4}.get(rain_rate, 1)
-    fk         = f / 1000  # convert to kHz for this equation
-    noise_rain = r0[i_rain] + r1[i_rain] * fk + r2[i_rain] * fk**2 + r3[i_rain] * fk**3
-
-    # Only good up to about 7 kHz, so meld with a sensible line above that
-    # Technique borrowed from wind-driven noise
-    slope                = -5.0 * (0.1 / _np.log10(2))  # slope at high freq
-    ind                  = _np.where(f < 7000)[0][-1]
-    temp_noise           = 10**(noise_rain[ind] / 10)
-    prop_const           = temp_noise / f[ind]**slope
-    noise_rain[f > 7000] = 10 * _np.log10(prop_const * f[f > 7000]**slope)
-
-    # Sum
-    if totalOnly:
-        NL = 10 * _np.log10(10**(noise_therm / 10) + 10**(noise_wind / 10) + 10**(noise_ship / 10) + 10**(noise_turb / 10) + 10**(noise_rain / 10))
-    else:
-        total = 10 * _np.log10(10**(noise_therm / 10) + 10**(noise_wind / 10) + 10**(noise_ship / 10) + 10**(noise_turb / 10) + 10**(noise_rain / 10))
-        NL    = _np.column_stack((total, noise_ship, noise_wind, noise_rain, noise_therm, noise_turb))
-
-    return NL
-
-
-
-def plot_wenz(Fxx, NL, wind_speed, rain_rate, water_depth, shipping_level, Title=''):
-    """
-    Plot noise levels estimated with the WENZ model.
-
-    Parameters:
-        Fxx (array): Frequency vector.
-        NL (array): Noise levels in dB re 1uPa calculated for different components.
-
-    Returns:
-        fig, ax: Matplotlib figure and axis objects.
-    """
-    fig, ax = plt.subplots()
-
-    if NL.shape[1] == 1:
-        # If only total noise is provided, plot it
-        ax.semilogx(Fxx, NL, label=f'Total noise ({water_depth} water, {shipping_level} traffic, {wind_speed} kn, {rain_rate} rain)', color='black')
-    else:
-        # Plot noise levels for different components
-        ax.semilogx(Fxx, NL[:, 0], label=f'Total noise ({water_depth} water)', color='black')
-        ax.semilogx(Fxx, NL[:, 1], label=f'Shipping noise ({shipping_level} traffic)', color='blue', linestyle='dashed')
-        ax.semilogx(Fxx, NL[:, 2], label=f'Wind noise ({wind_speed} kn)', color='green', linestyle='dashed')
-        ax.semilogx(Fxx, NL[:, 3], label=f'Rain noise ({rain_rate} rain)', color='orange', linestyle='dashed')
-        ax.semilogx(Fxx, NL[:, 4], label='Thermal noise', color='red', linestyle='dashed')
-        ax.semilogx(Fxx, NL[:, 5], label='Turbulence noise', color='purple', linestyle='dashed')
-
-    ax.set_xlabel('Frequency [Hz]')
-    ax.set_ylabel('Noise Level [dB re 1$\mu$Pa]')
-    ax.set_title(f'[ WENZ - Noise Level Estimate ] {Title}')
-    ax.set_xlim((Fxx[0], Fxx[-1]))
-    ax.set_ylim((6, 146))  # Adjusted y-axis limits for better visibility
-    ax.legend()
-    ax.grid(True)
-    plt.tight_layout()
-    plt.show()
-    
-    return fig, ax
 
 def print_file_content(file_path):
     '''
@@ -3622,15 +3363,15 @@ def _adjust_3D(vect2D, x, y, xmin, xmax, ymin, ymax):
     Returns:
         tuple: Adjusted 2D vector, adjusted horizontal axis values, and adjusted vertical axis values.
     '''
-    # Adjust vertically first
-    vect2D, x = _adjust_3D_vertical(vect2D, x, y, xmin, xmax)
-    
-    # Adjust horizontally after vertical adjustments
-    vect2D, y = _adjust_3D_horizontal(vect2D, x, y, ymin, ymax)
+    # If multiple depth
+    vect2D, y = _adjust_3D_vstack(vect2D, x, y, ymin, ymax)
+
+    # Adjust range
+    vect2D, x = _adjust_3D_hstack(vect2D, x, y, xmin, xmax)
     
     return vect2D, x, y
 
-def _adjust_3D_vertical(vect2D, x, y, xmin, xmax):
+def _adjust_3D_vstack(vect2D, x, y, ymin, ymax):
     '''
     Adjusts 2D vector to ensure consistency in dimensions and boundary conditions.
     
@@ -3647,49 +3388,46 @@ def _adjust_3D_vertical(vect2D, x, y, xmin, xmax):
     
     # Check if the input vector has more than one element
     if _np.size(vect2D) > 1:
-        
-        # Check if horizontal axis has more than one element
-        if _np.size(x) > 1:
             
-            # If the input vector is 1D, adjust it
-            if _np.ndim(vect2D) == 1:
+        if _np.size(vect2D) == _np.size(x):
+            
+            vect2D = _np.hstack(vect2D)
+            vect2D = _np.vstack((vect2D,vect2D))
+            y      = _np.hstack((ymin, ymax))
                 
-                # Check if vertical axis has more than one element
-                if _np.size(y) > 1:
-                    raise Exception("[ERROR] BELLHOP: Size of input vector is inconsistent !")  
-                vect2D = _np.vstack(vect2D)
+        elif _np.size(vect2D) == _np.size(y):
+            
+            vect2D = _np.vstack(vect2D)
+            
+            # Add extra row if needed for ymin
+            if y[0] > ymin:
+                first_row = _np.hstack(vect2D[0,:])
+                vect2D = _np.vstack((first_row, vect2D))
+                y = _np.hstack((ymin, y))
                 
-                # Add extra row if needed for xmin
-                if x[0] > xmin:
-                    vect2D = _np.vstack((vect2D[0],vect2D))
-                    x = _np.hstack((xmin, x))
-                    
-                # Add extra row if needed for xmax
-                if x[-1] < xmax:
-                    vect2D = _np.vstack((vect2D,vect2D[-1]))
-                    x = _np.hstack((x, xmax))
-                    
-            else:
+            # Add extra row if needed for ymax
+            if y[-1] < ymax:
+                last_row = _np.hstack(vect2D[-1,:])
+                vect2D = _np.vstack((vect2D, last_row))
+                y = _np.hstack((y, ymax))
                 
-                # Add extra column if needed for xmin
-                if x[0] > xmin:
-                    first_column = vect2D[:, 0]
-                    if first_column.ndim == 1:
-                        first_column = _np.expand_dims(first_column, axis=1)
-                    vect2D = _np.concatenate((first_column, vect2D), axis=1)
-                    x = _np.hstack((xmin, x))
-                    
-                # Add extra column if needed for xmax
-                if x[-1] < xmax:
-                    last_column = vect2D[:, -1]
-                    if last_column.ndim == 1:
-                        last_column = _np.expand_dims(last_column, axis=1)
-                    vect2D = _np.concatenate((vect2D, last_column), axis=1)
-                    x = _np.hstack((x, xmax))
+        else:
+            
+            # Add extra row if needed for ymin
+            if y[0] > ymin:
+                first_row = _np.hstack(vect2D[0,:])
+                vect2D = _np.vstack((first_row, vect2D))
+                y = _np.hstack((ymin, y))
                 
-    return vect2D, x
+            # Add extra row if needed for ymax
+            if y[-1] < ymax:
+                last_row = _np.hstack(vect2D[-1,:])
+                vect2D = _np.vstack((vect2D, last_row))
+                y = _np.hstack((y, ymax))
+                
+    return vect2D, y
 
-def _adjust_3D_horizontal(vect2D, x, y, ymin, ymax):
+def _adjust_3D_hstack(vect2D, x, y, xmin, xmax):
     '''
     Adjusts 2D vector to ensure consistency in dimensions and boundary conditions, emphasizing vertical adjustments before horizontal.
     
@@ -3707,41 +3445,23 @@ def _adjust_3D_horizontal(vect2D, x, y, ymin, ymax):
     # Check if the input vector has more than one element
     if _np.size(vect2D) > 1:
         
-        # Check if either vertical or horizontal axis has more than one element
-        if _np.size(y) > 1 or _np.size(x) > 1:
-            
-            # If the input vector is 1D, adjust it
-            if _np.ndim(vect2D) == 1:
-                
-                # Reshape vector to be 2D
-                vect2D = _np.hstack(vect2D)
-                
-                # Add extra column if needed for ymin
-                if y[0] > ymin:
-                    vect2D = _np.hstack((vect2D[0], vect2D))
-                    y = _np.hstack((ymin, y))
+        # Check if both vertical and horizontal axis have more than one element
+        if _np.size(x) > 1 and _np.size(y) > 1:
+             
+            # Check if vect2D is really 2D
+            if _np.ndim(vect2D) == 2:
+       
+                # Add extra column if needed for xmin
+                if x[0] > xmin:
+                    vect2D = _np.hstack((_np.vstack(vect2D[:,0]), vect2D))
+                    x = _np.hstack((xmin, x))
                     
-                # Add extra column if needed for ymax
-                if y[-1] < ymax:
-                    vect2D = _np.hstack((vect2D, vect2D[-1]))
-                    y = _np.hstack((y, ymax))
+                # Add extra column if needed for xmax
+                if x[-1] < xmax:
+                    vect2D = _np.hstack((vect2D, _np.vstack(vect2D[:,-1])))
+                    x = _np.hstack((x, xmax)) 
             else:
+                print("[ERROR] RAM: Unconsistent dimensions !")
                 
-                # Add extra row if needed for ymin
-                if y[0] > ymin:
-                    first_row = vect2D[0]
-                    if first_row.ndim == 1:
-                        first_row = _np.expand_dims(first_row, axis=0)
-                    vect2D = _np.concatenate((first_row, vect2D), axis=0)
-                    y = _np.hstack((ymin, y))
-                    
-                # Add extra row if needed for ymax
-                if y[-1] < ymax:
-                    last_row = vect2D[-1]
-                    if last_row.ndim == 1:
-                        last_row = _np.expand_dims(last_row, axis=0)
-                    vect2D = _np.concatenate((vect2D, last_row), axis=0)
-                    y = _np.hstack((y, ymax))
-                
-    return vect2D, y
+    return vect2D, x
 
