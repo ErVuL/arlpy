@@ -23,6 +23,7 @@ import pandas as _pd
 from tempfile import mkstemp as _mkstemp
 from struct import unpack as _unpack
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import pyram.PyRAM as ram
 from struct import unpack
 import os 
@@ -575,6 +576,10 @@ class BELLHOP:
             self.flip_env()
             flip = False
         
+        if self.env['rx_range'] > 0:
+            self.arrivals['angle_of_arrival']   = -self.arrivals['angle_of_arrival']+180
+            self.arrivals['angle_of_departure'] = -self.arrivals['angle_of_departure']+180
+            
         return self.arrivals
         
 
@@ -731,10 +736,10 @@ class BELLHOP:
         
         # Option (1:1) SSP interp      
         if _np.size(self.env['ssp_range']) > 1 and self.env['ssp_interp'] != quadrilatteral:
-            print('[INFO] BELLHOP: SSP interp replaced by quadrilatteral for range dependant SSP.')
+            print('[WARNING] BELLHOP: SSP interp replaced by quadrilatteral for range dependant SSP !')
             ssp_interp = 'Q'
         elif _np.size(self.env['ssp_range']) == 1 and self.env['ssp_interp'] == quadrilatteral:
-            print('[INFO] BELLHOP: Quadrilatteral interpolation is for range dependant SSP only, using C-linear instead.')
+            print('[WARNING] BELLHOP: Quadrilatteral interpolation is for range dependant SSP only, using C-linear instead !')
             ssp_interp = 'C'
         elif _np.size(self.env['ssp_range']) > 1 and self.env['ssp_interp'] == quadrilatteral:
             ssp_interp = 'Q'
@@ -956,7 +961,7 @@ class BELLHOP:
 
         if self.env['tx_beam'] is not None:
             # Plot the beam pattern if available
-            ax.plot((self.env['tx_beam'][:, 0] + 180) / 360 * 2 * _np.pi - _np.pi, self.env['tx_beam'][:, 1])
+            ax.plot(-self.env['tx_beam'][:, 0] / 360 * 2 * _np.pi, self.env['tx_beam'][:, 1])
         else:
             # Plot a flat line if beam pattern data is not available
             ax.plot(_np.linspace(0, 2 * _np.pi, 1000), _np.zeros(1000))
@@ -964,7 +969,8 @@ class BELLHOP:
         # Move radial labels away from the plotted line
         ax.set_rlabel_position(-22.5)
         ax.grid(True)
-        ax.set_ylim(vmin, vmax)
+        ax.set_ylim((vmin, vmax))
+        ax.set_xlabel('$\Phi$ [deg]')
         ax.set_title(f"[BELLHOP - Source directivity [dB]] {self.env['name']}", va='bottom')
         plt.tight_layout()
         plt.show()
@@ -1160,6 +1166,42 @@ class BELLHOP:
 
         return fig, ax
     
+    def plot_arrivals_beam(self, ref_amp=1, **kwargs):
+        """
+        Produce the travel time ellipse with colorbar for amplitude
+        Input - 
+        self - contains all the arrival info
+        vals - optional
+            allows me to use a reference arrival set to calibrate the plot axes
+            vals[0] = times
+            vals[0] = amps
+        """
+        
+        fig, ax = plt.subplots(subplot_kw={'projection': 'polar'}) 
+        
+        amps       = self.arrivals['arrival_amplitude']
+        rec_angles = self.arrivals['angle_of_arrival'] 
+        #times      = self.arrivals['time_of_arrival']
+
+        if type(ref_amp) == type(None):
+            amps = amps / _np.max(abs(amps))
+        else:
+            amps /= abs(ref_amp)
+            
+        cvals = 10*_np.log10(abs(amps))
+ 
+        max_db_down  = 120
+        #cvals_normed = abs(amps) / max_db_down
+        strong_inds  = cvals > -max_db_down
+        ax.scatter(rec_angles[strong_inds]/360*2*_np.pi, cvals[strong_inds], marker='x', color='black', linewidths=1, alpha=0.75)
+        
+        ax.set_title(f"[BELLHOP - Arrivals beam [dB]] {self.env['name']}")
+        ax.set_xlabel('$\Phi$ [deg]')
+        ax.grid('all')
+        
+        return fig, ax
+
+
     def plot_rays(self, nRay=100, invert_colors=False, **kwargs):
         """
         Plot rays.
