@@ -68,7 +68,7 @@ loss_parameter    = 'loss-parameter'
 
 # Volume attenuation
 Thorp             = 'Thorp'
-Francois_Garrison = 'Francois Garrison'
+Francois_Garrison = 'Francois-Garrison'
 biological        = 'biological'
 
 # @todo remove it !
@@ -188,6 +188,10 @@ def make_env2d(**kv):
             'ssp'             : 1500,                        # m/s
             'ssp_interp'      : c_linear,                    # spline/linear/quadrilatteral/..
             'water_density'   : 1.03,                        # g/cm3, KRAKEN only    
+            'water_salinity'  : None,                        # Francois-Garrison attn only in ppt
+            'water_temp'      : None,                        # Francois-Garrison attn only in deg celsius
+            'water_pH'        : None,                        # Francois-Garrison attn only in pH
+            'water_zbar'      : None,                        # Francois-Garrison attn only in m
             
             'tx_freq'         : None,                        # Source frequency in Hz
             'tx_depth'        : None,                        # m
@@ -319,7 +323,7 @@ def check_env2d(env):
         # Tx beam
         if env['tx_beam'] is not None:
             assert _np.size(env['tx_beam']) > 1, 'Tx beam must be an Nx2 array.'
-            assert env['tx_beam'].ndim == 2, 'Tx beam must be an Nx2 array.'
+            assert _np.ndim(env['tx_beam']) == 2, 'Tx beam must be an Nx2 array.'
             assert env['tx_beam'].shape[1] == 2, 'Tx beam must be an Nx2 array.'
             assert _np.all(env['tx_beam'][:,0] >= -180) and _np.all(env['tx_beam'][:,0] <= 180), 'Tx beam angles must be in [-180, 180].'
             assert env['tx_minAngle'] >= -180 and env['tx_minAngle'] <= 180, 'Min tx angle must be in range [-180, 180].'
@@ -328,7 +332,7 @@ def check_env2d(env):
         # Top interface
         if env['top_interface'] is not None:
             assert _np.size(env['top_interface']) > 1, 'Top interface must be an Nx2 array.'
-            assert env['top_interface'].ndim == 2, 'Top interface must be a scalar or an Nx2 array.'
+            assert _np.ndim(env['top_interface']) == 2, 'Top interface must be an Nx2 array.'
             assert env['top_interface'].shape[1] == 2, 'Top interface must be a scalar or an Nx2 array.'
             assert _np.all(_np.diff(env['top_interface'][:,0]) > 0), 'Top interface array must be strictly monotonic in range.'
         else:
@@ -337,7 +341,7 @@ def check_env2d(env):
         # Bottom interface
         if env['top_interface'] is not None:
             assert _np.size(env['bot_interface']) > 1, 'Bottom interface must be an Nx2 array.'
-            assert env['bot_interface'].ndim == 2, 'Bottom interface must be a scalar or an Nx2 array.'
+            assert _np.ndim(env['bot_interface']) == 2, 'Bottom interface must be an Nx2 array.'
             assert env['bot_interface'].shape[1] == 2, 'Bottom interface must be a scalar or an Nx2 array.'
             assert _np.all(_np.diff(env['bot_interface'][:,0]) > 0), 'Bottom interface array must be strictly monotonic in range.'
         else:
@@ -401,6 +405,13 @@ def check_env2d(env):
             assert env['bot_radius1'] is not None, 'Twersky scatter bottom boundary condition selected but radius 1 not defined.'
             assert env['bot_radius2'] is not None, 'Twersky scatter bottom boundary condition selected but radius 2 not defined.'
 
+        # Francois-Garrison attenuation
+        if env['volume_attn'] == Francois_Garrison:
+            assert env['water_salinity'] is not None, 'Francois-Garrison volume attenuation selected but salinity not defined.'
+            assert env['water_temp'] is not None, 'Francois-Garrison volume attenuation selected but temperature not defined.'
+            assert env['water_pH'] is not None, 'Francois-Garrison volume attenuation selected but pH not defined.'
+            assert env['water_zbar'] is not None, 'Francois-Garrison volume attenuation selected but water settings depth not defined.'
+        
         return True
     
     except AssertionError as e:
@@ -515,20 +526,12 @@ class BELLHOP:
         # Numerical box definition
         self.rbox = 1.01*_np.max(_np.abs(env['rx_range']))
         self.zbox = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
-                
-        self.check_env()
-
-        return self.env
+             
+        check_env2d(self.env)
         
-    def check_env(self):
-        # @todo
-       
-        return True
+        return self.env
 
     def compute_transmission_loss(self, debug=False, **kwargs):
-        
-        # Assert environment
-        self.check_env
         
         # Define mode taskcode
         if self.env['mode'] == coherent:
@@ -574,8 +577,11 @@ class BELLHOP:
                 
         return self.transmission_loss
      
-    def flip_env(self):
+    def _flip_env(self): 
         
+        if self.env['tx_beam'] is not None:
+            # @todo     Flip the source beam
+            print("[WARNING] BELLHOP: Source flip not yet available, there will be errors if source beam is not symmetrical over z axis !")
         self.env['rx_range']           = -_np.flip( self.env['rx_range'])
         self.env['bot_interface'][:,0] = -_np.flip(self.env['bot_interface'][:,0])
         self.env['bot_interface'][:,1] =  _np.flip(self.env['bot_interface'][:,1])
@@ -586,15 +592,12 @@ class BELLHOP:
             self.env['ssp_range']          = -_np.flip(self.env['ssp_range'])
         
     def compute_arrivals(self, debug=False):
-        
-        # Assert environment
-        self.check_env()
-        
+                
         # Define mode taskcode
         taskcode = 'A'
         flip = False
         if self.env['rx_range'] < 0:
-            self.flip_env()
+            self._flip_env()
             flip = True
            
         # Generate temporary env file and get base name used for all temporary files
@@ -615,7 +618,7 @@ class BELLHOP:
         self._unlink_all(fname_base)    
         
         if flip:
-            self.flip_env()
+            self._flip_env()
             flip = False
         
         if self.env['rx_range'] > 0:
@@ -626,16 +629,13 @@ class BELLHOP:
         
 
     def compute_rays(self, debug=False):
-        
-        # Assert environment
-        self.check_env()
-        
+                
         # Define mode taskcode
         taskcode = 'R'
         
         flip = False
         if self.env['rx_range'] < 0:
-            self.flip_env()
+            self._flip_env()
             flip = True
               
         # Generate temporary env file and get base name used for all temporary files
@@ -656,23 +656,20 @@ class BELLHOP:
         self._unlink_all(fname_base)     
         
         if flip:
-            self.flip_env()
+            self._flip_env()
             flip = False
             
         return self.rays
     
     def compute_eigen_rays(self, debug=False):
-        
-        # Assert environment
-        self.check_env()
-        
+               
         # Define mode taskcode
         taskcode = 'E'
            
         flip = False
         
         if self.env['rx_range'] < 0:
-            self.flip_env()
+            self._flip_env()
             flip = True
            
             
@@ -694,7 +691,7 @@ class BELLHOP:
         self._unlink_all(fname_base)     
         
         if flip:
-            self.flip_env()
+            self._flip_env()
             flip = False
             
         return self.eigen_rays
@@ -825,10 +822,7 @@ class BELLHOP:
         elif self.env['volume_attn'] == Thorp:
             vAttn = 'T'
         elif self.env['volume_attn'] == Francois_Garrison:
-            #vAttn = 'F'
-            # @todo
-            print('[WARNING] BELLHOP: Francois Garrison attenuation formula not yet coded, using Thorp formula instead !')
-            vAttn = 'T'
+            vAttn = 'F'
         elif self.env['volume_attn'] == biological:
             #vAttn = 'B'
             # @todo
@@ -851,6 +845,8 @@ class BELLHOP:
 
         # Extra line (4a) or (4b)
         # @todo     Manage biological attenuation
+        if vAttn == 'F':
+            self._print(fh, "%0.6f %0.6f %0.6f %0.6f" %(self.env['water_temp'], self.env['water_salinity'], self.env['water_pH'], self.env['water_zbar']))
         if topBdry == 'A':
             self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (_np.max(self.env['bot_interface']), self.env['top_PwaveSpeed'], self.env['top_SwaveSpeed'], self.env['top_density'], self.env['top_PwaveAttn'], self.env['top_SwaveAttn']))
         
@@ -1763,21 +1759,14 @@ class KRAKEN:
         self.rbox = 1.01*_np.max(_np.abs(env['rx_range']))
         self.zbox = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
                 
-        self.check_env()
-
+        check_env2d(self.env)
+        
         return self.env
-    
-    def check_env(self):
-        # @todo
-        return True
     
     def compute_transmission_loss(self, debug=False, **kwargs):
         """
         Left and right propagation are done separatly in order to get exact rx range values.
         """
-        
-        # Assert environment
-        self.check_env()
         
         # Define mode taskcode
         taskcode = ''
@@ -1864,9 +1853,6 @@ class KRAKEN:
         return self.transmission_loss
 
     def compute_modes(self, debug=False, **kwargs):
-        
-        # Assert environment
-        self.check_env()
         
         # Define mode taskcode
         taskcode = ''
@@ -2780,7 +2766,9 @@ class RAM:
             self.env =  dict(env)
         else:
             self.env = env
-               
+        
+        check_env2d(self.env)
+        
         if hasattr(self, 'step') and self.step is not None and self.step > 0:
             step  = self.step
         else:
@@ -2920,52 +2908,11 @@ class RAM:
                            rs    = self.maxStabRange
                            )
         
+        return self.env
+    
     def set_step(self, step):
         self.step = step
         self.set_env(self.env)
-        
-    def check_env(self):
-        # Right propagation
-        iiMin = _np.where(self.env['rx_range'] >= 0)[0][0]
-        ratio = 1-iiMin/_np.size(self.env['rx_range'])
-        if self.env['mesh_computeBox'] == 'manual':
-            step  = self.step
-        else:
-            step = _np.mean(self.env['ssp'])/self.env['tx_freq']/8 # lambda/8
-        if _np.size(self.env['rx_range']) > 1:
-            ndr = _np.max((_np.round((self.env['rx_range'][1]-self.env['rx_range'][0])/(step)*ratio), 1))
-            dr = (self.env['rx_range'][1]-self.env['rx_range'][0])/ndr
-        else:
-            ndr = _np.max((_np.round((self.env['rx_range'])/(step)*ratio), 1))
-            dr = self.env['rx_range']/ndr
-        if _np.size(self.env['rx_depth']) > 1:
-            ndz = _np.max((_np.round((self.env['rx_depth'][1]-self.env['rx_depth'][0])/(step)), 1))
-            dz = (self.env['rx_depth'][1]-self.env['rx_depth'][0])/ndz
-        else:
-            ndz = _np.max((_np.round((self.env['rx_depth'])/(step)), 1))
-            dz = self.env['rx_depth']/ndz
-
-        
-        return self.pyramR.check_inputs(self.env['tx_freq'],
-                           self.env['tx_depth'],
-                           self.env['rx_depth'][-1],
-                           _np.array(self.env['ssp_depth']),
-                           _np.array(self.env['ssp_range']),
-                           _np.array(self.env['ssp']),
-                           _np.array(self.env['bot_depth']),
-                           _np.array(self.env['bot_range']),
-                           _np.array(self.env['bot_PwaveSpeed'],ndmin=2),
-                           _np.array(self.env['bot_density'],ndmin=2),
-                           _np.array(self.env['bot_PwaveAttn'],ndmin=2),
-                           _np.array(self.env['bot_interface'],ndmin=2),
-                           rmax  = ndr*dr*(_np.size(self.env['rx_range'])*ratio),
-                           dr    = dr,
-                           dz    = dz,
-                           ndr   = ndr,
-                           ndz   = ndz,
-                           zmplt = ndz*dz*_np.size(self.env['rx_depth'])
-                           )
-    
     
     def compute_transmission_loss(self, debug=False):
         """
