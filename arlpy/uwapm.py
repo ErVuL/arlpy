@@ -179,8 +179,8 @@ def make_env2d(**kv):
             'rx_depth'        : None,                        # m
             'rx_range'        : None,                        # m
             
-            'top_boundary'    : vacuum,                      # Toop boundary condition (rigid, vacuum, acoustico_elastic)
-            'top_interface'   : None,                        # surface profile
+            'top_boundary'    : vacuum,                      # Top boundary condition (rigid, vacuum, acoustico_elastic)
+            'top_interface'   : None,                        # [[range,depth], ..., [range, depth]] in m
             'top_roughness'   : 0,                           # m (rms)
             
             'ssp_range'       : 0,                           # m
@@ -191,19 +191,18 @@ def make_env2d(**kv):
             
             'tx_freq'         : None,                        # Source frequency in Hz
             'tx_depth'        : None,                        # m
-            'tx_beam'         : None,                        # [[deg, dB]...]
+            'tx_beam'         : None,                        # [[deg, dB], ..., [deg, dB]]
             'tx_nbeam'        : 0,                           # number of beams (0 = auto)
             'tx_minAngle'     : -180,                        # deg
             'tx_maxAngle'     : 180,                         # deg
             
             'bot_boundary'    : rigid,                       # Bottom boundary condition (rigid, vacuum, acoustico_elastic)
-            'bot_interface'   : None,                        # m
+            'bot_interface'   : None,                        # [[range,depth], ..., [range, depth]] in m
             'bot_roughness'   : 0,                           # m (rms) 
             'bot_range'       : 0,                           # m (bottom settings range for ssp, density and absorption)
             'bot_depth'       : 0,                           # m (bottom settings depth for ssp, density and absorption)            
 
-            # OALIB ONLY
-            ## Acouso-elastic boundary condition, bottom typical values for rock
+            ## Acouso-elastic boundary condition
             'attn_unit'       : dB_wavelength,               # Attenuation units 
             'top_density'     : None,                        # g/cm3 (RHOT)
             'top_PwaveSpeed'  : None,                        # m/s (CPT)
@@ -217,10 +216,13 @@ def make_env2d(**kv):
             'bot_SwaveAttn'   : None,                        # attn_unit (ASB)
         
             # KRAKEN ONLY
-            # Twersky scatter parameters for soft/hard-boss Twersky top boundary condition only (4c)
-            'twy_bumpDensity' : None,                        # ridges/km (BUMDEN)
-            'twy_radius1'     : None,                        # m (ETA)
-            'twy_radius2'     : None,                        # m (XI)
+            # Twersky scatter parameters for soft/hard-boss Twersky boundary condition only (4c)
+            'top_bumpDensity' : None,                        # ridges/km (BUMDEN)
+            'top_radius1'     : None,                        # m (ETA)
+            'top_radius2'     : None,                        # m (XI)
+            'bot_bumpDensity' : None,                        # ridges/km (BUMDEN)
+            'bot_radius1'     : None,                        # m (ETA)
+            'bot_radius2'     : None,                        # m (XI)
             'nmedia'          : 1,                           # Number of media except infinite top and bottom 
             'theory'          : adiabatic,                   # Coupling mode theory 
             'nmode'           : 999999999,                   # Number of modes to compute
@@ -235,7 +237,7 @@ def make_env2d(**kv):
     # Sediment matrix dimension assertion
     if env['bot_density'] is not None and env['bot_PwaveAttn'] is not None and env['bot_PwaveSpeed'] is not None and env['bot_SwaveAttn'] is not None and env['bot_SwaveSpeed'] is not None:
     
-        ## If only range dependant
+        ## If only range dependant => hstack
         if _np.size(env['bot_range']) > 1 and _np.size(env['bot_depth']) == 1:
             env['bot_density']    = _np.hstack(env['bot_density'])
             env['bot_PwaveAttn']  = _np.hstack(env['bot_PwaveAttn'])
@@ -243,7 +245,7 @@ def make_env2d(**kv):
             env['bot_SwaveAttn']  = _np.hstack(env['bot_SwaveAttn'])
             env['bot_SwaveSpeed'] = _np.hstack(env['bot_SwaveSpeed'])
             
-        ## If only depth dependant
+        ## If only depth dependant => vstack
         if _np.size(env['bot_depth']) > 1 and _np.size(env['bot_range']) == 1:
             env['bot_density']    = _np.vstack(env['bot_density'])
             env['bot_PwaveAttn']  = _np.vstack(env['bot_PwaveAttn'])
@@ -254,13 +256,13 @@ def make_env2d(**kv):
     # SSP matrix dimension assertion
     if env['ssp'] is not None:
         
-        ## If only range dependant
+        ## If only range dependant => hstack
         if _np.size(env['ssp_range']) > 1 and _np.size(env['ssp_depth']) == 1:
-            env['ssp'] = _np.vstack(env['ssp'])
-            
-        ## If only depth dependant
-        if _np.size(env['ssp_depth']) > 1 and _np.size(env['ssp_range']) == 1:
             env['ssp'] = _np.hstack(env['ssp'])
+            
+        ## If only depth dependant => vstack
+        if _np.size(env['ssp_depth']) > 1 and _np.size(env['ssp_range']) == 1:
+            env['ssp'] = _np.vstack(env['ssp'])
         
     # Bottom interface matrix dimension assertion
     if env['bot_interface'][0,0] is None or not _np.isfinite(env['bot_interface'][0,0]):
@@ -287,16 +289,16 @@ def make_env2d(**kv):
         env['bot_density'], _, _                                   = _adjust_3D(env['bot_density'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                
         env['bot_PwaveSpeed'], env['bot_range'], env['bot_depth']  = _adjust_3D(env['bot_PwaveSpeed'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)
 
-        # Get at least 2 ssp values at depth 0 and 1.001*zBox
+        # Get at least 2 ssp values at depth zSSPmin and 1.001*zBox
         if (_np.size(env['ssp_range']) == 1 and _np.size(env['ssp_depth']) == 1 and _np.size(env['ssp']) == 1):
             env['ssp']       = _np.vstack([env['ssp'], env['ssp']])
             env['ssp_depth'] = _np.array([zSSPmin, 1.001*zBox])
 
-    # @todo 
-    # env = check_env2d(env)
+    # Check env
+    check_env2d(env)
+    
     return env
 
-# @todo     Update assert for each model.
 def check_env2d(env):
     """Check the validity of a 2D underwater environment definition.
 
@@ -309,61 +311,101 @@ def check_env2d(env):
     >>> check_env2d(env)
     """
     try:
-        assert env['model'] is not None, 'model is not defined'
-        assert env['type'] == '2D', 'Not a 2D environment'
-        max_range = _np.max(env['rx_range'])
-        if env['top_interface'] is not None:
-            assert _np.size(env['top_interface']) > 1, 'surface must be an Nx2 array'
-            assert env['top_interface'].ndim == 2, 'surface must be a scalar or an Nx2 array'
-            assert env['top_interface'].shape[1] == 2, 'surface must be a scalar or an Nx2 array'
-            assert env['top_interface'][0,0] <= 0, 'First range in surface array must be 0 m'
-            assert env['top_interface'][-1,0] >= max_range, 'Last range in surface array must be beyond maximum range: '+str(max_range)+' m'
-            assert _np.all(_np.diff(env['top_interface'][:,0]) > 0), 'surface array must be strictly monotonic in range'
-            # assert env['surface_interp'] == curvilinear or env['surface_interp'] == linear, 'Invalid interpolation type: '+str(env['surface_interp'])
-        if _np.size(env['bot_interface']) > 1:
-            assert env['bot_interface'].ndim == 2, 'depth must be a scalar or an Nx2 array'
-            assert env['bot_interface'].shape[1] == 2, 'depth must be a scalar or an Nx2 array'
-            assert env['bot_interface'][0,0] <= 0, 'First range in depth array must be 0 m'
-            assert env['bot_interface'][-1,0] >= max_range, 'Last range in depth array must be beyond maximum range: '+str(max_range)+' m'
-            assert _np.all(_np.diff(env['bot_interface'][:,0]) > 0), 'Depth array must be strictly monotonic in range'
-            assert env['depth_interp'] == curvilinear or env['depth_interp'] == linear, 'Invalid interpolation type: '+str(env['depth_interp'])
-            max_depth = _np.max(env['bot_interface'][:,1])
-        else:
-            max_depth = env['bot_interface']
-        if isinstance(env['ssp'], _pd.DataFrame):
-            assert env['ssp'].shape[0] > 3, 'soundspeed profile must have at least 4 points'
-            assert env['ssp_depth'][0] <= 0, 'First depth in soundspeed array must be 0 m'
-            assert env['ssp_depth'][-1] >= max_depth, 'Last depth in soundspeed array must be beyond water depth: '+str(max_depth)+' m'
-            assert _np.all(_np.diff(env['ssp'].index) > 0), 'Soundspeed array must be strictly monotonic in depth'
-        elif _np.size(env['ssp']) > 1:
-            #assert env['ssp'].ndim == 2, 'soundspeed must be a scalar or an Nx2 array'
-            #assert env['ssp'].shape[1] == 2, 'soundspeed must be a scalar or an Nx2 array'
-            assert env['ssp'].shape[0] > 3, 'soundspeed profile must have at least 4 points'
-            assert env['ssp_depth'][0] <= 0, 'First depth in soundspeed array must be 0 m'
-            assert env['ssp_depth'][-1] >= max_depth, 'Last depth in soundspeed array must be beyond water depth: '+str(max_depth)+' m'
-            assert _np.all(_np.diff(env['ssp_depth']) > 0), 'Soundspeed array must be strictly monotonic in depth'
-            #assert env['ssp_interp'] == spline or env['ssp_interp'] == linear, 'Invalid interpolation type: '+str(env['ssp_interp'])
-            if not(max_depth in env['ssp_depth']):
-                indlarger = _np.argwhere(env['ssp'][:,0]>max_depth)[0][0]
-                if env['ssp_interp'] == spline:
-                    tck = _interp.splrep(env['ssp'][:,0], env['ssp'][:,1], s=0)
-                    insert_ss_val = _interp.splev(max_depth, tck, der=0)
-                else:
-                    insert_ss_val = _np.interp(max_depth, env['ssp'][:,0], env['ssp'][:,1])
-                env['ssp'] = _np.insert(env['ssp'],indlarger,[max_depth,insert_ss_val],axis = 0)
-                env['ssp'] = env['ssp'][:indlarger+1,:]
-        assert _np.max(env['tx_depth']) <= max_depth, 'tx_depth cannot exceed water depth: '+str(max_depth)+' m'
-        assert _np.max(env['rx_depth']) <= max_depth, 'rx_depth cannot exceed water depth: '+str(max_depth)+' m'
-        assert env['tx_minAngle'] > -90 and env['tx_minAngle'] < 90, 'min_angle must be in range (-90, 90)'
-        assert env['tx_maxAngle'] > -90 and env['tx_maxAngle'] < 90, 'max_angle must be in range (-90, 90)'
+        
+        # Tx freq
+        assert env['tx_freq'] is not None, 'Source frequency not defined !'
+        assert env['tx_freq'] > 0, 'Source frequency <= 0 !'
+        
+        # Tx beam
         if env['tx_beam'] is not None:
-            assert _np.size(env['tx_beam']) > 1, 'tx_directionality must be an Nx2 array'
-            assert env['tx_beam'].ndim == 2, 'tx_directionality must be an Nx2 array'
-            assert env['tx_beam'].shape[1] == 2, 'tx_directionality must be an Nx2 array'
-            assert _np.all(env['tx_beam'][:,0] >= -180) and _np.all(env['tx_beam'][:,0] <= 180), 'tx_directionality angles must be in [-90, 90]'
-        return env
+            assert _np.size(env['tx_beam']) > 1, 'Tx beam must be an Nx2 array.'
+            assert env['tx_beam'].ndim == 2, 'Tx beam must be an Nx2 array.'
+            assert env['tx_beam'].shape[1] == 2, 'Tx beam must be an Nx2 array.'
+            assert _np.all(env['tx_beam'][:,0] >= -180) and _np.all(env['tx_beam'][:,0] <= 180), 'Tx beam angles must be in [-180, 180].'
+            assert env['tx_minAngle'] >= -180 and env['tx_minAngle'] <= 180, 'Min tx angle must be in range [-180, 180].'
+            assert env['tx_maxAngle'] >= -180 and env['tx_maxAngle'] <= 180, 'Max tx angle must be in range [-180, 180].'
+        
+        # Top interface
+        if env['top_interface'] is not None:
+            assert _np.size(env['top_interface']) > 1, 'Top interface must be an Nx2 array.'
+            assert env['top_interface'].ndim == 2, 'Top interface must be a scalar or an Nx2 array.'
+            assert env['top_interface'].shape[1] == 2, 'Top interface must be a scalar or an Nx2 array.'
+            assert _np.all(_np.diff(env['top_interface'][:,0]) > 0), 'Top interface array must be strictly monotonic in range.'
+        else:
+            assert False, ('Top interface not defined.')
+         
+        # Bottom interface
+        if env['top_interface'] is not None:
+            assert _np.size(env['bot_interface']) > 1, 'Bottom interface must be an Nx2 array.'
+            assert env['bot_interface'].ndim == 2, 'Bottom interface must be a scalar or an Nx2 array.'
+            assert env['bot_interface'].shape[1] == 2, 'Bottom interface must be a scalar or an Nx2 array.'
+            assert _np.all(_np.diff(env['bot_interface'][:,0]) > 0), 'Bottom interface array must be strictly monotonic in range.'
+        else:
+            assert False, ('Bottom interface not defined.')
+            
+        # SSP
+        assert _np.size(env['ssp']) == _np.size(env['ssp_range'])*_np.size(env['ssp_depth']), 'SSP dimensions are not consistent.' 
+        if _np.size(env['ssp_range']) > 1:
+            assert _np.all(_np.diff(env['ssp_range']) > 0), 'SSP range array must be strictly monotonic.'
+        if _np.size(env['ssp_depth']) > 1:
+            assert _np.all(_np.diff(env['ssp_depth']) > 0), 'SSP depth array must be strictly monotonic.'
+            
+        # SSP interp
+        if env['ssp_interp'] == quadrilatteral or _np.size(env['ssp_range']) > 1:
+            if env['ssp_interp'] != quadrilatteral:
+                print('[WARNING] BELLHOP: Require quadrilatteral SSP interpolation for range depedant SSP !')
+            if _np.ndim(env['ssp']) != 2:
+                print('[WARNING] BELLHOP: Quadrilatteral SSP selected but no range dependant SSP !')
+                
+        # Bottom settings
+        assert _np.size(env['bot_PwaveAttn']) == _np.size(env['bot_range'])*_np.size(env['bot_depth']), 'Bottom P-wave attenuation dimensions are not consistent.' 
+        assert _np.size(env['bot_PwaveSpeed']) == _np.size(env['bot_range'])*_np.size(env['bot_depth']), 'Bottom P-wave speed dimensions are not consistent.' 
+        assert _np.size(env['bot_density']) == _np.size(env['bot_range'])*_np.size(env['bot_depth']), 'Bottom density dimensions are not consistent.' 
+        if _np.size(env['bot_range']) > 1:
+            assert _np.all(_np.diff(env['bot_range']) > 0), 'Bottom settings range array must be strictly monotonic.'
+        if _np.size(env['bot_depth']) > 1:
+            assert _np.all(_np.diff(env['bot_depth']) > 0), 'Bottom settings depth array must be strictly monotonic.'
+    
+        # Tx/Rx depth and range
+        assert _np.max(env['tx_depth']) > 0, 'Source located above 0.'
+        assert _np.max(env['rx_depth']) > 0, 'Receiver located above 0.'
+        idx = _np.argmin(_np.abs(env['bot_interface'][:,0]))
+        assert _np.min(env['tx_depth']) < env['bot_interface'][idx,1], 'Source located under bottom interface.'
+        assert _np.min(env['rx_depth']) < _np.max(_np.abs(env['bot_interface'][:,1])), 'Receiver located under maximum water depth.'
+        if _np.size(env['rx_range']) > 1:
+            assert _np.all(_np.diff(env['rx_range']) > 0), 'Rx range array must be strictly monotonic.'
+        if _np.size(env['rx_depth']) > 1:
+            assert _np.all(_np.diff(env['rx_depth']) > 0), 'Rx depth array must be strictly monotonic.'
+            
+        # Acousto-elastic boundary condition
+        if env['top_boundary'] == acousto_elastic:
+            assert env['top_density'] is not None, 'Acousto-elastic top boundary condition selected but top density not defined.'
+            assert env['top_PwaveSpeed'] is not None, 'Acousto-elastic top boundary condition selected but top P-wave speed not defined.'
+            assert env['top_SwaveSpeed'] is not None, 'Acousto-elastic top boundary condition selected but top S-wave speed not defined.'
+            assert env['top_PwaveAttn'] is not None, 'Acousto-elastic top boundary condition selected but top P-wave attn not defined.'
+            assert env['top_SwaveAttn'] is not None, 'Acousto-elastic top boundary condition selected but top S-wave attn not defined.'
+        if env['bot_boundary'] == acousto_elastic:
+            assert env['bot_density'] is not None, 'Acousto-elastic bottom boundary condition selected but bottom density not defined.'
+            assert env['bot_PwaveSpeed'] is not None, 'Acousto-elastic bottom boundary condition selected but bottom P-wave speed not defined.'
+            assert env['bot_SwaveSpeed'] is not None, 'Acousto-elastic bottom boundary condition selected but bottom S-wave speed not defined.'
+            assert env['bot_PwaveAttn'] is not None, 'Acousto-elastic bottom boundary condition selected but bottom P-wave attn not defined.'
+            assert env['bot_SwaveAttn'] is not None, 'Acousto-elastic bottom boundary condition selected but bottom S-wave attn not defined.'
+
+        # Twersky scatter boundary condition 
+        if env['top_boundary'] == soft_boss or env['top_boundary'] == soft_boss_amp or env['top_boundary'] == hard_boss or env['top_boundary'] == hard_boss_amp:
+            assert env['top_bumpDensity'] is not None, 'Twersky scatter top boundary condition selected but bump density not defined.'
+            assert env['top_radius1'] is not None, 'Twersky scatter top boundary condition selected but radius 1 not defined.'
+            assert env['top_radius2'] is not None, 'Twersky scatter top boundary condition selected but radius 2 not defined.'
+        if env['bot_boundary'] == soft_boss or env['bot_boundary'] == soft_boss_amp or env['bot_boundary'] == hard_boss or env['bot_boundary'] == hard_boss_amp:
+            assert env['bot_bumpDensity'] is not None, 'Twersky scatter bottom boundary condition selected but bump density not defined.'
+            assert env['bot_radius1'] is not None, 'Twersky scatter bottom boundary condition selected but radius 1 not defined.'
+            assert env['bot_radius2'] is not None, 'Twersky scatter bottom boundary condition selected but radius 2 not defined.'
+
+        return True
+    
     except AssertionError as e:
-        raise ValueError(e.args)
+        raise ValueError(e)
+        return False
 
 def print_env(env):
     """
@@ -520,7 +562,7 @@ class BELLHOP:
             if d >= _np.min(self.env['top_interface'][:,1]):
                 break
             else:
-                self.transmission_loss[ii, :] = _np.nan
+                self.transmission_loss[ii, :] = -_np.inf
         
         # Remove artifact at range 0 if exist
         if _np.any(self.env['rx_range'] == 0):
@@ -664,20 +706,6 @@ class BELLHOP:
         self.impulse_response_fs = fs
         return self.impulse_response
         
-        
-    def supports(self, env=None, task=None):
-        if env is not None and env['type'] != '2D':
-            return False
-        fh, fname = _mkstemp(suffix='.env')
-        _os.close(fh)
-        fname_base = fname[:-4]
-        self._unlink(fname_base+'.env')
-        rv = self._bellhop(fname_base)
-        self._unlink(fname_base+'.prt')
-        self._unlink(fname_base+'.log')
-        return rv
-
-
     def _bellhop(self, *args):
         try:
             _proc.run(f'bellhop.exe {" ".join(list(args))}', 
@@ -968,6 +996,7 @@ class BELLHOP:
 
         # Move radial labels away from the plotted line
         ax.set_rlabel_position(-22.5)
+
         ax.grid(True)
         ax.set_ylim((vmin, vmax))
         ax.set_xlabel('$\Phi$ [deg]')
@@ -1743,6 +1772,9 @@ class KRAKEN:
         return True
     
     def compute_transmission_loss(self, debug=False, **kwargs):
+        """
+        Left and right propagation are done separatly in order to get exact rx range values.
+        """
         
         # Assert environment
         self.check_env()
@@ -2088,7 +2120,7 @@ class KRAKEN:
         if topBdry == 'A':
             self._print(fh, "%0.6f %0.6f %0.6f %0.6f %0.6f %0.6f" % (_np.max(self.env['bot_interface']), self.env['top_PwaveSpeed'], self.env['top_SwaveSpeed'], self.env['top_density'], self.env['top_PwaveAttn'], self.env['top_SwaveAttn']))
         elif topBdry == 'F' or topBdry == 'I':
-            self._print(fh, "%0.6f %0.6f %0.6f" % (self.env['twy_bumpDensity'], self.env['twy_radius1'], self.env['twy_radius2']))
+            self._print(fh, "%0.6f %0.6f %0.6f" % (self.env['bot_bumpDensity'], self.env['bot_radius1'], self.env['bot_radius2']))
         
         # Medium info (5)
         # @todo     Manage manual NMESH
@@ -2183,31 +2215,31 @@ class KRAKEN:
         # Bottom halfspace extra lines (6a) (6b)
         # @todo     Add Grain size 
         if  _np.size(self.env['bot_PwaveSpeed']) > 1:
-            print("[INFO] KRAKEN: Do not support multiple Pwave speed definition, using median value instead.")
+            print("[WARNING] KRAKEN: Do not support multiple Pwave speed definition, using median value instead !")
             bot_PwaveSpeed = _np.median(self.env['bot_PwaveSpeed'])
         else:
             bot_PwaveSpeed = self.env['bot_PwaveSpeed']
         
         if  _np.size(self.env['bot_SwaveSpeed']) > 1:
-            print("[INFO] KRAKEN: Do not support multiple Swave speed definition, using median value instead.")
+            print("[WARNING] KRAKEN: Do not support multiple Swave speed definition, using median value instead !")
             bot_SwaveSpeed = _np.median(self.env['bot_SwaveSpeed'])
         else:
             bot_SwaveSpeed = self.env['bot_SwaveSpeed']
             
         if  _np.size(self.env['bot_density']) > 1:
-            print("[INFO] KRAKEN: Do not support multiple bottom density definition, using median value instead.")
+            print("[WARNING] KRAKEN: Do not support multiple bottom density definition, using median value instead !")
             bot_density = _np.median(self.env['bot_density'])
         else:
             bot_density = self.env['bot_density']    
             
         if  _np.size(self.env['bot_PwaveAttn']) > 1:
-            print("[INFO] KRAKEN: Do not support multiple Pwave attn definition, using median value instead.")
+            print("[WARNING] KRAKEN: Do not support multiple Pwave attn definition, using median value instead !")
             bot_PwaveAttn = _np.median(self.env['bot_PwaveAttn'])
         else:
             bot_PwaveAttn = self.env['bot_PwaveAttn']   
             
         if  _np.size(self.env['bot_SwaveAttn']) > 1:
-            print("[INFO] KRAKEN: Do not support multiple Swave speed definition, using median value instead.")
+            print("[WARNING] KRAKEN: Do not support multiple Swave speed definition, using median value instead !")
             bot_SwaveAttn = _np.median(self.env['bot_SwaveAttn'])
         else:
             bot_SwaveAttn = self.env['bot_SwaveAttn']     
@@ -2990,11 +3022,11 @@ class RAM:
             tlg = _np.vstack((tlg[0,:],tlg))
             cpg = _np.vstack((cpg[0,:],cpg))
         num_columns = tlg.shape[1]
-        nan_array = _np.empty((1, num_columns))
-        nan_array[:] = _np.nan        
+        inf_array = _np.empty((1, num_columns))
+        inf_array[:] = -_np.inf       
         while _np.size(tlg[:,0]) < _np.size(self.env['rx_depth']):
-            tlg = _np.vstack((nan_array,tlg))
-            cpg = _np.vstack((nan_array,cpg))
+            tlg = _np.vstack((inf_array,tlg))
+            cpg = _np.vstack((inf_array,cpg))
                 
         # Compute transmission loss and complex pressure
         self.transmission_loss = 10**(-tlg/20)
@@ -3058,16 +3090,16 @@ class RAM:
         else:
             print("[ERROR] RAM: No results found !")
          
-        # Handle cases where the result matrix depth is smaller than x grid (values over 0)   
+        # Handle cases where the result matrix depth is smaller than expected   
         if _np.size(tlg[:,0]) < _np.size(self.env['rx_depth']):
             tlg = _np.vstack((tlg[0,:],tlg))
             cpg = _np.vstack((cpg[0,:],cpg))
         num_columns = tlg.shape[1]
-        nan_array = _np.empty((1, num_columns))
-        nan_array[:] = _np.nan        
+        inf_array = _np.empty((1, num_columns))
+        inf_array[:] = -_np.inf       
         while _np.size(tlg[:,0]) < _np.size(self.env['rx_depth']):
-            tlg = _np.vstack((nan_array,tlg))
-            cpg = _np.vstack((nan_array,cpg))
+            tlg = _np.vstack((inf_array,tlg))
+            cpg = _np.vstack((inf_array,cpg))
                 
         # Compute transmission loss and complex pressure
         self.transmission_loss = 10**(-tlg/20)
