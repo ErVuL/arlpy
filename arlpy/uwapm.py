@@ -171,10 +171,10 @@ def make_env2d(**kv):
     env = {
             'name'            : '',                          # Title
             'dimension'       : '2D',                        # 2D only
-            'pad_inputData'   : True,                        # pad input data to the border of the calculation range
+            'pad_inputData'   : True,                        # Automatic pad of input data 
 
-            'mode'            : coherent,                    # Propagation loss mode
-            'volume_attn'     : None,                        # Added volume attenuation
+            'mode'            : coherent,                    # Propagation loss mode, BELLHOP (coherent, semicoherent, incoherent)
+            'volume_attn'     : None,                        # Added volume attenuation, BELLHOP (None, Thorp, Francois_Garrison)
             
             'rx_depth'        : None,                        # m
             'rx_range'        : None,                        # m
@@ -186,7 +186,7 @@ def make_env2d(**kv):
             'ssp_range'       : 0,                           # m
             'ssp_depth'       : 0,                           # m
             'ssp'             : 1500,                        # m/s
-            'ssp_interp'      : c_linear,                    # spline/linear/quadrilatteral/..
+            'ssp_interp'      : c_linear,                    # (spline, linear, quadrilatteral)
             'water_density'   : 1.03,                        # g/cm3, KRAKEN only    
             'water_salinity'  : None,                        # Francois-Garrison attn only in ppt
             'water_temp'      : None,                        # Francois-Garrison attn only in deg celsius
@@ -227,8 +227,8 @@ def make_env2d(**kv):
             'bot_bumpDensity' : None,                        # ridges/km (BUMDEN)
             'bot_radius1'     : None,                        # m (ETA)
             'bot_radius2'     : None,                        # m (XI)
-            'nmedia'          : 1,                           # Number of media except infinite top and bottom 
-            'theory'          : adiabatic,                   # Coupling mode theory 
+            'nmedia'          : 1,                           # Number of media except infinite top and bottom (1 for BELLHOP, n for KRAKEN)
+            'theory'          : adiabatic,                   # Coupling mode theory, KRAKEN
             'nmode'           : 999999999,                   # Number of modes to compute
                     
             }
@@ -272,7 +272,7 @@ def make_env2d(**kv):
     if env['bot_interface'][0,0] is None or not _np.isfinite(env['bot_interface'][0,0]):
         env['bot_interface'][0,0] = 0
 
-    # Adjust environment border by padding input data if required for OALIB and RAM
+    # Adjust environment border and overlap by padding input data if required for OALIB and RAM
     if env['pad_inputData'] == True:
         
         # Rx beam limits
@@ -281,16 +281,20 @@ def make_env2d(**kv):
             if env['tx_beam'][-1,0] == 180 and env['tx_beam'][0,0] == -180:
                 env['tx_beam'][-1,0] = 179.999999999999
                 env['tx_beam'][0,0]  = -179.999999999999
+                env['tx_minAngle']   = -180
+                env['tx_maxAngle']   = 180
             elif env['tx_beam'][-1,0] > 180 or env['tx_beam'][0,0] < -180:
-                print("[ERROR] Tx beam limit exceeds 180 deg !")
+                print("[WARNING] Tx beam limits exceed 180 deg !")
             else:
-                env['tx_beam'] = _adjust_2D(env['tx_beam'], -179.999999999999, 179.999999999999)
+                env['tx_beam']     = _adjust_2D(env['tx_beam'], -179.999999999999, 179.999999999999)
+                env['tx_minAngle'] = -180
+                env['tx_maxAngle'] = 180
         
         # Define OALIB numerical box
         rBox = 1.01*_np.max(_np.abs(env['rx_range']))
         zBox = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
         
-        # Ensure top interface is initalize and sized
+        # Ensure top interface is correctly sized
         if env['top_interface'] is not None:
             env['top_interface'] = _adjust_2D(env['top_interface'], -1.001*rBox, 1.001*rBox)
         else:
@@ -422,6 +426,13 @@ def check_env2d(env):
             assert env['water_temp'] is not None, 'Francois-Garrison volume attenuation selected but temperature not defined.'
             assert env['water_pH'] is not None, 'Francois-Garrison volume attenuation selected but pH not defined.'
             assert env['water_zbar'] is not None, 'Francois-Garrison volume attenuation selected but water settings depth not defined.'
+        
+        # Tx beam
+        if env['tx_beam'] is not None:
+            assert _np.size(env['tx_beam']) >= 2, "Tx beam size is not 2xN."
+            assert _np.size(env['tx_beam'])%2 == 0, "Tx beam size is not consistent, tx beam must be 2xN."
+            if env['tx_beam'][0,0] > -175 or env['tx_beam'][-1,0] < 175:
+                print("[WARNING] BELLHOP: Tx beam definition far from +- 180 deg !")
         
         return True
     
