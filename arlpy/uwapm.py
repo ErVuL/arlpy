@@ -275,6 +275,17 @@ def make_env2d(**kv):
     # Adjust environment border by padding input data if required for OALIB and RAM
     if env['pad_inputData'] == True:
         
+        # Rx beam limits
+        if env['tx_beam'] is not None and _np.size(env['tx_beam']) > 2:
+            # Manage redondant values or pad to +-180 deg
+            if env['tx_beam'][-1,0] == 180 and env['tx_beam'][0,0] == -180:
+                env['tx_beam'][-1,0] = 179.999999999999
+                env['tx_beam'][0,0]  = -179.999999999999
+            elif env['tx_beam'][-1,0] > 180 or env['tx_beam'][0,0] < -180:
+                print("[ERROR] Tx beam limit exceeds 180 deg !")
+            else:
+                env['tx_beam'] = _adjust_2D(env['tx_beam'], -179.999999999999, 179.999999999999)
+        
         # Define OALIB numerical box
         rBox = 1.01*_np.max(_np.abs(env['rx_range']))
         zBox = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
@@ -579,9 +590,20 @@ class BELLHOP:
      
     def _flip_env(self): 
         
-        if self.env['tx_beam'] is not None:
-            # @todo     Flip the source beam
-            print("[WARNING] BELLHOP: Source flip not yet available, there will be errors if source beam is not symmetrical over z axis !")
+        if self.env['tx_beam'] is not None and _np.size(self.env['tx_beam']) > 2:
+                             
+            # Flip the beam
+            self.env['tx_beam']      = _np.flipud(self.env['tx_beam'])
+            self.env['tx_beam'][:,0] = -self.env['tx_beam'][:,0]+180
+            
+            # Wrap angle above 180 deg
+            for ii,val in enumerate(self.env['tx_beam'][:,0]):
+                if val > 180:
+                    self.env['tx_beam'][ii,0] = -(360-val)
+
+            # Sort the values by increasing angle
+            self.env['tx_beam'] = self.env['tx_beam'][self.env['tx_beam'][:, 0].argsort()]
+               
         self.env['rx_range']           = -_np.flip( self.env['rx_range'])
         self.env['bot_interface'][:,0] = -_np.flip(self.env['bot_interface'][:,0])
         self.env['bot_interface'][:,1] =  _np.flip(self.env['bot_interface'][:,1])
