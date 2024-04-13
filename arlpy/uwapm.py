@@ -267,10 +267,25 @@ def make_env2d(**kv):
         ## If only depth dependant => vstack
         if _np.size(env['ssp_depth']) > 1 and _np.size(env['ssp_range']) == 1:
             env['ssp'] = _np.vstack(env['ssp'])
+    
+    # Ensure some None are replaced by zero
+    if env['ssp_depth'] is None:
+        env['ssp_depth'] = 0
+    if env['ssp_range'] is None:
+        env['ssp_range'] = 0 
+    if env['bot_depth'] is None:
+        env['bot_depth'] = 0
+    if env['bot_range'] is None:
+        env['bot_range'] = 0 
+    if env['bot_roughness'] is None:
+        env['bot_roughness'] = 0  
+    if env['bot_SwaveSpeed'] is None:
+        env['bot_SwaveSpeed'] = 0      
         
     # Bottom interface matrix dimension assertion
-    if env['bot_interface'][0,0] is None or not _np.isfinite(env['bot_interface'][0,0]):
-        env['bot_interface'][0,0] = 0
+    if _np.size(env['bot_interface']) > 1:
+        if env['bot_interface'][0,0] is None or not _np.isfinite(env['bot_interface'][0,0]):
+            env['bot_interface'][0,0] = 0
 
     # Adjust environment border and overlap by padding input data if required for OALIB and RAM
     if env['pad_inputData'] == True:
@@ -301,12 +316,12 @@ def make_env2d(**kv):
             env['top_interface'] = _np.array((0,0), ndmin=2)
  
         # Ensure settings overlap and size
-        zSSPmin                                                    = _np.min(env['top_interface'][:,1])-zBox/100
-        env['bot_interface']                                       = _adjust_2D(env['bot_interface'], -1.001*rBox, 1.001*rBox)
-        env['ssp'], env['ssp_range'], env['ssp_depth']             = _adjust_3D(env['ssp'], env['ssp_range'], env['ssp_depth'], -1.001*rBox, 1.001*rBox, zSSPmin,1.001*zBox)                                                               
-        env['bot_PwaveAttn'], _, _                                 = _adjust_3D(env['bot_PwaveAttn'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                 
-        env['bot_density'], _, _                                   = _adjust_3D(env['bot_density'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                
-        env['bot_PwaveSpeed'], env['bot_range'], env['bot_depth']  = _adjust_3D(env['bot_PwaveSpeed'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)
+        zSSPmin                                                   = _np.min(env['top_interface'][:,1])-zBox/100
+        env['bot_interface']                                      = _adjust_2D(env['bot_interface'], -1.001*rBox, 1.001*rBox)
+        env['ssp'], env['ssp_range'], env['ssp_depth']            = _adjust_3D(env['ssp'], env['ssp_range'], env['ssp_depth'], -1.001*rBox, 1.001*rBox, zSSPmin,1.001*zBox)                                                               
+        env['bot_PwaveAttn'], _, _                                = _adjust_3D(env['bot_PwaveAttn'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                 
+        env['bot_density'], _, _                                  = _adjust_3D(env['bot_density'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)                                                                
+        env['bot_PwaveSpeed'], env['bot_range'], env['bot_depth'] = _adjust_3D(env['bot_PwaveSpeed'], env['bot_range'], env['bot_depth'], -1.001*rBox, 1.001*rBox, -1.001*_np.min(_np.abs(env['bot_interface'][:,1])), 1.001*zBox)
 
         # Get at least 2 ssp values at depth zSSPmin and 1.001*zBox
         if (_np.size(env['ssp_range']) == 1 and _np.size(env['ssp_depth']) == 1 and _np.size(env['ssp']) == 1):
@@ -343,6 +358,8 @@ def check_env2d(env):
             assert _np.all(env['tx_beam'][:,0] >= -180) and _np.all(env['tx_beam'][:,0] <= 180), 'Tx beam angles must be in [-180, 180].'
             assert env['tx_minAngle'] >= -180 and env['tx_minAngle'] <= 180, 'Min tx angle must be in range [-180, 180].'
             assert env['tx_maxAngle'] >= -180 and env['tx_maxAngle'] <= 180, 'Max tx angle must be in range [-180, 180].'
+            if env['tx_beam'][0,0] > -175 or env['tx_beam'][-1,0] < 175:
+                print("[WARNING] BELLHOP: Tx beam definition far from +- 180 deg !")
         
         # Top interface
         if env['top_interface'] is not None:
@@ -426,13 +443,6 @@ def check_env2d(env):
             assert env['water_temp'] is not None, 'Francois-Garrison volume attenuation selected but temperature not defined.'
             assert env['water_pH'] is not None, 'Francois-Garrison volume attenuation selected but pH not defined.'
             assert env['water_zbar'] is not None, 'Francois-Garrison volume attenuation selected but water settings depth not defined.'
-        
-        # Tx beam
-        if env['tx_beam'] is not None:
-            assert _np.size(env['tx_beam']) >= 2, "Tx beam size is not 2xN."
-            assert _np.size(env['tx_beam'])%2 == 0, "Tx beam size is not consistent, tx beam must be 2xN."
-            if env['tx_beam'][0,0] > -175 or env['tx_beam'][-1,0] < 175:
-                print("[WARNING] BELLHOP: Tx beam definition far from +- 180 deg !")
         
         return True
     
@@ -548,9 +558,7 @@ class BELLHOP:
         # Numerical box definition
         self.rbox = 1.01*_np.max(_np.abs(env['rx_range']))
         self.zbox = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
-             
-        check_env2d(self.env)
-        
+                     
         return self.env
 
     def compute_transmission_loss(self, debug=False, **kwargs):
@@ -564,7 +572,12 @@ class BELLHOP:
             taskcode = 'S'
         else:
             raise Exception("[ERROR] BELLHOP: Mode not known !")
-           
+          
+        flip = False
+        if _np.max(self.env['rx_range']) <= 0:
+            self._flip_env()
+            flip = True
+                
         # Generate temporary env file and get base name used for all temporary files
         fname_base = self._create_env_file(taskcode, debug=debug)
         
@@ -578,6 +591,11 @@ class BELLHOP:
                     self.transmission_loss = _np.array(self._load_shd(fname_base))
                 except FileNotFoundError:
                     raise FileNotFoundError('BELLHOP: Fortran execution did not generate expected output file !')
+        
+        if flip:
+            self._flip_env()
+            self.transmission_loss = _np.fliplr(self.transmission_loss)
+            flip = False
         
         # Delete temporary generated files
         self._unlink_all(fname_base)     
@@ -863,7 +881,7 @@ class BELLHOP:
             vAttn = 'T'
         
         # Option (5:5) Altimetry option
-        if self.env['top_interface'] is None:
+        if self.env['top_interface'] is None or _np.size(self.env['top_interface']) < 2:
             alt = '_'
         else:
             alt = '*'
@@ -921,7 +939,7 @@ class BELLHOP:
             botBdry = 'R'
         
         # Bottom options string
-        if _np.ndim(self.env['bot_interface']) == 2:
+        if _np.size(self.env['bot_interface']) >= 2:
             self._print(fh, "'%c*' %0.6f" % (botBdry, self.env['bot_roughness']))
             if ((self.env['bot_interface'][-1,0]-self.env['bot_interface'][0,0])/self.env['bot_interface'][:,0].size) < (_np.mean(self.env['ssp'])/self.env['tx_freq']*10) :
                 self._create_bty_ati_file(fname_base+'.bty', self.env['bot_interface'], curvilinear, debug=debug)
@@ -1119,7 +1137,11 @@ class BELLHOP:
             
             Zb = kwargs.get('vmax', _np.max(self.env['ssp']) * 4) 
             
-            Xg = _np.linspace(self.env['rx_range'][0], self.env['rx_range'][-1], Nxy)
+            if _np.size(self.env['rx_range']) > 1:
+                Xg = _np.linspace(self.env['rx_range'][0], self.env['rx_range'][-1], Nxy)
+            else:
+                Xg = _np.linspace(self.env['ssp_range'][0], self.env['ssp_range'][-1], Nxy)
+                
             Yg = _np.linspace(0, Y[-1], Nxy)
             Zg = _np.zeros([len(Yg), len(Xg)])
             
@@ -1791,9 +1813,7 @@ class KRAKEN:
         # Numerical box definition
         self.rbox = 1.01*_np.max(_np.abs(env['rx_range']))
         self.zbox = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
-                
-        check_env2d(self.env)
-        
+                        
         return self.env
     
     def compute_transmission_loss(self, debug=False, **kwargs):
@@ -2194,7 +2214,7 @@ class KRAKEN:
             for j in range(self.env['ssp_depth'].size):
                 if firstLine:
                     firstLine = False
-                    self._print(fh, "%0.6f %0.6f 0.0 %0.6f 0.0 0.0 /" % (_np.abs(self.env['ssp_depth'][j]), ssp[j], self.env['water_density']))
+                    self._print(fh, "%0.6f %0.6f 0.0 %0.6f 0.0 0.0 /" % (self.env['ssp_depth'][j], ssp[j], self.env['water_density']))
                 else:
                     self._print(fh, "%0.6f %0.6f /" % (_np.abs(self.env['ssp_depth'][j]), ssp[j]))
                     
@@ -2799,9 +2819,7 @@ class RAM:
             self.env =  dict(env)
         else:
             self.env = env
-        
-        check_env2d(self.env)
-        
+            
         if hasattr(self, 'step') and self.step is not None and self.step > 0:
             step  = self.step
         else:
@@ -2846,10 +2864,10 @@ class RAM:
         else: 
             dMin = _np.size(self.env['rx_depth'])-1
         ratio_d = 1-dMin/_np.size(self.env['rx_depth'])
-            
+
         # Right propagation
-        if _np.size(_np.where(self.env['rx_range'] >= 0)):
-            iiMin = _np.where(self.env['rx_range'] >= 0)[0][0]
+        if _np.size(_np.where(self.env['rx_range'] > 0)):
+            iiMin = _np.where(self.env['rx_range'] > 0)[0][0]
         else: 
             iiMin = _np.size(self.env['rx_range'])-1
         ratio = 1-iiMin/_np.size(self.env['rx_range'])
@@ -2862,14 +2880,14 @@ class RAM:
             dr = self.env['rx_range']/ndr
             
         if _np.size(self.env['rx_depth']) > 1:
-            ndz = _np.max((_np.ceil((self.env['rx_depth'][1]-self.env['rx_depth'][0])/step*ratio_d), 1))
+            ndz = _np.max((_np.floor((self.env['rx_depth'][1]-self.env['rx_depth'][0])/step*ratio_d), 1))
             dz = (self.env['rx_depth'][1]-self.env['rx_depth'][0])/ndz
         else:
-            ndz = _np.max((_np.ceil((self.env['rx_depth'])/step*ratio_d), 1))
+            ndz = _np.max((_np.floor((self.env['rx_depth'])/step*ratio_d), 1))
             dz = self.env['rx_depth']/ndz
     
-        self.rbox  = ndr*dr*_np.size(self.env['rx_range'])*ratio+1e-6
-        self.zbox  = ndz*dz*_np.size(self.env['rx_depth'])*ratio_d+1e-6
+        self.rbox  = ndr*dr*_np.size(self.env['rx_range'])*ratio+dr*ratio*0.001
+        self.zbox  = ndz*dz*_np.size(self.env['rx_depth'])*ratio_d+dz*ratio_d*0.001
 
         if self.maxStabRange == 0:
             self.maxStabRange = self.rbox
@@ -2911,8 +2929,8 @@ class RAM:
             ndr = _np.max(_np.floor(((self.env['rx_range'])/step*ratio), 1))
             dr = self.env['rx_range']/ndr
 
-        self.rbox  = ndr*dr*_np.size(self.env['rx_range'])*ratio+1e-6
-        self.zbox  = ndz*dz*_np.size(self.env['rx_depth'])*ratio_d+1e-6
+        self.rbox  = ndr*dr*_np.size(self.env['rx_range'])*ratio+dr*ratio*0.001
+        self.zbox  = ndz*dz*_np.size(self.env['rx_depth'])*ratio_d+dz*ratio_d*0.001
         
         if rs_auto:
             self.maxStabRange = self.rbox
@@ -2962,52 +2980,54 @@ class RAM:
             # Right propagation
             if _np.max(self.env['rx_range']) > 0:    
                 self.pyramR.run()
-                if _np.any(self.env['rx_range'] == 0):
-                    replicated_column = self.pyramR.tlg[:, [0]]
-                    tlgR = _np.hstack((replicated_column, self.pyramR.tlg))
-                    replicated_column = self.pyramR.cpg[:, [0]]
-                    cpgR = _np.hstack((replicated_column, self.pyramR.cpg))
-                    replicated = True
-                else:
-                    tlgR = self.pyramR.tlg
-                    cpgR = self.pyramR.cpg
+                tlgR = self.pyramR.tlg
+                cpgR = self.pyramR.cpg
              
             # Left propagation
             if _np.min(self.env['rx_range']) < 0:
                 self.pyramL.run()
-                if _np.any(self.env['rx_range'] == 0) and not replicated:
-                    replicated_column = self.pyramL.tlg[:, [0]]
-                    tlgL = _np.hstack((replicated_column, self.pyramL.tlg))
-                    replicated_column = self.pyramL.cpg[:, [0]]
-                    cpgL = _np.hstack((replicated_column, self.pyramL.cpg))
-                else:
-                    tlgL = self.pyramL.tlg
-                    cpgL = self.pyramL.cpg
+                tlgL = self.pyramL.tlg
+                cpgL = self.pyramL.cpg
         
         # Combine the transmission loss matrices
         if tlgL is not None and tlgR is not None:
+            if _np.size(tlgL[0,:]) + _np.size(tlgR[0,:]) < _np.size(self.env['rx_range']):
+                replicated_column = self.pyramL.tlg[:, [0]]
+                tlgL = _np.hstack((replicated_column, self.pyramL.tlg))
+                replicated_column = self.pyramL.cpg[:, [0]]
+                cpgL = _np.hstack((replicated_column, self.pyramL.cpg))      
             tlg = _np.hstack((_np.fliplr(tlgL), tlgR))
             cpg = _np.hstack((_np.fliplr(cpgL), cpgR))
         elif tlgL is not None:
+            if _np.size(tlgL[0,:]) < _np.size(self.env['rx_range']):
+                replicated_column = self.pyramL.tlg[:, [0]]
+                tlgL = _np.hstack((replicated_column, self.pyramL.tlg))
+                replicated_column = self.pyramL.cpg[:, [0]]
+                cpgL = _np.hstack((replicated_column, self.pyramL.cpg)) 
             tlg = _np.fliplr(tlgL)
             cpg = _np.fliplr(cpgL)
         elif tlgR is not None:
+            if _np.size(tlgR[0,:]) < _np.size(self.env['rx_range']):
+                replicated_column = self.pyramR.tlg[:, [0]]
+                tlgR = _np.hstack((replicated_column, self.pyramR.tlg))
+                replicated_column = self.pyramR.cpg[:, [0]]
+                cpgL = _np.hstack((replicated_column, self.pyramR.cpg)) 
             tlg = tlgR
             cpg = cpgR
         else:
             print("[ERROR] RAM: No results found !")
          
-        # Handle cases where the result matrix depth is smaller than expected   
+        # Handle cases where the result matrix depth is smaller/bigger than expected   
         if _np.size(tlg[:,0]) < _np.size(self.env['rx_depth']):
-            tlg = _np.vstack((tlg[0,:],tlg))
-            cpg = _np.vstack((cpg[0,:],cpg))
+            tlg = _np.vstack((tlg[-1,:],tlg))
+            cpg = _np.vstack((cpg[-1,:],cpg))
         num_columns = tlg.shape[1]
         inf_array = _np.empty((1, num_columns))
         inf_array[:] = -_np.inf       
         while _np.size(tlg[:,0]) < _np.size(self.env['rx_depth']):
             tlg = _np.vstack((inf_array,tlg))
-            cpg = _np.vstack((inf_array,cpg))
-                
+            cpg = _np.vstack((cpg[0,:],cpg))
+            
         # Compute transmission loss and complex pressure
         self.transmission_loss = 10**(-tlg/20)
         self.complex_pressure  = cpg
