@@ -107,25 +107,13 @@ _models = []
 ###############################################################################
 
 # @todo     create and manage env3d for 3 dimensionnal problem
-        
-def make_env2d(**kv):
+
+def init_env2d(**kv):
     """
     Create a new 2D underwater environment.
 
     This function creates a 2D underwater environment with default parameters. It allows customization of the environment
     by specifying keyword arguments or modifying the parameters later using dictionary notation.
-
-    Parameters:
-        auto_xSettings (bool, optional): Whether to automatically set numerical box boundaries. Defaults to True.
-        auto_xBox (bool, optional): Whether to adjust the environment border by padding input data. Defaults to True.
-        cp (bool, optional): Whether to return a shallow cp of the environment. Defaults to False.
-        **kv: Additional keyword arguments to customize the environment parameters.
-
-    Returns:
-        dict: A dictionary containing the environment parameters.
-
-    Raises:
-        KeyError: If an unknown key is provided in the keyword arguments.
 
     Note:
         Surface/bottom interpolation methods:
@@ -180,7 +168,7 @@ def make_env2d(**kv):
             'rx_range'        : None,                        # m
             
             'top_boundary'    : vacuum,                      # Top boundary condition (rigid, vacuum, acoustico_elastic)
-            'top_interface'   : None,                        # [[range,depth], ..., [range, depth]] in m
+            'top_interface'   : _np.column_stack((0,0)),     # [[range,depth], ..., [range, depth]] in m
             'top_roughness'   : 0,                           # m (rms)
             
             'ssp_range'       : 0,                           # m
@@ -194,7 +182,8 @@ def make_env2d(**kv):
             'water_zbar'      : None,                        # Francois-Garrison attn only in m
             
             'tx_freq'         : None,                        # Source frequency in Hz
-            'tx_depth'        : None,                        # m
+            'tx_depth'        : 0,                           # m
+            'tx_range'        : 0,                           # m 
             'tx_beam'         : None,                        # [[deg, dB], ..., [deg, dB]]
             'tx_nbeam'        : 0,                           # number of beams (0 = auto)
             'tx_minAngle'     : -180,                        # deg
@@ -237,7 +226,16 @@ def make_env2d(**kv):
         if k not in env.keys():
             raise KeyError('Unknown key: '+k)
         env[k] = _np.array(v, dtype=_np.float64) if _np.size(v) > 1 else v
- 
+     
+    return env
+
+        
+def make_env2d(env):
+    """
+    Adjust environment settings for OALIB and RAM propagation models.
+
+    """
+    
     # Sediment matrix dimension assertion
     if env['bot_density'] is not None and env['bot_PwaveAttn'] is not None and env['bot_PwaveSpeed'] is not None and env['bot_SwaveAttn'] is not None and env['bot_SwaveSpeed'] is not None:
     
@@ -268,7 +266,7 @@ def make_env2d(**kv):
         if _np.size(env['ssp_depth']) > 1 and _np.size(env['ssp_range']) == 1:
             env['ssp'] = _np.vstack(env['ssp'])
     
-    # Ensure some None are replaced by zero
+    # Ensure None are replaced by zero
     if env['ssp_depth'] is None:
         env['ssp_depth'] = 0
     if env['ssp_range'] is None:
@@ -280,7 +278,11 @@ def make_env2d(**kv):
     if env['bot_roughness'] is None:
         env['bot_roughness'] = 0  
     if env['bot_SwaveSpeed'] is None:
-        env['bot_SwaveSpeed'] = 0      
+        env['bot_SwaveSpeed'] = 0     
+    if env['tx_range'] is None:
+        env['tx_range'] = 0
+    if env['tx_depth'] is None:
+        env['tx_depth'] = 0
         
     # Bottom interface matrix dimension assertion
     if _np.size(env['bot_interface']) > 1:
@@ -524,15 +526,178 @@ def arrivals_to_impulse_response(arrivals, fs, abs_time=False):
         
     return ir
 
+
+def shift_env2d(env, shift_range):
+    """
+    Shift the env settings range by shift_range m. 
+
+    """
+    env['rx_range']           = env['rx_range']+shift_range
+    env['ssp_range']          = env['ssp_range']+shift_range
+    env['bot_range']          = env['bot_range']+shift_range
+    env['top_interface'][:,0] = env['top_interface'][:,0]+shift_range
+    env['bot_interface'][:,0] = env['bot_interface'][:,0]+shift_range   
+    
+    return env
+
+def plot_transmission_loss(env, TL, model='Unknown model', vmin=-120, vmax=0, debug=False):
+    """
+    Plots transmission loss.
+
+    Parameters:
+        env (dict)   : Environment
+        TL (np.array): Transmission loss expressed in power.
+        vmin (float) : Minimum value for color scale (default: -120 dB).
+        vmax (float) : Maximum value for color scale (default: 0 dB).
+        debug (bool) : Whether to enable debug mode (default: False).
+
+    Returns:
+        fig, ax      : Figure and axis objects for the plot.
+    """
+
+    fig, ax = plt.subplots()
+    X = env['rx_range']
+    Y = env['rx_depth']
+
+    tlossplt = 20 * _np.log10(_np.finfo(float).eps + _np.abs(_np.array(TL)))
+  
+    # Plot the transmission loss map using imshow
+    im1 = ax.imshow(tlossplt, extent=[X[0] / 1000, X[-1] / 1000, Y[-1], Y[0]], cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
+    
+    # Plot surface
+    if _np.size(env['top_interface'][:, 0]) > 1:
+        ax.plot(env['top_interface'][:, 0] / 1000, env['top_interface'][:, 1], 'b', linewidth=3)
+    else:
+        ax.plot([X[0] / 1000, X[-1] / 1000], [env['top_interface'][0, 1], env['top_interface'][0, 1]], 'b', linewidth=3)
+    
+    # Plot the bottom interface
+    if _np.size(env['bot_interface'][:, 0]) > 1:
+        ax.plot(env['bot_interface'][:, 0] / 1000, env['bot_interface'][:, 1], 'k', linewidth=3)
+    else:
+        ax.plot([X[0] / 1000, X[-1] / 1000], [env['bot_interface'][0, 1], env['bot_interface'][0, 1]], 'k', linewidth=3)    
+        
+    # Remove transmission loss in sediment/surface
+    interp_y = _np.interp(X, env['bot_interface'][:, 0], env['bot_interface'][:, 1])
+    ax.fill_between(X / 1000, interp_y, Y[-1], color='brown')
+    
+    # Set plot properties
+    ax.set_xlim((X[0] / 1000, X[-1] / 1000))
+    ax.set_ylim((Y[0], Y[-1]))
+    ax.set_xlabel('Range [km]')
+    ax.set_ylabel('Depth [m]')
+    ax.set_title(f"[{model} - Transmission loss @ {env['tx_freq']} Hz] {env['name']}")
+    
+    # Add color bar
+    cbar1 = fig.colorbar(im1, ax=ax)
+    cbar1.ax.set_ylabel('Loss [dB]')
+    
+    # Invert y-axis for depth
+    ax.invert_yaxis()
+    
+    # Adjust layout and display plot
+    plt.tight_layout()
+    plt.show()
+
+    return fig, ax
+
+
+def plot_ssp(env, Nxy=500, **kwargs):
+    """
+    Plots the sound speed profile of the environment.
+    
+    Parameters:
+        env (dict): Environment
+        Nxy (int) : Number of points in the x and y directions.
+        **kwargs  : Additional keyword arguments for customization.
+        
+    Returns:
+        fig, ax   : Figure and axis objects for the plot.
+    """
+    fig, ax = plt.subplots()
+    
+    vmax = kwargs.get('vmax', _np.max(env['ssp'])+_np.abs(_np.mean(env['ssp']))/100)
+    vmin = kwargs.get('vmin', _np.min(env['ssp'])-_np.abs(_np.mean(env['ssp']))/100)
+    
+    if _np.size(env['ssp_range']) > 1: # 2D SSP data
+    
+        X, Y, Z = _np.array(env['ssp_range']), _np.array(env['ssp_depth']), _np.array(env['ssp'])
+        
+        Zb = kwargs.get('vmax', _np.max(env['ssp']) * 4) 
+        
+        if _np.size(env['rx_range']) > 1:
+            Xg = _np.linspace(env['rx_range'][0], env['rx_range'][-1], Nxy)
+        else:
+            Xg = _np.linspace(env['ssp_range'][0], env['ssp_range'][-1], Nxy)
+            
+        Yg = _np.linspace(0, _np.max((Y[-1], env['rx_depth'][-1])), Nxy)
+        Zg = _np.zeros([len(Yg), len(Xg)])
+        
+        # Bathy
+        rb, zb = _np.array(env['bot_interface'][:, 0]), _np.array(env['bot_interface'][:, 1])
+        
+        # Re-compute map over grid
+        for ii, x in enumerate(Xg):
+            interpolation = _np.interp(x, rb, zb)
+            for jj, y in enumerate(Yg):
+                y_idx = _np.argmin(_np.abs(Y - y))
+                x_idx = _np.argmin(_np.abs(X - x))
+                Zg[jj, ii] = Z[y_idx, x_idx]
+         
+        # Plot surface
+        if _np.size(env['top_interface'][:, 0]) > 1:
+            ax.plot(env['top_interface'][:, 0] / 1000, env['top_interface'][:, 1], 'b', linewidth=3)
+        else:
+            ax.plot([Xg[0] / 1000, Xg[-1] / 1000], [env['top_interface'][0, 1], env['top_interface'][0, 1]], 'b', linewidth=3)
+        
+        # Plot the bottom interface
+        if _np.size(env['bot_interface'][:, 0]) > 1:
+            ax.plot(env['bot_interface'][:, 0] / 1000, env['bot_interface'][:, 1], 'k', linewidth=3)
+        else:
+            ax.plot([Xg[0] / 1000, Xg[-1] / 1000], [env['bot_interface'][0, 1], env['bot_interface'][0, 1]], 'k', linewidth=3)
+
+        # Remove transmission loss in sediment
+        interp_y = _np.interp(Xg, env['bot_interface'][:, 0], env['bot_interface'][:, 1])
+        ax.fill_between(Xg / 1000, interp_y, env['rx_depth'][-1], color='brown')
+        
+        # Plot
+        im = ax.imshow(Zg, cmap='jet', aspect='auto', extent=[Xg[0]/1000, Xg[-1]/1000, Yg[-1], Yg[0]], **kwargs)
+        ax.scatter(env['tx_range']/1000, env['tx_depth'], label="Stars", color="r", s=500, marker="*") 
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.ax.set_ylabel('Sound speed [m/s]')
+        ax.set_xlim((env['rx_range'][0] / 1000, env['rx_range'][-1] / 1000))
+        ax.set_ylim((env['rx_depth'][0], env['rx_depth'][-1]))
+        ax.set_xlabel('Range [km]')
+        ax.set_ylabel('Depth [m]')
+        ax.set_title(f"[Sound speed profile] {env['name']}")
+        ax.invert_yaxis()
+        plt.tight_layout()
+        plt.show()
+        
+    else: # 1D SSP data
+    
+        if _np.size(env['ssp_depth']) > 1:
+            Y, Z = _np.array(env['ssp_depth']), _np.array(env['ssp'])
+        else:
+            Y, Z = _np.array([0, _np.max(env['bot_interface'][:,1])]), _np.array([env['ssp'], env['ssp']])
+        ax.set_title(f"[Sound speed profile] {env['name']}")
+        ax.set_xlim((vmin, vmax))
+        ax.invert_yaxis()
+        ax.grid(True)
+        ax.set_ylabel('Depth [m]')
+        ax.set_xlabel('Sound speed [m/s]')
+        ax.plot(Z, Y, 'k', linewidth=3)
+        plt.tight_layout()
+        plt.show()
+    
+    return fig, ax
+
+
 ### Bellhop propagation model ###
 class BELLHOP:
 
     def __init__(self, env=None, cp=False):
         
-        if env is None:
-            self.env           = None
-        else:
-            self.set_env(env, cp=cp)
+        self.set_env(env)
         self.transmission_loss = None 
         self.eigen_rays        = None
         self.arrivals          = None
@@ -542,22 +707,30 @@ class BELLHOP:
     def set_step(self, step):
         self.step = step
 
-    def set_env(self, env, cp=False, **kwargs):
-        
-        """Set a new 2D underwater environment.
+    def set_env(self, env, **kwargs):
+        """
+        Set a new 2D underwater environment.
 
         A basic environment is created with default values. To see all the parameters
         available and their default values. The environment parameters may be changed 
         by passing keyword arguments or modified later using a dictionary notation.
         """
-        if cp:
-            self.env =  dict(env)
-        else:
-            self.env = env
+        
+        # Get a pointer on the input env
+        self.in_env = env
+        
+        # Make a local copy of the env that will be modified
+        self.env = copy.deepcopy(env)
+        
+        # Env need to be 0 centered on the source range
+        self.env = shift_env2d(self.env, -self.env['tx_range'])
+        
+        # Make env 
+        self.env = make_env2d(self.env)
         
         # Numerical box definition
-        self.rbox = 1.01*_np.max(_np.abs(env['rx_range']))
-        self.zbox = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
+        self.rbox = 1.01*_np.max(_np.abs(self.env['rx_range']))
+        self.zbox = 1.01*_np.max((_np.max(self.env['bot_interface'][:,-1]), _np.max(self.env['rx_depth'])))
                      
         return self.env
 
@@ -571,7 +744,7 @@ class BELLHOP:
         elif self.env['mode'] == semicoherent:
             taskcode = 'S'
         else:
-            raise Exception("[ERROR] BELLHOP: Mode not known !")
+            raise Exception("[ERROR] BELLHOP: Unknown mode !")
           
         flip = False
         if _np.max(self.env['rx_range']) <= 0:
@@ -1054,150 +1227,10 @@ class BELLHOP:
         return fig, ax
     
     def plot_transmission_loss(self, vmin=-120, vmax=0, debug=False):
-        """
-        Plots transmission loss.
-
-        Parameters:
-            vmin (float): Minimum value for color scale (default: -120 dB).
-            vmax (float): Maximum value for color scale (default: 0 dB).
-            debug (bool): Whether to enable debug mode (default: False).
-
-        Returns:
-            fig, ax: Figure and axis objects for the plot.
-        """
-
-        fig, ax = plt.subplots()
-        X = self.env['rx_range']
-        Y = self.env['rx_depth']
-
-        tlossplt = 20 * _np.log10(_np.finfo(float).eps + _np.abs(_np.array(self.transmission_loss)))
-
-        if _np.size(self.env['bot_interface'][:, 0]) > 1:
-            for i, range_val in enumerate(X):
-                ylim = _np.interp(range_val, self.env['top_interface'][:, 0], self.env['top_interface'][:, 1])
-                for j, depth_val in enumerate(Y):
-                    if depth_val < ylim:
-                        tlossplt[j, i] = _np.NaN
-            ax.plot(self.env['top_interface'][:, 0] / 1000, self.env['top_interface'][:, 1], 'b', linewidth=3)
-        else:
-            ax.plot([X[0] / 1000, X[-1] / 1000], [self.env['top_interface'][0, 1], self.env['top_interface'][0, 1]], 'b', linewidth=3)
-            
-        # Plot the transmission loss map using imshow
-        im1 = ax.imshow(tlossplt, extent=[X[0] / 1000, X[-1] / 1000, Y[-1], Y[0]], cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
-        
-        # Plot the bottom interface
-        if _np.size(self.env['bot_interface'][:, 0]) > 1:
-            ax.plot(self.env['bot_interface'][:, 0] / 1000, self.env['bot_interface'][:, 1], 'k', linewidth=3)
-        else:
-            ax.plot([X[0] / 1000, X[-1] / 1000], [self.env['bot_interface'][0, 1], self.env['bot_interface'][0, 1]], 'k', linewidth=3)
-        
-        # Remove transmission loss in sediment/surface
-        interp_y = _np.interp(X, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
-        ax.fill_between(X / 1000, interp_y, Y[-1], color='brown')
-        
-        # Set plot properties
-        ax.set_xlim((X[0] / 1000, X[-1] / 1000))
-        ax.set_ylim((Y[0], Y[-1]))
-        ax.set_xlabel('Range [km]')
-        ax.set_ylabel('Depth [m]')
-        ax.set_title(f"[BELLHOP - Transmission loss @ {self.env['tx_freq']} Hz] {self.env['name']}")
-        
-        # Add color bar
-        cbar1 = fig.colorbar(im1, ax=ax)
-        cbar1.ax.set_ylabel('Loss [dB]')
-        
-        # Invert y-axis for depth
-        ax.invert_yaxis()
-        
-        # Adjust layout and display plot
-        plt.tight_layout()
-        plt.show()
-
-        return fig, ax
+        return plot_transmission_loss(self.in_env, self.transmission_loss, model='BELLHOP', vmin=vmin, vmax=vmax, debug=debug)
     
     def plot_ssp(self, Nxy=500, **kwargs):
-        """
-        Plots the sound speed profile of the environment.
-        
-        Parameters:
-            Nxy (int): Number of points in the x and y directions.
-            **kwargs: Additional keyword arguments for customization.
-            
-        Returns:
-            fig, ax: Figure and axis objects for the plot.
-        """
-        fig, ax = plt.subplots()
-        
-        vmax = kwargs.get('vmax', _np.max(self.env['ssp'])+_np.abs(_np.mean(self.env['ssp']))/100)
-        vmin = kwargs.get('vmin', _np.min(self.env['ssp'])-_np.abs(_np.mean(self.env['ssp']))/100)
-        
-        if _np.size(self.env['ssp_range']) > 1: # 2D SSP data
-        
-            X, Y, Z = _np.array(self.env['ssp_range']), _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
-            
-            Zb = kwargs.get('vmax', _np.max(self.env['ssp']) * 4) 
-            
-            if _np.size(self.env['rx_range']) > 1:
-                Xg = _np.linspace(self.env['rx_range'][0], self.env['rx_range'][-1], Nxy)
-            else:
-                Xg = _np.linspace(self.env['ssp_range'][0], self.env['ssp_range'][-1], Nxy)
-                
-            Yg = _np.linspace(0, Y[-1], Nxy)
-            Zg = _np.zeros([len(Yg), len(Xg)])
-            
-            # Bathy
-            rb, zb = _np.array(self.env['bot_interface'][:, 0]), _np.array(self.env['bot_interface'][:, 1])
-            
-            # Re-compute map over grid
-            for ii, x in enumerate(Xg):
-                interpolation = _np.interp(x, rb, zb)
-                for jj, y in enumerate(Yg):
-                    y_idx = _np.argmin(_np.abs(Y - y))
-                    x_idx = _np.argmin(_np.abs(X - x))
-                    Zg[jj, ii] = Z[y_idx, x_idx]
-             
-            # Plot surface
-            for ii, x in enumerate(Xg):
-                ylim = _np.interp(x, self.env['top_interface'][:, 0], self.env['top_interface'][:, 1])
-                Zg[Yg < ylim, ii] = _np.nan
-            ax.plot(self.env['top_interface'][:, 0] / 1000, self.env['top_interface'][:, 1], 'b', linewidth=3)    
-    
-            # Remove transmission loss in sediment/surface
-            interp_y = _np.interp(Xg, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
-            ax.fill_between(Xg / 1000, interp_y, Y[-1], color='brown')
-            
-            # Plot
-            im = ax.imshow(Zg, cmap='jet', aspect='auto', extent=[Xg[0]/1000, Xg[-1]/1000, Yg[-1], Yg[0]], **kwargs)
-            ax.plot(rb / 1000, zb, 'k', linewidth=3)
-            ax.scatter(0, self.env['tx_depth'], label="Stars", color="r", s=500, marker="*") 
-            cbar = fig.colorbar(im, ax=ax)
-            cbar.ax.set_ylabel('Sound speed [m/s]')
-            ax.set_xlim((self.env['rx_range'][0] / 1000, self.env['rx_range'][-1] / 1000))
-            ax.set_ylim((self.env['rx_depth'][0], self.env['rx_depth'][-1]))
-            ax.set_xlabel('Range [km]')
-            ax.set_ylabel('Depth [m]')
-            ax.set_title(f"[BELLHOP - Sound speed profile] {self.env['name']}")
-            ax.invert_yaxis()
-            plt.tight_layout()
-            plt.show()
-            
-        else: # 1D SSP data
-        
-            if _np.size(self.env['ssp_depth']) > 1:
-                Y, Z = _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
-            else:
-                Y, Z = _np.array([0, _np.max(self.env['bot_interface'][:,1])]), _np.array([self.env['ssp'], self.env['ssp']])
-            ax.set_title(f"[BELLHOP - Sound speed profile] {self.env['name']}")
-            ax.set_xlim((vmin, vmax))
-            ax.invert_yaxis()
-            ax.grid(True)
-            ax.set_ylabel('Depth [m]')
-            ax.set_xlabel('Sound speed [m/s]')
-            ax.plot(Z, Y, 'k', linewidth=3)
-            plt.tight_layout()
-            plt.show()
-        
-        return fig, ax
+        return plot_ssp(self.in_env, Nxy=500, **kwargs)
         
     def plot_arrivals(self, dB=False, color='steelblue', **kwargs):
         """
@@ -1786,10 +1819,7 @@ class KRAKEN:
 
     def __init__(self, env=None, cp=False):
         
-        if env is None:
-            self.env           = None
-        else:
-            self.set_env(env, cp=cp)
+        self.set_env(env)
         self.transmission_loss = None 
         self.modes             = None
         self.step              = 0
@@ -1798,23 +1828,32 @@ class KRAKEN:
         self.step = step
 
     def set_env(self, env, cp=False, **kwargs):
-        
-        """Set a new 2D underwater environment.
+        """
+        Set a new 2D underwater environment.
 
         A basic environment is created with default values. To see all the parameters
         available and their default values. The environment parameters may be changed 
         by passing keyword arguments or modified later using a dictionary notation.
         """
-        if cp:
-            self.env =  dict(env)
-        else:
-            self.env = env
+        
+        # Get a pointer on the input env
+        self.in_env = env
+        
+        # Make a local copy of the env that will be modified
+        self.env = copy.deepcopy(env)
+        
+        # Env need to be 0 centered on the source range
+        self.env = shift_env2d(self.env, -self.env['tx_range'])
+        
+        # Make env 
+        self.env = make_env2d(self.env)
         
         # Numerical box definition
-        self.rbox = 1.01*_np.max(_np.abs(env['rx_range']))
-        self.zbox = 1.01*_np.max((_np.max(env['bot_interface'][:,-1]), _np.max(env['rx_depth'])))
-                        
+        self.rbox = 1.01*_np.max(_np.abs(self.env['rx_range']))
+        self.zbox = 1.01*_np.max((_np.max(self.env['bot_interface'][:,-1]), _np.max(self.env['rx_depth'])))
+                     
         return self.env
+
     
     def compute_transmission_loss(self, debug=False, **kwargs):
         """
@@ -2309,91 +2348,11 @@ class KRAKEN:
         return fname_base
 
 
-    def plot_ssp(self, **kwargs):
-        
-        fig, ax = plt.subplots()
-        vmax = kwargs.get('vmax', _np.max(self.env['ssp'])+_np.abs(_np.mean(self.env['ssp']))/100)
-        vmin = kwargs.get('vmin', _np.min(self.env['ssp'])-_np.abs(_np.mean(self.env['ssp']))/100)
-        
-        if _np.size(_np.array(self.env['ssp_range'])) > 1:
-            print("[INFO] KRAKEN: Do not support range dependant sound speed, using median values instead !")
-            try:
-                ssp = _np.median(self.env['ssp'], axis=1)
-            except:
-                ssp = _np.median(self.env['ssp'], axis=0)
-        else:
-            ssp = self.env['ssp']
-            
-        Y, Z = _np.array(self.env['ssp_depth']), _np.array(ssp)
-        ax.set_title(f"[KRAKEN - Sound speed profile] {self.env['name']}")
-        ax.set_xlim((vmin, vmax))
-        ax.invert_yaxis()
-        ax.grid(True)
-        ax.set_ylabel('Depth [m]')
-        ax.set_xlabel('Sound speed [m/s]')
-        ax.plot(Z, Y, 'k', linewidth=3)
-        plt.tight_layout()
-        plt.show()
-            
-        return fig, ax
+    def plot_transmission_loss(self, vmin=-120, vmax=0, debug=False):
+        return plot_transmission_loss(self.in_env, self.transmission_loss, model='KRAKEN', vmin=vmin, vmax=vmax, debug=debug)
     
-    def plot_transmission_loss(self, vmin=-120, vmax=0, **kwargs):
-        """
-        Plots the transmission loss of the environment.
-
-        Parameters:
-            vmin (float): Minimum value for the transmission loss.
-            vmax (float): Maximum value for the transmission loss.
-            **kwargs: Additional keyword arguments for customization.
-
-        Returns:
-            fig, ax: Figure and axis objects for the plot.
-        """
-        fig, ax = plt.subplots()
-        X = self.env['rx_range']
-        Y = self.env['rx_depth']
-
-        tlossplt = 20 * _np.log10(_np.finfo(float).eps + _np.abs(_np.array(self.transmission_loss)))
-
-        # Remove transmission loss in sediment/surface
-        for i, x in enumerate(X):
-            ylim = _np.interp(x, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
-            for j, y in enumerate(Y):
-                if y > ylim:
-                    tlossplt[j, i] = vmax
-                    
-        # Remove transmission loss in sediment/surface
-        interp_y = _np.interp(X, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
-        ax.fill_between(X, _np.mean(self.env['bot_interface'][:,1]), Y[-1], color='brown')
-        
-        # Plot the surface
-        ax.plot([X[0]/1000, X[-1]/1000], [0, 0], 'b', linewidth=3)
-
-        # Plot the transmission loss map using imshow
-        im1 = ax.imshow(tlossplt, extent=[X[0] / 1000, X[-1] / 1000, Y[-1], Y[0]], cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
-
-        # Plot the bottom interface
-        ax.plot([X[0]/1000, X[-1]/1000], [_np.mean(self.env['bot_interface'][:,1]), _np.mean(self.env['bot_interface'][:,1])], 'k', linewidth=3)
-
-        # Set plot properties
-        ax.set_xlim((X[0] / 1000, X[-1] / 1000))
-        ax.set_ylim((Y[0], Y[-1]))
-        ax.set_xlabel('Range [km]')
-        ax.set_ylabel('Depth [m]')
-        ax.set_title(f"[KRAKEN - Transmission loss @ {self.env['tx_freq']} Hz] {self.env['name']}")
-
-        # Add color bar
-        cbar1 = fig.colorbar(im1, ax=ax)
-        cbar1.ax.set_ylabel('Loss [dB]')
-
-        # Invert y-axis for depth
-        ax.invert_yaxis()
-
-        # Adjust layout and display plot
-        plt.tight_layout()
-        plt.show()
-
-        return fig, ax
+    def plot_ssp(self, Nxy=500, **kwargs):
+        return plot_ssp(self.in_env, Nxy=500, **kwargs)
     # @todo     Remove useless file creation.
 
 
