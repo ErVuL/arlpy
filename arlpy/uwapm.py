@@ -624,10 +624,16 @@ def plot_ssp(env, Nxy=500, **kwargs):
         
         Zb = kwargs.get('vmax', _np.max(env['ssp']) * 4) 
         
+        """
         if _np.size(env['rx_range']) > 1:
             Xg = _np.linspace(env['rx_range'][0], env['rx_range'][-1], Nxy)
         else:
             Xg = _np.linspace(env['ssp_range'][0], env['ssp_range'][-1], Nxy)
+        """
+        
+        xmin = _np.min((env['rx_range'][0], env['ssp_range'][0]))
+        xmax = _np.max((env['rx_range'][-1], env['ssp_range'][-1]))
+        Xg = _np.linspace(xmin, xmax, Nxy)
             
         Yg = _np.linspace(0, _np.max((Y[-1], env['rx_depth'][-1])), Nxy)
         Zg = _np.zeros([len(Yg), len(Xg)])
@@ -657,7 +663,11 @@ def plot_ssp(env, Nxy=500, **kwargs):
 
         # Remove transmission loss in sediment
         interp_y = _np.interp(Xg, env['bot_interface'][:, 0], env['bot_interface'][:, 1])
-        ax.fill_between(Xg / 1000, interp_y, env['rx_depth'][-1], color='brown')
+        ax.fill_between(Xg / 1000, interp_y, Yg[-1], color='brown')
+        
+        # Remove transmission loss above water level
+        interp_y = _np.interp(Xg, env['top_interface'][:, 0], env['top_interface'][:, 1])
+        ax.fill_between(Xg / 1000, interp_y, Yg[0], color='white')
         
         # Plot
         im = ax.imshow(Zg, cmap='jet', aspect='auto', extent=[Xg[0]/1000, Xg[-1]/1000, Yg[-1], Yg[0]], **kwargs)
@@ -689,6 +699,466 @@ def plot_ssp(env, Nxy=500, **kwargs):
         plt.tight_layout()
         plt.show()
     
+    return fig, ax
+
+def plot_beam(env, vmin=-60, vmax=20, **kwargs):
+    """
+    Plots the beam pattern.
+
+    Parameters:
+        vmin (float): Minimum value in dB (default: -60).
+        vmax (float): Maximum value in dB (default: 20).
+        **kwargs: Additional keyword arguments for customization.
+
+    Returns:
+        fig, ax: Figure and axis objects for the plot.
+    """
+    fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+
+    if env['tx_beam'] is not None:
+        # Plot the beam pattern if available
+        ax.plot(-env['tx_beam'][:, 0] / 360 * 2 * _np.pi, env['tx_beam'][:, 1])
+    else:
+        # Plot a flat line if beam pattern data is not available
+        ax.plot(_np.linspace(0, 2 * _np.pi, 1000), _np.zeros(1000))
+
+    # Move radial labels away from the plotted line
+    ax.set_rlabel_position(-22.5)
+
+    ax.grid(True)
+    ax.set_ylim((vmin, vmax))
+    ax.set_xlabel('$\Phi$ [deg]')
+    ax.set_title(f"[Source directivity [dB]] {env['name']}", va='bottom')
+    plt.tight_layout()
+    plt.show()
+
+    return fig, ax
+
+def plot_arrivals(arrivals, env, model='Unknown model', dB=False, color='steelblue', **kwargs):
+    """
+    Plots the arrival times and amplitudes.
+
+    Parameters:
+        arrivals (DataFrame): Arrival times (s) and coefficients.
+        env (dict): Environment definition.
+        Title (str): Title for the plot.
+        dB (bool): True to plot in dB, False for linear scale.
+        color (str): Line color (see `Matplotlib colors <https://matplotlib.org/stable/gallery/color/named_colors.html>`_).
+        **kwargs: Other keyword arguments applicable for `matplotlib.pyplot.plot()`.
+
+    Returns:
+        fig, ax: Figure and axis objects for the plot.
+    """
+
+    t0 = min(arrivals.time_of_arrival)
+    t1 = max(arrivals.time_of_arrival)
+
+    fig, ax = plt.subplots()
+
+    if dB:
+        min_y = 20 * _np.log10(_np.max(_np.abs(arrivals.arrival_amplitude))) - 60
+        ylabel = 'Amplitude [dB]'
+    else:
+        ylabel = 'Amplitude'
+        ax.plot([t0, t1], [0, 0], 'r')
+        min_y = 0
+
+    for _, row in arrivals.iterrows():
+        t = row.time_of_arrival.real
+        y = _np.abs(row.arrival_amplitude)
+
+        if dB:
+            y = max(20 * _np.log10(_np.finfo(float).eps + y), min_y)
+
+        ax.stem(t, y, linefmt=color, markerfmt=color, basefmt='k')
+
+    ax.set_ylabel(ylabel)
+    ax.set_title(f"[{model} - Arrivals] {env['name']}")
+    ax.set_xlabel('Arrival time [s]')
+    ax.grid('all')
+    plt.tight_layout()
+    plt.show()
+
+    return fig, ax
+
+def plot_arrivals_beam(arrivals, env, model='Unknown model', ref_amp=1, **kwargs):
+    """
+    Produce the travel time ellipse with colorbar for amplitude
+    Input - 
+    self - contains all the arrival info
+    vals - optional
+        allows me to use a reference arrival set to calibrate the plot axes
+        vals[0] = times
+        vals[0] = amps
+    """
+    
+    fig, ax = plt.subplots(subplot_kw={'projection': 'polar'}) 
+    
+    amps       = arrivals['arrival_amplitude']
+    rec_angles = arrivals['angle_of_arrival'] 
+    #times      = self.arrivals['time_of_arrival']
+
+    if type(ref_amp) == type(None):
+        amps = amps / _np.max(abs(amps))
+    else:
+        amps /= abs(ref_amp)
+        
+    cvals = 10*_np.log10(abs(amps))
+
+    max_db_down  = 120
+    #cvals_normed = abs(amps) / max_db_down
+    strong_inds  = cvals > -max_db_down
+    ax.scatter(rec_angles[strong_inds]/360*2*_np.pi, cvals[strong_inds], marker='x', color='black', linewidths=1, alpha=0.75)
+    
+    ax.set_title(f"[{model} - Arrivals beam [dB]] {env['name']}")
+    ax.set_xlabel('$\Phi$ [deg]')
+    ax.grid('all')
+    
+    return fig, ax
+
+def plot_rays(rays, env, model='Unknown model', nRay=100, invert_colors=False, **kwargs):
+    """
+    Plot rays.
+
+    Parameters:
+    - number: Number of rays to plot (default: np.Inf).
+    - invert_colors: If True, invert colors of the plot (default: False).
+
+    Returns:
+    - fig: The figure object.
+    - ax: The axes object.
+    """
+    
+    nInit = nRay
+    
+    # Sorting rays by bottom bounces in ascending order
+    rays = rays.sort_values('surface_bounces', ascending=True)
+
+    # Determine the maximum amplitude of bottom bounces
+    max_amp = _np.max(_np.abs(rays.bottom_bounces)) if len(rays.bottom_bounces) > 0 else 0
+    if max_amp <= 0:
+        max_amp = 1
+
+    divisor = 1
+    xlabel = 'Range [m]'
+    r = []
+
+    # Flatten ray coordinates for determining the range
+    for _, row in rays.iterrows():
+        r += list(row.ray[:, 0])
+
+    # Check if range exceeds 10,000 meters, if so, change divisor and x-label
+    if max(r) - min(r) > 10000:
+        divisor = 1000
+        xlabel = 'Range [km]'
+
+    # Create figure and axes
+    fig, ax = plt.subplots()
+
+    # Plot rays
+    for _, row in rays.iterrows():
+        num_bnc = row.bottom_bounces + row.surface_bounces
+        if nRay > 0:
+            if row.bottom_bounces == 0 and row.surface_bounces == 0:
+                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='r', alpha=.5)  # Plot direct path
+                nRay -= 1
+            elif num_bnc > 1:
+                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='k', alpha=.5)  # Plot multi-bounce path
+                nRay -= 1
+            elif row.surface_bounces == 1:
+                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='b', alpha=.5)  # Plot surface bounce path
+                nRay -= 1
+            elif row.bottom_bounces == 1:
+                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='g', alpha=.5)  # Plot bottom bounce path
+                nRay -= 1
+        else:
+            break
+        
+    # Check if receiver range is negative, if so, flip x-axis
+    if env['rx_range'] < 0:
+        ax.plot(-_np.flip(env['bot_interface'][:, 0]) / divisor, _np.flip(env['bot_interface'][:, 1]), 'k', linewidth=3)
+        ax.plot(-_np.flip(env['top_interface'][:, 0]) / divisor, _np.flip(env['top_interface'][:, 1]), 'b', linewidth=3)
+        ax.scatter(-env['rx_range'] / divisor, env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+        ax.set_xlim((-env['rx_range'] / divisor, 0))
+    else:
+        ax.plot(env['bot_interface'][:, 0] / divisor, env['bot_interface'][:, 1], 'k', linewidth=3)
+        ax.plot(env['top_interface'][:, 0] / divisor, env['top_interface'][:, 1], 'b', linewidth=3)
+        ax.scatter(env['rx_range'] / divisor, env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+        ax.set_xlim((0, env['rx_range'] / divisor))
+
+    # Set labels, title, and legend
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Depth [m]")
+    ax.set_ylim((_np.min(env['top_interface'][:,1]), _np.max(env['bot_interface'][:, 1])))
+    ax.set_title(f"[{model} - Rays ({nInit-nRay})] {env['name']}")
+    ax.scatter(0, env['tx_depth'], label="Source", color="k", s=250, marker="*")
+
+    # Invert y-axis, add grid, and display plot
+    ax.invert_yaxis()
+    ax.grid('all')
+    plt.tight_layout()
+    plt.show()
+
+    return fig, ax
+
+def plot_eigen_rays(eigen_rays, env, model='Unknown model', nRay=10, invert_colors=False, **kwargs):
+    """
+    Plot eigen rays.
+    
+    Parameters:
+    - number: Number of eigen rays to plot (default: 10).
+    - invert_colors: If True, invert colors of the plot (default: False).
+    
+    Returns:
+    - fig: The figure object.
+    - ax: The axes object.
+    """
+    
+    nInit = nRay
+    
+    # Sorting rays by bottom bounces in descending order
+    eigen_rays = eigen_rays.sort_values('bottom_bounces', ascending=True)
+
+    # Determine the maximum amplitude of bottom bounces
+    max_amp = _np.max(_np.abs(eigen_rays.bottom_bounces)) if len(eigen_rays.bottom_bounces) > 0 else 0
+    max_amp = max_amp if max_amp > 0 else 1
+
+    divisor = 1
+    xlabel = 'Range [m]'
+    r = []
+
+    # Flatten ray coordinates for determining the range
+    for _, row in eigen_rays.iterrows():
+        r.extend(list(row.ray[:, 0]))
+
+    # Check if range exceeds 10,000 meters, if so, change divisor and x-label
+    if max(r) - min(r) > 10000:
+        divisor = 1000
+        xlabel = 'Range [km]'
+
+    # Create figure and axes
+    fig, ax = plt.subplots()
+
+    # Plot each eigen ray
+    for _, row in eigen_rays.iterrows():
+        num_bnc = row.bottom_bounces + row.surface_bounces
+        if nRay > 0:
+            if row.bottom_bounces == 0 and row.surface_bounces == 0:
+                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='r', alpha=.5)  # Plot direct path
+                nRay -= 1
+            elif num_bnc > 1:
+                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='k', alpha=.5)  # Plot multi-bounce path
+                nRay -= 1
+            elif row.surface_bounces == 1:
+                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='b', alpha=.5)  # Plot surface bounce path
+                nRay -= 1
+            elif row.bottom_bounces == 1:
+                ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='g', alpha=.5)  # Plot bottom bounce path
+                nRay -= 1
+        else:
+            break
+
+    # Check if receiver range is negative, if so, flip x-axis
+    if env['rx_range'] < 0:
+        ax.plot(-_np.flip(env['bot_interface'][:, 0]) / divisor, _np.flip(env['bot_interface'][:, 1]), 'k', linewidth=3)
+        ax.plot(-_np.flip(env['top_interface'][:, 0]) / divisor, _np.flip(env['top_interface'][:, 1]), 'b', linewidth=3)
+        ax.scatter(-env['rx_range'] / divisor, env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+        ax.set_xlim((-env['rx_range'] / divisor, 0))
+    else:
+        ax.plot(env['bot_interface'][:, 0] / divisor, env['bot_interface'][:, 1], 'k', linewidth=3)
+        ax.plot(env['top_interface'][:, 0] / divisor, env['top_interface'][:, 1], 'b', linewidth=3)
+        ax.scatter(env['rx_range'] / divisor, env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
+        ax.set_xlim((0, env['rx_range'] / divisor))
+
+    # Set labels, title, and legend
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Depth [m]")
+    ax.set_ylim((_np.min(env['top_interface'][:, 1]), _np.max(env['bot_interface'][:, 1])))
+    ax.set_title(f"[{model} - Eigen rays ({nInit-nRay})] {env['name']}")
+    ax.scatter(0, env['tx_depth'], label="Source", color="k", s=250, marker="*")
+
+    # Invert y-axis, add grid, and display plot
+    ax.invert_yaxis()
+    ax.grid('all')
+    plt.tight_layout()
+    plt.show()
+
+    return fig, ax
+
+def plot_impulse_response(impulse_response, impulse_response_fs, env, model='Unknown model', dB=False, nArrival=10, color='steelblue', **kwargs):
+    """
+    Plot impulse response.
+
+    Parameters:
+    - dB: If True, convert the impulse response to dB (default: False).
+    - nArrival: Number of arrivals to plot (default: 10).
+    - color: Color of the plot (default: 'steelblue').
+
+    Returns:
+    - fig: The figure object.
+    - ax: The axes object.
+    """
+    # If dB is True, convert the impulse response to dB
+    if dB:
+        ir = 20 * _np.log10(_np.abs(impulse_response) + _np.finfo(float).eps)  # Convert to dB
+    else:
+        ir = impulse_response.real  # Use real part of impulse response
+
+    irlen = 0
+    nn    = 0
+    for ii,val in enumerate(ir):
+        if val != 0:
+            nn += 1
+            irlen = ii
+        if nn == nArrival:
+            break
+    
+    # Plot the impulse response using stem plot
+    fig, ax = plt.subplots()
+    ax.plot(ir, color=color)  # Plot impulse response
+    ax.set_xlim([0, irlen])  # Set x-axis limit
+    ax.set_xlabel('Sample [S]')  # Set x-axis label
+    ax.set_ylabel('Amplitude')  # Set y-axis label
+    ax.set_title(f"[{model} - Impulse response ({nn} @ {impulse_response_fs} S/s)] {env['name']}")  # Set title
+    ax.grid('all')  # Add grid
+    plt.tight_layout()  # Adjust layout
+    plt.show()  # Show plot
+
+    return fig, ax
+
+def plot_bot_density(env, vmin=0, vmax=4, Nxy=500, **kwargs):
+    """
+    Plots the density profile of the sediment in the environment.
+
+    Parameters:
+        Title (str): Title for the plot.
+        vmin (float): Minimum value for the density color map.
+        vmax (float): Maximum value for the density color map.
+        Nxy (int): Number of points in the x and y directions.
+        **kwargs: Additional keyword arguments for customization.
+
+    Returns:
+        fig, ax: Figure and axis objects for the plot.
+    """
+    
+    fig, ax = plt.subplots()
+    
+    # Extract density data
+    Xb = _np.array(env['bot_range'])
+    Yb = _np.array(env['bot_depth'])
+    Zb = _np.array(env['bot_density'], ndmin=2)
+    
+    # Generate grid
+    Xg = _np.linspace(env['rx_range'][0], env['rx_range'][-1], Nxy)
+    Yg = _np.linspace(env['rx_depth'][0], env['rx_depth'][-1], Nxy)
+    Zg = _np.zeros([len(Yg), len(Xg)])
+    
+    # Bathy
+    rb, zb = _np.array(env['bot_interface'][:, 0]), _np.array(env['bot_interface'][:, 1])
+    
+    # Re-compute map over grid
+    for ii, x in enumerate(Xg):  # For all map pixels
+        for jj, y in enumerate(Yg):
+            x_idx = _np.argmin(_np.abs(Xb - x))
+            y_idx = _np.argmin(_np.abs(Yb - y))
+            Zg[jj, ii] = Zb[y_idx, x_idx]
+
+    # Plot water
+    interp_y = _np.interp(Xg, rb, zb)
+    ax.fill_between(Xg / 1000, interp_y, Yg[0], color='blue')
+
+    # Plot surface
+    ax.plot([Xg[0]/1000, Xg[-1]/1000], [0, 0], 'b', linewidth=3)
+
+    # Plot
+    im = ax.imshow(Zg, cmap='jet', extent=[Xg[0] / 1000, Xg[-1] / 1000, Yg[-1], Yg[0]], aspect='auto', vmin=vmin, vmax=vmax)
+    ax.plot(rb/1000, zb, 'k', linewidth=3)
+    ax.scatter(env['tx_range']/1000, env['tx_depth'], label="Stars", color="r", s=500, marker="*")
+    ax.set_xlim((Xg[0] / 1000, Xg[-1] / 1000))
+    ax.set_ylim((Yg[0], Yg[-1]))
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.ax.set_ylabel('Density [g/cm$^{3}$]')
+    ax.set_xlabel('Range [km]')
+    ax.set_ylabel('Depth [m]')
+    ax.set_title(f"[Bottom density] {env['name']}")
+    ax.invert_yaxis()
+    plt.tight_layout()
+    plt.show()
+
+    return fig, ax
+
+def plot_modes(modes, env, model='Unknown model', nMode=10, vmin=-0.2, vmax=0.2):
+    
+    fig, ax = plt.subplots()
+    
+    ax.plot(_np.real(modes.phi[:,0:nMode]), modes.z)
+    ax.set_ylabel('Depth [m]')
+    ax.grid()
+    ax.set_ylim([0,_np.max(env['bot_interface'][:,1])])
+    ax.set_xlim([vmin, vmax])
+    ax.set_title(f"[{model} - Modes ({nMode})] {env['name']}")
+    ax.invert_yaxis()
+    
+    return fig, ax
+
+def plot_bot_attn(env, vmin=0, vmax=0.04, Nxy=500, **kwargs):
+    """
+    Plots the absorption profile in the environment.
+
+    Parameters:
+        vmin (float): Minimum value for the absorption color map.
+        vmax (float): Maximum value for the absorption color map.
+        Nxy (int): Number of points in the x and y directions.
+        **kwargs: Additional keyword arguments for customization.
+
+    Returns:
+        fig, ax: Figure and axis objects for the plot.
+    """
+
+    fig, ax = plt.subplots()
+
+    # Extract absorption data
+    Xb = _np.array(env['bot_range'])
+    Yb = _np.array(env['bot_depth'])
+    Zb = _np.array(_np.array(env['bot_PwaveAttn'], ndmin=2))
+
+    # Generate grid
+    Xg = _np.linspace(env['rx_range'][0], env['rx_range'][-1], Nxy)
+    Yg = _np.linspace(env['rx_depth'][0], env['rx_depth'][-1], Nxy)
+    Zg = _np.zeros([len(Yg), len(Xg)])
+
+    # Bathy
+    rb, zb = _np.array(env['bot_interface'][:, 0]), _np.array(env['bot_interface'][:, 1])
+
+    # Re-compute map over grid
+    for ii, x in enumerate(Xg):  # For all map pixels
+        for jj, y in enumerate(Yg):
+            x_idx = _np.argmin(_np.abs(Xb - x))
+            y_idx = _np.argmin(_np.abs(Yb - y))
+            Zg[jj, ii] = Zb[y_idx, x_idx]
+
+    # Plot water
+    interp_y = _np.interp(Xg, rb, zb)
+    ax.fill_between(Xg / 1000, interp_y, Yg[0], color='blue')
+
+    # Plot surface
+    ax.plot([Xg[0]/1000, Xg[-1]/1000], [0, 0], 'b', linewidth=3)
+
+    # Plot
+    im = ax.imshow(Zg, cmap='jet', aspect='auto', extent=[Xg[0]/1000, Xg[-1]/1000, Yg[-1], Yg[0]], vmin=vmin, vmax=vmax)
+    ax.plot(rb/1000, zb, 'k', linewidth=3)
+    ax.scatter(env['tx_range']/1000, env['tx_depth'], label="Stars", color="r", s=500, marker="*")
+    ax.set_xlim((env['rx_range'][0] / 1000, env['rx_range'][-1] / 1000))
+    ax.set_ylim((env['rx_depth'][0], env['rx_depth'][-1]))
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.ax.set_ylabel('Attenuation [dB/$\lambda$]')
+    ax.set_xlabel('Range [km]')
+    ax.set_ylabel('Depth [m]')
+    ax.set_title(f"[Bottom attenuation] {env['name']}")
+    ax.invert_yaxis()
+    plt.tight_layout()
+    plt.show()
+
     return fig, ax
 
 
@@ -1190,340 +1660,32 @@ class BELLHOP:
 
 
     def plot_interpSSP(self):
-        # @todo Plot SSP in 1D or 2D taking inoto account interpolation process for validation !!
+        # @todo Plot SSP in 1D or 2D taking inoto account interpolation process for validation !
         pass
     
-    def plot_beam(self, vmin=-60, vmax=20, **kwargs):
-        """
-        Plots the beam pattern.
-
-        Parameters:
-            vmin (float): Minimum value in dB (default: -60).
-            vmax (float): Maximum value in dB (default: 20).
-            **kwargs: Additional keyword arguments for customization.
-
-        Returns:
-            fig, ax: Figure and axis objects for the plot.
-        """
-        fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-
-        if self.env['tx_beam'] is not None:
-            # Plot the beam pattern if available
-            ax.plot(-self.env['tx_beam'][:, 0] / 360 * 2 * _np.pi, self.env['tx_beam'][:, 1])
-        else:
-            # Plot a flat line if beam pattern data is not available
-            ax.plot(_np.linspace(0, 2 * _np.pi, 1000), _np.zeros(1000))
-
-        # Move radial labels away from the plotted line
-        ax.set_rlabel_position(-22.5)
-
-        ax.grid(True)
-        ax.set_ylim((vmin, vmax))
-        ax.set_xlabel('$\Phi$ [deg]')
-        ax.set_title(f"[BELLHOP - Source directivity [dB]] {self.env['name']}", va='bottom')
-        plt.tight_layout()
-        plt.show()
-
-        return fig, ax
-    
-    def plot_transmission_loss(self, vmin=-120, vmax=0, debug=False):
+    def plot_beam(self, vmin=-60, vmax=20, **kwargs):        
+        return plot_beam(self.env, vmin=vmin, vmax=vmax)
+        
+    def plot_transmission_loss(self, vmin=-120, vmax=0, debug=False, **kwargs):
         return plot_transmission_loss(self.in_env, self.transmission_loss, model='BELLHOP', vmin=vmin, vmax=vmax, debug=debug)
     
     def plot_ssp(self, Nxy=500, **kwargs):
-        return plot_ssp(self.in_env, Nxy=500, **kwargs)
+        return plot_ssp(self.in_env, Nxy=Nxy, **kwargs)
         
     def plot_arrivals(self, dB=False, color='steelblue', **kwargs):
-        """
-        Plots the arrival times and amplitudes.
-
-        Parameters:
-            arrivals (DataFrame): Arrival times (s) and coefficients.
-            env (dict): Environment definition.
-            Title (str): Title for the plot.
-            dB (bool): True to plot in dB, False for linear scale.
-            color (str): Line color (see `Matplotlib colors <https://matplotlib.org/stable/gallery/color/named_colors.html>`_).
-            **kwargs: Other keyword arguments applicable for `matplotlib.pyplot.plot()`.
-
-        Returns:
-            fig, ax: Figure and axis objects for the plot.
-        """
-
-        t0 = min(self.arrivals.time_of_arrival)
-        t1 = max(self.arrivals.time_of_arrival)
-
-        fig, ax = plt.subplots()
-
-        if dB:
-            min_y = 20 * _np.log10(_np.max(_np.abs(self.arrivals.arrival_amplitude))) - 60
-            ylabel = 'Amplitude [dB]'
-        else:
-            ylabel = 'Amplitude'
-            ax.plot([t0, t1], [0, 0], 'r')
-            min_y = 0
-
-        for _, row in self.arrivals.iterrows():
-            t = row.time_of_arrival.real
-            y = _np.abs(row.arrival_amplitude)
-
-            if dB:
-                y = max(20 * _np.log10(_np.finfo(float).eps + y), min_y)
-
-            ax.stem(t, y, linefmt=color, markerfmt=color, basefmt='k')
-
-        ax.set_ylabel(ylabel)
-        ax.set_title(f"[BELLHOP - Arrivals] {self.env['name']}")
-        ax.set_xlabel('Arrival time [s]')
-        ax.grid('all')
-        plt.tight_layout()
-        plt.show()
-
-        return fig, ax
-    
+        return plot_arrivals(self.arrivals, self.env, model='BELLHOP', dB=dB, color='steelblue')
+        
     def plot_arrivals_beam(self, ref_amp=1, **kwargs):
-        """
-        Produce the travel time ellipse with colorbar for amplitude
-        Input - 
-        self - contains all the arrival info
-        vals - optional
-            allows me to use a reference arrival set to calibrate the plot axes
-            vals[0] = times
-            vals[0] = amps
-        """
+        return plot_arrivals_beam(self.arrivals, self.env, model='BELLHOP', ref_amp=ref_amp)
         
-        fig, ax = plt.subplots(subplot_kw={'projection': 'polar'}) 
-        
-        amps       = self.arrivals['arrival_amplitude']
-        rec_angles = self.arrivals['angle_of_arrival'] 
-        #times      = self.arrivals['time_of_arrival']
-
-        if type(ref_amp) == type(None):
-            amps = amps / _np.max(abs(amps))
-        else:
-            amps /= abs(ref_amp)
-            
-        cvals = 10*_np.log10(abs(amps))
- 
-        max_db_down  = 120
-        #cvals_normed = abs(amps) / max_db_down
-        strong_inds  = cvals > -max_db_down
-        ax.scatter(rec_angles[strong_inds]/360*2*_np.pi, cvals[strong_inds], marker='x', color='black', linewidths=1, alpha=0.75)
-        
-        ax.set_title(f"[BELLHOP - Arrivals beam [dB]] {self.env['name']}")
-        ax.set_xlabel('$\Phi$ [deg]')
-        ax.grid('all')
-        
-        return fig, ax
-
-
     def plot_rays(self, nRay=100, invert_colors=False, **kwargs):
-        """
-        Plot rays.
-
-        Parameters:
-        - number: Number of rays to plot (default: np.Inf).
-        - invert_colors: If True, invert colors of the plot (default: False).
-
-        Returns:
-        - fig: The figure object.
-        - ax: The axes object.
-        """
-        
-        nInit = nRay
-        
-        # Sorting rays by bottom bounces in ascending order
-        self.rays = self.rays.sort_values('surface_bounces', ascending=True)
-
-        # Determine the maximum amplitude of bottom bounces
-        max_amp = _np.max(_np.abs(self.rays.bottom_bounces)) if len(self.rays.bottom_bounces) > 0 else 0
-        if max_amp <= 0:
-            max_amp = 1
-
-        divisor = 1
-        xlabel = 'Range [m]'
-        r = []
-
-        # Flatten ray coordinates for determining the range
-        for _, row in self.rays.iterrows():
-            r += list(row.ray[:, 0])
-
-        # Check if range exceeds 10,000 meters, if so, change divisor and x-label
-        if max(r) - min(r) > 10000:
-            divisor = 1000
-            xlabel = 'Range [km]'
-
-        # Create figure and axes
-        fig, ax = plt.subplots()
-
-        # Plot rays
-        for _, row in self.rays.iterrows():
-            num_bnc = row.bottom_bounces + row.surface_bounces
-            if nRay > 0:
-                if row.bottom_bounces == 0 and row.surface_bounces == 0:
-                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='r', alpha=.5)  # Plot direct path
-                    nRay -= 1
-                elif num_bnc > 1:
-                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='k', alpha=.5)  # Plot multi-bounce path
-                    nRay -= 1
-                elif row.surface_bounces == 1:
-                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='b', alpha=.5)  # Plot surface bounce path
-                    nRay -= 1
-                elif row.bottom_bounces == 1:
-                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='g', alpha=.5)  # Plot bottom bounce path
-                    nRay -= 1
-            else:
-                break
-            
-        # Check if receiver range is negative, if so, flip x-axis
-        if self.env['rx_range'] < 0:
-            ax.plot(-_np.flip(self.env['bot_interface'][:, 0]) / divisor, _np.flip(self.env['bot_interface'][:, 1]), 'k', linewidth=3)
-            ax.plot(-_np.flip(self.env['top_interface'][:, 0]) / divisor, _np.flip(self.env['top_interface'][:, 1]), 'b', linewidth=3)
-            ax.scatter(-self.env['rx_range'] / divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
-            ax.set_xlim((-self.env['rx_range'] / divisor, 0))
-        else:
-            ax.plot(self.env['bot_interface'][:, 0] / divisor, self.env['bot_interface'][:, 1], 'k', linewidth=3)
-            ax.plot(self.env['top_interface'][:, 0] / divisor, self.env['top_interface'][:, 1], 'b', linewidth=3)
-            ax.scatter(self.env['rx_range'] / divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
-            ax.set_xlim((0, self.env['rx_range'] / divisor))
-
-        # Set labels, title, and legend
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel("Depth [m]")
-        ax.set_ylim((_np.min(self.env['top_interface'][:,1]), _np.max(self.env['bot_interface'][:, 1])))
-        ax.set_title(f"[BELLHOP - Rays ({nInit-nRay})] {self.env['name']}")
-        ax.scatter(0, self.env['tx_depth'], label="Source", color="k", s=250, marker="*")
-
-        # Invert y-axis, add grid, and display plot
-        ax.invert_yaxis()
-        ax.grid('all')
-        plt.tight_layout()
-        plt.show()
-
-        return fig, ax
-    
+        return plot_rays(self.rays, self.env, model='BELLHOP', nRay=nRay, invert_colors=invert_colors)
+       
     def plot_eigen_rays(self, nRay=10, invert_colors=False, **kwargs):
-        """
-        Plot eigen rays.
+        return plot_eigen_rays(self.eigen_rays, self.env, model='BELLHOP', nRay=nRay, invert_colors=invert_colors)
         
-        Parameters:
-        - number: Number of eigen rays to plot (default: 10).
-        - invert_colors: If True, invert colors of the plot (default: False).
-        
-        Returns:
-        - fig: The figure object.
-        - ax: The axes object.
-        """
-        
-        nInit = nRay
-        
-        # Sorting rays by bottom bounces in descending order
-        self.eigen_rays = self.eigen_rays.sort_values('bottom_bounces', ascending=True)
-
-        # Determine the maximum amplitude of bottom bounces
-        max_amp = _np.max(_np.abs(self.eigen_rays.bottom_bounces)) if len(self.eigen_rays.bottom_bounces) > 0 else 0
-        max_amp = max_amp if max_amp > 0 else 1
-
-        divisor = 1
-        xlabel = 'Range [m]'
-        r = []
-
-        # Flatten ray coordinates for determining the range
-        for _, row in self.eigen_rays.iterrows():
-            r.extend(list(row.ray[:, 0]))
-
-        # Check if range exceeds 10,000 meters, if so, change divisor and x-label
-        if max(r) - min(r) > 10000:
-            divisor = 1000
-            xlabel = 'Range [km]'
-
-        # Create figure and axes
-        fig, ax = plt.subplots()
-
-        # Plot each eigen ray
-        for _, row in self.eigen_rays.iterrows():
-            num_bnc = row.bottom_bounces + row.surface_bounces
-            if nRay > 0:
-                if row.bottom_bounces == 0 and row.surface_bounces == 0:
-                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='r', alpha=.5)  # Plot direct path
-                    nRay -= 1
-                elif num_bnc > 1:
-                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='k', alpha=.5)  # Plot multi-bounce path
-                    nRay -= 1
-                elif row.surface_bounces == 1:
-                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='b', alpha=.5)  # Plot surface bounce path
-                    nRay -= 1
-                elif row.bottom_bounces == 1:
-                    ax.plot(row.ray[:, 0] / divisor, row.ray[:, 1], color='g', alpha=.5)  # Plot bottom bounce path
-                    nRay -= 1
-            else:
-                break
-
-        # Check if receiver range is negative, if so, flip x-axis
-        if self.env['rx_range'] < 0:
-            ax.plot(-_np.flip(self.env['bot_interface'][:, 0]) / divisor, _np.flip(self.env['bot_interface'][:, 1]), 'k', linewidth=3)
-            ax.plot(-_np.flip(self.env['top_interface'][:, 0]) / divisor, _np.flip(self.env['top_interface'][:, 1]), 'b', linewidth=3)
-            ax.scatter(-self.env['rx_range'] / divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
-            ax.set_xlim((-self.env['rx_range'] / divisor, 0))
-        else:
-            ax.plot(self.env['bot_interface'][:, 0] / divisor, self.env['bot_interface'][:, 1], 'k', linewidth=3)
-            ax.plot(self.env['top_interface'][:, 0] / divisor, self.env['top_interface'][:, 1], 'b', linewidth=3)
-            ax.scatter(self.env['rx_range'] / divisor, self.env['rx_depth'], label="Receiver", color="k", s=250, marker="o")
-            ax.set_xlim((0, self.env['rx_range'] / divisor))
-
-        # Set labels, title, and legend
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel("Depth [m]")
-        ax.set_ylim((_np.min(self.env['top_interface'][:, 1]), _np.max(self.env['bot_interface'][:, 1])))
-        ax.set_title(f"[BELLHOP - Eigen rays ({nInit-nRay})] {self.env['name']}")
-        ax.scatter(0, self.env['tx_depth'], label="Source", color="k", s=250, marker="*")
-
-        # Invert y-axis, add grid, and display plot
-        ax.invert_yaxis()
-        ax.grid('all')
-        plt.tight_layout()
-        plt.show()
-
-        return fig, ax
-    
     def plot_impulse_response(self, dB=False, nArrival=10, color='steelblue', **kwargs):
-        """
-        Plot impulse response.
-
-        Parameters:
-        - dB: If True, convert the impulse response to dB (default: False).
-        - nArrival: Number of arrivals to plot (default: 10).
-        - color: Color of the plot (default: 'steelblue').
-
-        Returns:
-        - fig: The figure object.
-        - ax: The axes object.
-        """
-        # If dB is True, convert the impulse response to dB
-        if dB:
-            ir = 20 * _np.log10(_np.abs(self.impulse_response) + _np.finfo(float).eps)  # Convert to dB
-        else:
-            ir = self.impulse_response.real  # Use real part of impulse response
-
-        irlen = 0
-        nn    = 0
-        for ii,val in enumerate(ir):
-            if val != 0:
-                nn += 1
-                irlen = ii
-            if nn == nArrival:
-                break
-        
-        # Plot the impulse response using stem plot
-        fig, ax = plt.subplots()
-        ax.plot(ir, color=color)  # Plot impulse response
-        ax.set_xlim([0, irlen])  # Set x-axis limit
-        ax.set_xlabel('Sample [S]')  # Set x-axis label
-        ax.set_ylabel('Amplitude')  # Set y-axis label
-        ax.set_title(f"[BELLHOP - Impulse response ({nn} @ {self.impulse_response_fs} S/s)] {self.env['name']}")  # Set title
-        ax.grid('all')  # Add grid
-        plt.tight_layout()  # Adjust layout
-        plt.show()  # Show plot
-
-        return fig, ax
+        return plot_impulse_response(self.impulse_response, self.impulse_response_fs, self.env, model='BELLHOP', dB=dB, nArrival=nArrival, color=color)
     
     def _create_bty_ati_file(self, filename, depth, interp, debug=False):
         with open(filename, 'wt') as f:
@@ -2348,27 +2510,15 @@ class KRAKEN:
         return fname_base
 
 
-    def plot_transmission_loss(self, vmin=-120, vmax=0, debug=False):
+    def plot_transmission_loss(self, vmin=-120, vmax=0, debug=False, **kwargs):
         return plot_transmission_loss(self.in_env, self.transmission_loss, model='KRAKEN', vmin=vmin, vmax=vmax, debug=debug)
     
     def plot_ssp(self, Nxy=500, **kwargs):
-        return plot_ssp(self.in_env, Nxy=500, **kwargs)
+        return plot_ssp(self.in_env, Nxy=Nxy)
     # @todo     Remove useless file creation.
 
-
     def plot_modes(self, nMode=10, vmin=-0.2, vmax=0.2):
-        
-        fig, ax = plt.subplots()
-        
-        ax.plot(_np.real(self.modes.phi[:,0:nMode]), self.modes.z)
-        ax.set_ylabel('Depth [m]')
-        ax.grid()
-        ax.set_ylim([0,_np.max(self.env['bot_interface'][:,1])])
-        ax.set_xlim([vmin, vmax])
-        ax.set_title(f"[KRAKEN - Modes ({nMode})] {self.env['name']}")
-        ax.invert_yaxis()
-        
-        return fig, ax
+        return plot_modes(self.modes, self.env, model='KRAKEN', nMode=10, vmin=-0.2, vmax=0.2)
             
     def _create_bty_ati_file(self, filename, depth, interp):
         with open(filename, 'wt') as f:
@@ -2757,27 +2907,28 @@ class RAM:
     # @todo     Understand and manage CP task
     
     def __init__(self, env=None, cp=False):
-              
+        
         self.transmission_loss = None 
         self.step              = 0  # 0:Automatic => lambda/8
         self.PadeTerm          = 8
         self.attnLayerWidth    = 20 # wavelength
         self.nStabConst        = 1
         self.maxStabRange      = 0  # Automatic => rbox
-        
-        if env is None:
-            self.env           = None
-        else:
-            self.set_env(env, cp=cp)
-
-        
+        self.set_env(env)
 
     def set_env(self, env, cp=False, **kwargs):
         
-        if cp:
-            self.env =  dict(env)
-        else:
-            self.env = env
+        # Get a pointer on the input env
+        self.in_env = env
+        
+        # Make a local copy of the env that will be modified
+        self.env = copy.deepcopy(env)
+        
+        # Env need to be 0 centered on the source range
+        self.env = shift_env2d(self.env, -self.env['tx_range'])
+        
+        # Make env 
+        self.env = make_env2d(self.env)
             
         if hasattr(self, 'step') and self.step is not None and self.step > 0:
             step  = self.step
@@ -3066,261 +3217,17 @@ class RAM:
         
         return self.complex_pressure
     
-    def plot_transmission_loss(self, vmin=-120, vmax=0, **kwargs):
-        """
-        Plots the transmission loss of the environment.
-
-        Parameters:
-            vmin (float): Minimum value for the transmission loss.
-            vmax (float): Maximum value for the transmission loss.
-            **kwargs: Additional keyword arguments for customization.
-
-        Returns:
-            fig, ax: Figure and axis objects for the plot.
-        """
-        fig, ax = plt.subplots()
-        X = self.env['rx_range']
-        Y = self.env['rx_depth']
-
-        tlossplt = 20 * _np.log10(_np.finfo(float).eps + _np.abs(_np.array(self.transmission_loss)))
-
-        # Remove transmission loss in sediment
-        interp_y = _np.interp(X, self.env['bot_interface'][:, 0], self.env['bot_interface'][:, 1])
-        ax.fill_between(X / 1000, interp_y, Y[-1], color='brown')
-
-        # Plot the surface
-        ax.plot([X[0]/1000, X[-1]/1000], [0, 0], 'b', linewidth=3)
-
-        # Plot the transmission loss map using imshow
-        im1 = ax.imshow(tlossplt, extent=[X[0] / 1000, X[-1] / 1000, Y[-1], Y[0]], cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
-
-        # Plot the bottom interface
-        if _np.size(self.env['bot_interface'][:, 0]) > 1:
-            ax.plot(self.env['bot_interface'][:, 0] / 1000, self.env['bot_interface'][:, 1], 'k', linewidth=3)
-        else:
-            ax.plot([X[0] / 1000, X[-1] / 1000], [self.env['bot_interface'][0, 1], self.env['bot_interface'][0, 1]], 'k', linewidth=3)
-
-        # Set plot properties
-        ax.set_xlim((X[0] / 1000, X[-1] / 1000))
-        ax.set_ylim((Y[0], Y[-1]))
-        ax.set_xlabel('Range [km]')
-        ax.set_ylabel('Depth [m]')
-        ax.set_title(f"[RAM - Transmission loss @ {self.env['tx_freq']} Hz] {self.env['name']}")
-
-        # Add color bar
-        cbar1 = fig.colorbar(im1, ax=ax)
-        cbar1.ax.set_ylabel('Loss [dB]')
-
-        # Invert y-axis for depth
-        ax.invert_yaxis()
-
-        # Adjust layout and display plot
-        plt.tight_layout()
-        plt.show()
-
-        return fig, ax
-
-    def plot_bot_density(self, vmin=0, vmax=4, Nxy=500, **kwargs):
-        """
-        Plots the density profile of the sediment in the environment.
+    def plot_transmission_loss(self, vmin=-120, vmax=0, debug=False, **kwargs):
+        return plot_transmission_loss(self.in_env, self.transmission_loss, model='RAM', vmin=vmin, vmax=vmax, debug=debug)
     
-        Parameters:
-            Title (str): Title for the plot.
-            vmin (float): Minimum value for the density color map.
-            vmax (float): Maximum value for the density color map.
-            Nxy (int): Number of points in the x and y directions.
-            **kwargs: Additional keyword arguments for customization.
-    
-        Returns:
-            fig, ax: Figure and axis objects for the plot.
-        """
-        
-        fig, ax = plt.subplots()
-        
-        # Extract density data
-        Xb = _np.array(self.env['bot_range'])
-        Yb = _np.array(self.env['bot_depth'])
-        Zb = _np.array(self.env['bot_density'], ndmin=2)
-        
-        # Generate grid
-        Xg = _np.linspace(self.env['rx_range'][0], self.env['rx_range'][-1], Nxy)
-        Yg = _np.linspace(self.env['rx_depth'][0], self.env['rx_depth'][-1], Nxy)
-        Zg = _np.zeros([len(Yg), len(Xg)])
-        
-        # Bathy
-        rb, zb = _np.array(self.env['bot_interface'][:, 0]), _np.array(self.env['bot_interface'][:, 1])
-        
-        # Re-compute map over grid
-        for ii, x in enumerate(Xg):  # For all map pixels
-            for jj, y in enumerate(Yg):
-                x_idx = _np.argmin(_np.abs(Xb - x))
-                y_idx = _np.argmin(_np.abs(Yb - y))
-                Zg[jj, ii] = Zb[y_idx, x_idx]
-
-        # Plot water
-        interp_y = _np.interp(Xg, rb, zb)
-        ax.fill_between(Xg / 1000, interp_y, Yg[0], color='blue')
-    
-        # Plot surface
-        ax.plot([Xg[0]/1000, Xg[-1]/1000], [0, 0], 'b', linewidth=3)
-    
-        # Plot
-        im = ax.imshow(Zg, cmap='jet', extent=[Xg[0] / 1000, Xg[-1] / 1000, Yg[-1], Yg[0]], aspect='auto', vmin=vmin, vmax=vmax)
-        ax.plot(rb/1000, zb, 'k', linewidth=3)
-        ax.scatter(0, self.env['tx_depth'], label="Stars", color="r", s=500, marker="*")
-        ax.set_xlim((Xg[0] / 1000, Xg[-1] / 1000))
-        ax.set_ylim((Yg[0], Yg[-1]))
-        cbar = fig.colorbar(im, ax=ax)
-        cbar.ax.set_ylabel('Density [g/cm$^{3}$]')
-        ax.set_xlabel('Range [km]')
-        ax.set_ylabel('Depth [m]')
-        ax.set_title(f"[RAM - Bottom density] {self.env['name']}")
-        ax.invert_yaxis()
-        plt.tight_layout()
-        plt.show()
-    
-        return fig, ax
+    def plot_bot_density(self, vmin=0, vmax=4, Nxy=500, **kwargs):        
+        return plot_bot_density(self.in_env, vmin=vmin, vmax=vmax, Nxy=Nxy)
 
     def plot_ssp(self, Nxy=500, **kwargs):
-        """
-        Plots the sound speed profile of the environment.
-        
-        Parameters:
-            Nxy (int): Number of points in the x and y directions.
-            **kwargs: Additional keyword arguments for customization.
-            
-        Returns:
-            fig, ax: Figure and axis objects for the plot.
-        """
-        fig, ax = plt.subplots()
-
-        if _np.size(self.env['ssp_range']) > 1:  # 2D SSP data
-            
-            vmin = kwargs.get('vmin', _np.min(self.env['ssp'])-_np.abs(_np.mean(self.env['bot_PwaveSpeed']))/20)
-            vmax = kwargs.get('vmax', _np.max(self.env['bot_PwaveSpeed'])+_np.abs(_np.mean(self.env['bot_PwaveSpeed']))/20)
-        
-            # Extract data
-            X, Y, Z = _np.array(self.env['ssp_range']), _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
-            Xb, Yb, Zb = _np.array(self.env['bot_range']), _np.array(self.env['bot_depth']), _np.array(self.env['bot_PwaveSpeed'], ndmin=2)
-            
-            # Generate grid
-            Xg = _np.linspace(self.env['rx_range'][0], self.env['rx_range'][-1], Nxy)
-            Yg = _np.linspace(self.env['rx_depth'][0], self.env['rx_depth'][-1], Nxy)
-            Zg = _np.zeros([len(Yg), len(Xg)])
-            
-            # Bathy
-            rb, zb = _np.array(self.env['bot_interface'][:, 0]), _np.array(self.env['bot_interface'][:, 1])
-            
-            # Re-compute map over grid
-            for ii, x in enumerate(Xg):
-                intrepolation = _np.interp(x, rb, zb)
-                for jj, y in enumerate(Yg):
-                    if y > intrepolation:  # If in sediment
-                        y_idx = _np.argmin(_np.abs(Yb - y))
-                        x_idx = _np.argmin(_np.abs(Xb - x))
-                        Zg[jj, ii] = Zb[y_idx, x_idx]
-                    else:  # Else in water column
-                        y_idx = _np.argmin(_np.abs(Y - y))
-                        x_idx = _np.argmin(_np.abs(X - x))
-                        Zg[jj, ii] = Z[y_idx, x_idx]
-            
-            # Plot            
-            ax.plot([Xg[0] / 1000, Xg[-1] / 1000], [0, 0], 'b', linewidth=3)  # Flat surface
-            im = ax.imshow(Zg, cmap='jet', extent=[Xg[0] / 1000, Xg[-1] / 1000, Yg[-1], Yg[0]], aspect='auto', vmin=vmin, vmax=vmax)
-            ax.plot(rb / 1000, zb, 'k', linewidth=3)  # Bathy
-            ax.scatter(0, self.env['tx_depth'], label="Stars", color="r", s=500, marker="*")  # Stars
-            cbar = fig.colorbar(im, ax=ax)
-            cbar.ax.set_ylabel('Sound speed [m/s]')
-            ax.set_xlim((self.env['rx_range'][0] / 1000, self.env['rx_range'][-1] / 1000))
-            ax.set_ylim((self.env['rx_depth'][0], self.env['rx_depth'][-1]))
-            ax.set_xlabel('Range [km]')
-            ax.set_ylabel('Depth [m]')
-            ax.set_title(f"[RAM - Sound speed profile] {self.env['name']}")
-            ax.invert_yaxis()
-            plt.tight_layout()
-            plt.show()
-            
-        else:  # 1D SSP data
-  
-            vmin = kwargs.get('vmin', _np.min(self.env['ssp'])-_np.abs(_np.mean(self.env['ssp']))/100)
-            vmax = kwargs.get('vmax', _np.max(self.env['ssp'])+_np.abs(_np.mean(self.env['ssp']))/100)
-            
-            if _np.size(self.env['ssp_depth']) > 1:
-                Y, Z = _np.array(self.env['ssp_depth']), _np.array(self.env['ssp'])
-            else:
-                Y, Z = _np.array([0, _np.max(self.env['bot_interface'][:,1])]), _np.array([self.env['ssp'], self.env['ssp']])
-            ax.set_title(f"[RAM - Sound speed profile] {self.env['name']}")
-            ax.set_xlim((vmin, vmax))
-            ax.invert_yaxis()
-            ax.grid(True)
-            ax.set_ylabel('Depth [m]')
-            ax.set_xlabel('Sound speed [m/s]')
-            ax.plot(Z, Y, 'k', linewidth=3)
-            plt.tight_layout()
-            plt.show()
-            
-        return fig, ax
+        return plot_ssp(self.in_env, Nxy=Nxy)
 
     def plot_bot_attn(self, vmin=0, vmax=0.04, Nxy=500, **kwargs):
-        """
-        Plots the absorption profile in the environment.
-    
-        Parameters:
-            vmin (float): Minimum value for the absorption color map.
-            vmax (float): Maximum value for the absorption color map.
-            Nxy (int): Number of points in the x and y directions.
-            **kwargs: Additional keyword arguments for customization.
-    
-        Returns:
-            fig, ax: Figure and axis objects for the plot.
-        """
-    
-        fig, ax = plt.subplots()
-    
-        # Extract absorption data
-        Xb = _np.array(self.env['bot_range'])
-        Yb = _np.array(self.env['bot_depth'])
-        Zb = _np.array(_np.array(self.env['bot_PwaveAttn'], ndmin=2))
-    
-        # Generate grid
-        Xg = _np.linspace(self.env['rx_range'][0], self.env['rx_range'][-1], Nxy)
-        Yg = _np.linspace(self.env['rx_depth'][0], self.env['rx_depth'][-1], Nxy)
-        Zg = _np.zeros([len(Yg), len(Xg)])
-    
-        # Bathy
-        rb, zb = _np.array(self.env['bot_interface'][:, 0]), _np.array(self.env['bot_interface'][:, 1])
-    
-        # Re-compute map over grid
-        for ii, x in enumerate(Xg):  # For all map pixels
-            for jj, y in enumerate(Yg):
-                x_idx = _np.argmin(_np.abs(Xb - x))
-                y_idx = _np.argmin(_np.abs(Yb - y))
-                Zg[jj, ii] = Zb[y_idx, x_idx]
-
-        # Plot water
-        interp_y = _np.interp(Xg, rb, zb)
-        ax.fill_between(Xg / 1000, interp_y, Yg[0], color='blue')
-    
-        # Plot surface
-        ax.plot([Xg[0]/1000, Xg[-1]/1000], [0, 0], 'b', linewidth=3)
-    
-        # Plot
-        im = ax.imshow(Zg, cmap='jet', aspect='auto', extent=[Xg[0]/1000, Xg[-1]/1000, Yg[-1], Yg[0]], vmin=vmin, vmax=vmax)
-        ax.plot(rb/1000, zb, 'k', linewidth=3)
-        ax.scatter(0, self.env['tx_depth'], label="Stars", color="r", s=500, marker="*")
-        ax.set_xlim((self.env['rx_range'][0] / 1000, self.env['rx_range'][-1] / 1000))
-        ax.set_ylim((self.env['rx_depth'][0], self.env['rx_depth'][-1]))
-        cbar = fig.colorbar(im, ax=ax)
-        cbar.ax.set_ylabel('Attenuation [dB/$\lambda$]')
-        ax.set_xlabel('Range [km]')
-        ax.set_ylabel('Depth [m]')
-        ax.set_title(f"[RAM - Bottom attenuation] {self.env['name']}")
-        ax.invert_yaxis()
-        plt.tight_layout()
-        plt.show()
-    
-        return fig, ax
-
+        return plot_bot_attn(self.in_env, vmin=vmin, vmax=vmax, Nxy=Nxy)
     
 # Add model to available models
 _models.append(('RAM', RAM))
