@@ -1129,8 +1129,8 @@ def plot_bot_attn(env, vmin=0, vmax=0.04, Nxy=500, **kwargs):
     xmax = _np.max((_np.max(env['rx_range']), _np.max(env['bot_range'])))
     Xg = _np.linspace(xmin, xmax, Nxy)
         
-    ymin = _np.min((_np.min(env['rx_range']), _np.min(env['bot_depth'])))
-    ymax = _np.max((_np.max(env['rx_range']), _np.max(env['bot_depth'])))
+    ymin = _np.min((_np.min(env['rx_depth']), _np.min(env['bot_depth'])))
+    ymax = _np.max((_np.max(env['rx_depth']), _np.max(env['bot_depth'])))
     Yg = _np.linspace(ymin, ymax, Nxy)
         
     Zg = _np.zeros([len(Yg), len(Xg)])
