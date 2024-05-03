@@ -628,8 +628,8 @@ def plot_ssp(env, Nxy=500, **kwargs):
         xmax = _np.max((_np.max(env['rx_range']), _np.max(env['ssp_range'])))
         Xg = _np.linspace(xmin, xmax, Nxy)
             
-        ymin = _np.min((_np.min(Y), _np.min(env['rx_depth'])))
-        ymax = _np.max((_np.max(Y), _np.max(env['rx_depth'])))
+        ymin = _np.min((_np.min(env['rx_depth']), _np.min(env['ssp_depth'])))
+        ymax = _np.max((_np.max(env['rx_depth']), _np.max(env['ssp_depth'])))
         Yg = _np.linspace(ymin, ymax, Nxy)
         
         Zg = _np.zeros([len(Yg), len(Xg)])
@@ -1045,12 +1045,12 @@ def plot_bot_density(env, vmin=0, vmax=4, Nxy=500, **kwargs):
     Zb = _np.array(env['bot_density'], ndmin=2)
     
     # Generate grid
-    xmin = _np.min((_np.min(env['rx_range']), _np.min(env['ssp_range'])))
-    xmax = _np.max((_np.max(env['rx_range']), _np.max(env['ssp_range'])))
+    xmin = _np.min((_np.min(env['rx_range']), _np.min(env['bot_range'])))
+    xmax = _np.max((_np.max(env['rx_range']), _np.max(env['bot_range'])))
     Xg = _np.linspace(xmin, xmax, Nxy)
         
-    ymin = _np.min((_np.min(env['bot_depth']), _np.min(env['rx_depth'])))
-    ymax = _np.max((_np.max(env['bot_depth']), _np.max(env['rx_depth'])))
+    ymin = _np.min((_np.min(env['rx_depth']), _np.min(env['bot_depth'])))
+    ymax = _np.max((_np.max(env['rx_depth']), _np.max(env['bot_depth'])))
     Yg = _np.linspace(ymin, ymax, Nxy)
         
     Zg = _np.zeros([len(Yg), len(Xg)])
@@ -1129,8 +1129,8 @@ def plot_bot_attn(env, vmin=0, vmax=0.04, Nxy=500, **kwargs):
     xmax = _np.max((_np.max(env['rx_range']), _np.max(env['bot_range'])))
     Xg = _np.linspace(xmin, xmax, Nxy)
         
-    ymin = _np.min((_np.min(env['bot_range']), _np.min(env['rx_depth'])))
-    ymax = _np.max((_np.max(env['bot_range']), _np.max(env['rx_depth'])))
+    ymin = _np.min((_np.min(env['rx_range']), _np.min(env['bot_depth'])))
+    ymax = _np.max((_np.max(env['rx_range']), _np.max(env['bot_depth'])))
     Yg = _np.linspace(ymin, ymax, Nxy)
         
     Zg = _np.zeros([len(Yg), len(Xg)])
@@ -1183,10 +1183,10 @@ def plot_bathy(env, **kwargs):
     fig, ax = plt.subplots()
 
     # Generate grid
-    xmin = _np.min((env['rx_range'][0], env['top_interface'][0,0], env['bot_interface'][0,0]))
-    xmax = _np.max((env['rx_range'][-1], env['top_interface'][-1,0], env['bot_interface'][-1,0]))        
-    ymin = _np.min((env['rx_depth'][0], _np.min(env['top_interface'][:,1])))
-    ymax = _np.max((env['rx_depth'][-1], _np.max(env['bot_interface'][:,1])))
+    xmin = _np.min((_np.min(env['rx_range']), env['top_interface'][0,0], env['bot_interface'][0,0]))
+    xmax = _np.max((_np.max(env['rx_range']), env['top_interface'][-1,0], env['bot_interface'][-1,0]))        
+    ymin = _np.min((_np.min(env['rx_depth']), _np.min(env['top_interface'][:,1])))
+    ymax = _np.max((_np.max(env['rx_depth']), _np.max(env['bot_interface'][:,1])))
 
     # Bathy
     rb, zb = _np.array(env['bot_interface'][:, 0]), _np.array(env['bot_interface'][:, 1])
