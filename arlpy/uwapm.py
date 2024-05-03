@@ -226,7 +226,7 @@ def init_env2d(**kv):
         if k not in env.keys():
             raise KeyError('Unknown key: '+k)
         env[k] = _np.array(v, dtype=_np.float64) if _np.size(v) > 1 else v
-     
+        
     return env
 
         
@@ -624,18 +624,14 @@ def plot_ssp(env, Nxy=500, **kwargs):
         
         Zb = kwargs.get('vmax', _np.max(env['ssp']) * 4) 
         
-        """
-        if _np.size(env['rx_range']) > 1:
-            Xg = _np.linspace(env['rx_range'][0], env['rx_range'][-1], Nxy)
-        else:
-            Xg = _np.linspace(env['ssp_range'][0], env['ssp_range'][-1], Nxy)
-        """
-        
-        xmin = _np.min((env['rx_range'][0], env['ssp_range'][0]))
-        xmax = _np.max((env['rx_range'][-1], env['ssp_range'][-1]))
+        xmin = _np.min((_np.min(env['rx_range']), _np.min(env['ssp_range'])))
+        xmax = _np.max((_np.max(env['rx_range']), _np.max(env['ssp_range'])))
         Xg = _np.linspace(xmin, xmax, Nxy)
             
-        Yg = _np.linspace(0, _np.max((Y[-1], env['rx_depth'][-1])), Nxy)
+        ymin = _np.min((_np.min(Y), _np.min(env['rx_depth'])))
+        ymax = _np.max((_np.max(Y), _np.max(env['rx_depth'])))
+        Yg = _np.linspace(ymin, ymax, Nxy)
+        
         Zg = _np.zeros([len(Yg), len(Xg)])
         
         # Bathy
@@ -674,8 +670,8 @@ def plot_ssp(env, Nxy=500, **kwargs):
         ax.scatter(env['tx_range']/1000, env['tx_depth'], label="Stars", color="r", s=500, marker="*") 
         cbar = fig.colorbar(im, ax=ax)
         cbar.ax.set_ylabel('Sound speed [m/s]')
-        ax.set_xlim((env['rx_range'][0] / 1000, env['rx_range'][-1] / 1000))
-        ax.set_ylim((env['rx_depth'][0], env['rx_depth'][-1]))
+        ax.set_xlim((xmin / 1000, xmax / 1000))
+        ax.set_ylim((ymin, ymax))
         ax.set_xlabel('Range [km]')
         ax.set_ylabel('Depth [m]')
         ax.set_title(f"[Sound speed profile] {env['name']}")
@@ -1049,8 +1045,14 @@ def plot_bot_density(env, vmin=0, vmax=4, Nxy=500, **kwargs):
     Zb = _np.array(env['bot_density'], ndmin=2)
     
     # Generate grid
-    Xg = _np.linspace(env['rx_range'][0], env['rx_range'][-1], Nxy)
-    Yg = _np.linspace(env['rx_depth'][0], env['rx_depth'][-1], Nxy)
+    xmin = _np.min((_np.min(env['rx_range']), _np.min(env['ssp_range'])))
+    xmax = _np.max((_np.max(env['rx_range']), _np.max(env['ssp_range'])))
+    Xg = _np.linspace(xmin, xmax, Nxy)
+        
+    ymin = _np.min((_np.min(env['bot_depth']), _np.min(env['rx_depth'])))
+    ymax = _np.max((_np.max(env['bot_depth']), _np.max(env['rx_depth'])))
+    Yg = _np.linspace(ymin, ymax, Nxy)
+        
     Zg = _np.zeros([len(Yg), len(Xg)])
     
     # Bathy
@@ -1074,8 +1076,8 @@ def plot_bot_density(env, vmin=0, vmax=4, Nxy=500, **kwargs):
     im = ax.imshow(Zg, cmap='jet', extent=[Xg[0] / 1000, Xg[-1] / 1000, Yg[-1], Yg[0]], aspect='auto', vmin=vmin, vmax=vmax)
     ax.plot(rb/1000, zb, 'k', linewidth=3)
     ax.scatter(env['tx_range']/1000, env['tx_depth'], label="Stars", color="r", s=500, marker="*")
-    ax.set_xlim((Xg[0] / 1000, Xg[-1] / 1000))
-    ax.set_ylim((Yg[0], Yg[-1]))
+    ax.set_xlim((xmin / 1000, xmax / 1000))
+    ax.set_ylim((ymin, ymax))
     cbar = fig.colorbar(im, ax=ax)
     cbar.ax.set_ylabel('Density [g/cm$^{3}$]')
     ax.set_xlabel('Range [km]')
@@ -1123,8 +1125,14 @@ def plot_bot_attn(env, vmin=0, vmax=0.04, Nxy=500, **kwargs):
     Zb = _np.array(_np.array(env['bot_PwaveAttn'], ndmin=2))
 
     # Generate grid
-    Xg = _np.linspace(env['rx_range'][0], env['rx_range'][-1], Nxy)
-    Yg = _np.linspace(env['rx_depth'][0], env['rx_depth'][-1], Nxy)
+    xmin = _np.min((_np.min(env['rx_range']), _np.min(env['bot_range'])))
+    xmax = _np.max((_np.max(env['rx_range']), _np.max(env['bot_range'])))
+    Xg = _np.linspace(xmin, xmax, Nxy)
+        
+    ymin = _np.min((_np.min(env['bot_range']), _np.min(env['rx_depth'])))
+    ymax = _np.max((_np.max(env['bot_range']), _np.max(env['rx_depth'])))
+    Yg = _np.linspace(ymin, ymax, Nxy)
+        
     Zg = _np.zeros([len(Yg), len(Xg)])
 
     # Bathy
@@ -1148,14 +1156,55 @@ def plot_bot_attn(env, vmin=0, vmax=0.04, Nxy=500, **kwargs):
     im = ax.imshow(Zg, cmap='jet', aspect='auto', extent=[Xg[0]/1000, Xg[-1]/1000, Yg[-1], Yg[0]], vmin=vmin, vmax=vmax)
     ax.plot(rb/1000, zb, 'k', linewidth=3)
     ax.scatter(env['tx_range']/1000, env['tx_depth'], label="Stars", color="r", s=500, marker="*")
-    ax.set_xlim((env['rx_range'][0] / 1000, env['rx_range'][-1] / 1000))
-    ax.set_ylim((env['rx_depth'][0], env['rx_depth'][-1]))
+    ax.set_xlim((xmin / 1000, xmax / 1000))
+    ax.set_ylim((ymin, ymax))
     cbar = fig.colorbar(im, ax=ax)
     cbar.ax.set_ylabel('Attenuation [dB/$\lambda$]')
     ax.set_xlabel('Range [km]')
     ax.set_ylabel('Depth [m]')
     ax.set_title(f"[Bottom attenuation] {env['name']}")
     ax.invert_yaxis()
+    plt.tight_layout()
+    plt.show()
+
+    return fig, ax
+
+def plot_bathy(env, **kwargs):
+    """
+    Plots the bathymetry profile in the environment.
+
+    Parameters:
+        **kwargs: Additional keyword arguments for customization.
+
+    Returns:
+        fig, ax: Figure and axis objects for the plot.
+    """
+
+    fig, ax = plt.subplots()
+
+    # Generate grid
+    xmin = _np.min((env['rx_range'][0], env['top_interface'][0,0], env['bot_interface'][0,0]))
+    xmax = _np.max((env['rx_range'][-1], env['top_interface'][-1,0], env['bot_interface'][-1,0]))        
+    ymin = _np.min((env['rx_depth'][0], _np.min(env['top_interface'][:,1])))
+    ymax = _np.max((env['rx_depth'][-1], _np.max(env['bot_interface'][:,1])))
+
+    # Bathy
+    rb, zb = _np.array(env['bot_interface'][:, 0]), _np.array(env['bot_interface'][:, 1])
+
+    # Plot surface
+    ax.plot([xmin/1000, xmax/1000], [0, 0], 'b', linewidth=3)
+
+    # Plot
+    ax.plot(rb/1000, zb, 'k', linewidth=3)
+    ax.scatter(env['tx_range']/1000, env['tx_depth'], label="Stars", color="r", s=500, marker="*")
+    ax.set_xlim((xmin / 1000, xmax / 1000))
+    ax.set_ylim((ymin, ymax))
+    ax.set_xlabel('Range [km]')
+    ax.set_ylabel('Depth [m]')
+    ax.grid('all') 
+    ax.set_title(f"[Bathymetry] {env['name']}")
+    ax.invert_yaxis()
+    
     plt.tight_layout()
     plt.show()
 
