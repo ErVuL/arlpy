@@ -461,8 +461,22 @@ class WenzModel:
         return fig, ax
 
 class SEL:
+    """
+    Sound Exposure Level (SEL) calculation and visualization class.
+    Allows for analysis of acoustic data in different frequency bands.
+    """
 
     def __init__(self, fmin=8.9125, fmax=22387, band_type='third_octave', num_bands=30, ref=1e-6):
+        """
+        Initialize SEL calculator.
+
+        Args:
+            fmin (float): Minimum frequency in Hz
+            fmax (float): Maximum frequency in Hz
+            band_type (str): Type of frequency bands ('octave', 'third_octave', or 'linear')
+            num_bands (int): Number of bands for linear band_type
+            ref (float): Reference pressure level in Pa
+        """
         self.fmin = fmin
         self.fmax = fmax
         self.band_type = band_type
@@ -471,6 +485,12 @@ class SEL:
         self.ref = ref  # Store the reference level as an attribute
 
     def _adjust_fmin_fmax(self, fs):
+        """
+        Adjust minimum and maximum frequencies to match band boundaries.
+
+        Args:
+            fs (float): Sampling frequency in Hz
+        """
         if self.band_type == 'octave':
             self.fmin = 2 ** _np.floor(math.log2(self.fmin))
             self.fmax = 2 ** _np.ceil(math.log2(self.fmax))
@@ -484,7 +504,15 @@ class SEL:
                 self.fmax = base ** _np.floor(math.log(self.fmax, base))
 
     def _generate_frequency_bands(self, fs):
+        """
+        Generate frequency bands based on specified band_type.
 
+        Args:
+            fs (float): Sampling frequency in Hz
+
+        Returns:
+            list: List of tuples containing (low, center, high) frequencies for each band
+        """
         if self.fmin <= 0 or self.fmax <= self.fmin:
             raise ValueError("fmin must be > 0 and fmax must be greater than fmin.")
 
@@ -534,7 +562,17 @@ class SEL:
         return bands
 
     def compute(self, data, fs, nfft=None):
+        """
+        Compute Sound Exposure Level for each frequency band.
 
+        Args:
+            data (array): Input time series data in Pa
+            fs (float): Sampling frequency in Hz
+            nfft (int, optional): Number of FFT points
+
+        Returns:
+            tuple: (sel, bands) where sel contains SEL values in Pa².s and bands contains frequency bands
+        """
         self.bands    = self._generate_frequency_bands(fs)
         self.duration = len(data)/fs
 
@@ -553,7 +591,16 @@ class SEL:
         return self.sel, self.bands
 
     def plot(self, title='', ylim=(0, 200)):
+        """
+        Plot Sound Exposure Level spectrum.
 
+        Args:
+            title (str): Plot title
+            ylim (tuple): Y-axis limits as (min, max)
+
+        Returns:
+            tuple: (figure, axis) matplotlib objects
+        """
         fig, ax = plt.subplots(figsize=(10, 6))
         Fedges = [low for low, _, _ in self.bands] + [self.bands[-1][2]]
         width = [Fedges[i + 1] - Fedges[i] for i in range(len(Fedges) - 1)]
