@@ -284,6 +284,12 @@ class WenzModel:
     """
     A class to calculate and plot underwater noise levels using the "Wenz" model.
 
+    Based on :
+    A simple yet practical ambient noise model
+    Cristina D. S. Tollefsen, Sean Pecknold
+    DRDC – Atlantic Research Centre
+    May 2022
+
     The model calculates noise level (in dB re uPa) based on five components:
     (1) Shipping noise (Wenz, 1962)
     (2) Wind noise (Merklinger, 1979, and Piggott, 1964)
