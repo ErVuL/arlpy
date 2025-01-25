@@ -10,8 +10,8 @@
 
 """Underwater acoustics toolbox."""
 
-import numbers as _num
 import numpy as _np
+import math
 import scipy.signal as _sp
 import matplotlib.pyplot as plt
 
@@ -458,4 +458,120 @@ class WenzModel:
         plt.tight_layout()
         plt.show()
 
+        return fig, ax
+
+class SEL:
+
+    def __init__(self, fmin=8.9125, fmax=22387, band_type='third_octave', num_bands=30, ref=1e-6):
+        self.fmin = fmin
+        self.fmax = fmax
+        self.band_type = band_type
+        self.num_bands = num_bands
+        self.duration = None
+        self.ref = ref  # Store the reference level as an attribute
+
+    def _adjust_fmin_fmax(self, fs):
+        if self.band_type == 'octave':
+            self.fmin = 2 ** _np.floor(math.log2(self.fmin))
+            self.fmax = 2 ** _np.ceil(math.log2(self.fmax))
+            if self.fmax > fs/2 :
+                self.fmax = 2 ** _np.floor(math.log2(self.fmax))
+        elif self.band_type == 'third_octave':
+            base = math.pow(2, 1/6)
+            self.fmin = base ** _np.floor(math.log(self.fmin, base))
+            self.fmax = base ** _np.ceil(math.log(self.fmax, base))
+            if self.fmax > fs/2 :
+                self.fmax = base ** _np.floor(math.log(self.fmax, base))
+
+    def _generate_frequency_bands(self, fs):
+
+        if self.fmin <= 0 or self.fmax <= self.fmin:
+            raise ValueError("fmin must be > 0 and fmax must be greater than fmin.")
+
+        if self.band_type in ['octave', 'third_octave']:
+            self._adjust_fmin_fmax(fs)
+
+        bands = []
+
+        if self.band_type == 'octave':
+            base = math.sqrt(2)
+            f_center = self.fmin
+            while f_center < self.fmax:
+                f_low = f_center / base
+                f_high = f_center * base
+                bands.append((f_low, f_center, f_high))
+                f_center *= 2
+            if bands and bands[-1][2] > self.fmax:
+                bands[-1] = (bands[-1][0], bands[-1][1], self.fmax)
+
+        elif self.band_type == 'third_octave':
+            base = math.pow(2, 1/6)
+            f_center = self.fmin
+            while f_center < self.fmax:
+                f_low = f_center / base
+                f_high = f_center * base
+                bands.append((f_low, f_center, f_high))
+                f_center *= math.pow(2, 1/3)
+            if bands and bands[-1][2] > self.fmax:
+                bands[-1] = (bands[-1][0], bands[-1][1], self.fmax)
+
+        elif self.band_type == 'linear':
+            if self.num_bands <= 0:
+                raise ValueError("num_bands must be a positive integer for linear bands.")
+            band_width = (self.fmax - self.fmin) / self.num_bands
+            f_low = self.fmin
+            for _ in range(self.num_bands):
+                f_high = f_low + band_width
+                f_center = (f_low + f_high) / 2
+                bands.append((f_low, f_center, f_high))
+                f_low = f_high
+            if bands and bands[-1][2] > self.fmax:
+                bands[-1] = (bands[-1][0], bands[-1][1], self.fmax)
+
+        else:
+            raise ValueError("Invalid band_type. Choose 'octave', 'third_octave', or 'linear'.")
+
+        return bands
+
+    def compute(self, data, fs, nfft=None):
+
+        self.bands    = self._generate_frequency_bands(fs)
+        self.duration = len(data)/fs
+
+        if nfft is None:
+            nfft = fs
+
+        window = _sp.windows.hann(nfft)
+        f, t, Sxx = _sp.spectrogram(data, fs, window=window, noverlap=0, nfft=nfft, scaling='spectrum')
+        Sxx_sum = _np.sum(Sxx, axis=1)
+
+        self.sel = _np.zeros(len(self.bands))
+        for i, (low, center, high) in enumerate(self.bands):
+            idx = _np.logical_and(f >= low, f <= high)
+            self.sel[i] = _np.sum(Sxx_sum[idx])
+
+        return self.sel, self.bands
+
+    def plot(self, title='', ylim=(0, 200)):
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        Fedges = [low for low, _, _ in self.bands] + [self.bands[-1][2]]
+        width = [Fedges[i + 1] - Fedges[i] for i in range(len(Fedges) - 1)]
+        ax.bar(Fedges[:-1], 10 * _np.log10(self.sel / (self.ref ** 2)), width=width, align='edge', edgecolor='black')
+
+        # If the duration is provided, include it in the title
+        ax.set_title(f'[SEL {self.duration}s] {title}')
+
+        ax.set_xlabel('Frequency [Hz]')
+        if self.ref == 1e-6:
+            ref = "1µ"
+        elif self.ref == 2e-5:
+            ref ="20µ"
+        else:
+            ref = f"{self.ref:02e}"
+        ax.set_ylabel(f'Level [dB re {ref}Pa²·s]')
+        ax.set_xscale('log')
+        ax.set_ylim(ylim)
+        ax.grid(which='both', alpha=0.75)
+        ax.set_axisbelow(True)
         return fig, ax
