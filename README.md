@@ -1,4 +1,22 @@
-# ARL Python Tools
+# ARL Python Tools modified
+
+A version with some more tools and matplotlib instead of bokeh.
+Fork from : https://github.com/org-arl/arlpy/
+
+## Usage
+
+Installation::
+```
+cd arlpy
+pip install -e .
+```
+
+To import all general modules::
+```
+import arlpy
+```
+
+# ARL Python Tools Original README
 
 [![CI](https://github.com/org-arl/arlpy/workflows/CI/badge.svg)](https://github.com/org-arl/arlpy/actions)
 
@@ -8,7 +26,7 @@ and evolving, and understandably have some gaps, especially when it comes to
 domain-specific requirements. The `arlpy` package aims to fill in some of the
 gaps in the areas of underwater acoustics, signal processing, and communication.
 Additionally, `arlpy` also includes some commonly needed utilities and plotting
-routines based on `bokeh` and matplotlib.
+routines based on `bokeh`.
 
 ## General modules
 
@@ -39,8 +57,7 @@ general interest to others:
 
 Installation::
 ```
-cd arlpy
-pip install -e .
+pip install arlpy
 ```
 
 To import all general modules::
