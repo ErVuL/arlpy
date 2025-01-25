@@ -452,4 +452,362 @@ def spl(x, ref=1):
             plt.tight_layout()
             plt.show()
 
+<<<<<<< Updated upstream
             return fig, ax
+=======
+    def __init__(self, fmin=8.9125, fmax=22387, band_type='third_octave', num_bands=30, ref=1e-6):
+        """
+        Initialize SEL calculator.
+
+        Args:
+            fmin (float): Minimum frequency in Hz
+            fmax (float): Maximum frequency in Hz
+            band_type (str): Type of frequency bands ('octave', 'third_octave', or 'linear')
+            num_bands (int): Number of bands for linear band_type
+            ref (float): Reference pressure level in Pa
+        """
+        self.fmin = fmin
+        self.fmax = fmax
+        self.band_type = band_type
+        self.num_bands = num_bands
+        self.duration = None
+        self.ref = ref  # Store the reference level as an attribute
+
+    def _adjust_fmin_fmax(self, fs):
+        """
+        Adjust minimum and maximum frequencies to match band boundaries.
+
+        Args:
+            fs (float): Sampling frequency in Hz
+        """
+        if self.band_type == 'octave':
+            self.fmin = 2 ** _np.floor(math.log2(self.fmin))
+            self.fmax = 2 ** _np.ceil(math.log2(self.fmax))
+            if self.fmax > fs/2 :
+                self.fmax = 2 ** _np.floor(math.log2(self.fmax))
+        elif self.band_type == 'third_octave':
+            base = math.pow(2, 1/6)
+            self.fmin = base ** _np.floor(math.log(self.fmin, base))
+            self.fmax = base ** _np.ceil(math.log(self.fmax, base))
+            if self.fmax > fs/2 :
+                self.fmax = base ** _np.floor(math.log(self.fmax, base))
+
+    def _generate_frequency_bands(self, fs):
+        """
+        Generate frequency bands based on specified band_type.
+
+        Args:
+            fs (float): Sampling frequency in Hz
+
+        Returns:
+            list: List of tuples containing (low, center, high) frequencies for each band
+        """
+        if self.fmin <= 0 or self.fmax <= self.fmin:
+            raise ValueError("fmin must be > 0 and fmax must be greater than fmin.")
+
+        if self.band_type in ['octave', 'third_octave']:
+            self._adjust_fmin_fmax(fs)
+
+        bands = []
+
+        if self.band_type == 'octave':
+            base = math.sqrt(2)
+            f_center = self.fmin
+            while f_center < self.fmax:
+                f_low = f_center / base
+                f_high = f_center * base
+                bands.append((f_low, f_center, f_high))
+                f_center *= 2
+            if bands and bands[-1][2] > self.fmax:
+                bands[-1] = (bands[-1][0], bands[-1][1], self.fmax)
+
+        elif self.band_type == 'third_octave':
+            base = math.pow(2, 1/6)
+            f_center = self.fmin
+            while f_center < self.fmax:
+                f_low = f_center / base
+                f_high = f_center * base
+                bands.append((f_low, f_center, f_high))
+                f_center *= math.pow(2, 1/3)
+            if bands and bands[-1][2] > self.fmax:
+                bands[-1] = (bands[-1][0], bands[-1][1], self.fmax)
+
+        elif self.band_type == 'linear':
+            if self.num_bands <= 0:
+                raise ValueError("num_bands must be a positive integer for linear bands.")
+            band_width = (self.fmax - self.fmin) / self.num_bands
+            f_low = self.fmin
+            for _ in range(self.num_bands):
+                f_high = f_low + band_width
+                f_center = (f_low + f_high) / 2
+                bands.append((f_low, f_center, f_high))
+                f_low = f_high
+            if bands and bands[-1][2] > self.fmax:
+                bands[-1] = (bands[-1][0], bands[-1][1], self.fmax)
+
+        else:
+            raise ValueError("Invalid band_type. Choose 'octave', 'third_octave', or 'linear'.")
+
+        return bands
+
+    def compute(self, data, fs, nfft=None):
+        """
+        Compute Sound Exposure Level for each frequency band.
+
+        Args:
+            data (array): Input time series data in Pa
+            fs (float): Sampling frequency in Hz
+            nfft (int, optional): Number of FFT points
+
+        Returns:
+            tuple: (sel, bands) where sel contains SEL values in Pa².s and bands contains frequency bands
+        """
+        self.bands    = self._generate_frequency_bands(fs)
+        self.duration = len(data)/fs
+
+        if nfft is None:
+            nfft = fs
+
+        window = _sp.windows.hann(nfft)
+        f, t, Sxx = _sp.spectrogram(data, fs, window=window, noverlap=0, nfft=nfft, scaling='spectrum')
+        Sxx_sum = _np.sum(Sxx, axis=1)
+
+        self.sel = _np.zeros(len(self.bands))
+        for i, (low, center, high) in enumerate(self.bands):
+            idx = _np.logical_and(f >= low, f <= high)
+            self.sel[i] = _np.sum(Sxx_sum[idx])
+
+        return self.sel, self.bands
+
+    def plot(self, title='', ylim=(0, 200)):
+        """
+        Plot Sound Exposure Level spectrum.
+
+        Args:
+            title (str): Plot title
+            ylim (tuple): Y-axis limits as (min, max)
+
+        Returns:
+            tuple: (figure, axis) matplotlib objects
+        """
+        fig, ax = plt.subplots(figsize=(10, 6))
+        Fedges = [low for low, _, _ in self.bands] + [self.bands[-1][2]]
+        width = [Fedges[i + 1] - Fedges[i] for i in range(len(Fedges) - 1)]
+        ax.bar(Fedges[:-1], 10 * _np.log10(self.sel / (self.ref ** 2)), width=width, align='edge', edgecolor='black')
+
+        # If the duration is provided, include it in the title
+        ax.set_title(f'[SEL {self.duration}s] {title}')
+
+        ax.set_xlabel('Frequency [Hz]')
+        if self.ref == 1e-6:
+            ref = "1µ"
+        elif self.ref == 2e-5:
+            ref ="20µ"
+        else:
+            ref = f"{self.ref:02e}"
+        ax.set_ylabel(f'Level [dB re {ref}Pa²·s]')
+        ax.set_xscale('log')
+        ax.set_ylim(ylim)
+        ax.grid(which='both', alpha=0.75)
+        ax.set_axisbelow(True)
+        return fig, ax
+
+class PSD:
+
+    def __init__(self, ref=1e-6, **kwargs):
+        """
+        Power Spectral Density (PSD) computation and visualization class.
+
+        Parameters:
+        - ref: Reference level for dB scaling.
+        - **kwargs: Additional arguments for scipy.signal.welch.
+        """
+        self.ref = ref
+
+        # Default Welch parameters, overridden by kwargs if provided
+        self.welch_params = {
+            "nperseg": 8192,
+            "noverlap": 4096,
+            "window": "hann",
+            "scaling": "density",
+        }
+        self.welch_params.update(kwargs)
+
+    def compute(self, data, fs):
+        """
+        Compute the Power Spectral Density (PSD) using Welch's method.
+
+        Parameters:
+        - data: Input signal array (Pa).
+        - fs: Sampling frequency of the signal (Hz).
+
+        Returns:
+        - freqs: Array of frequencies (Hz).
+        - psd: Array of PSD values (linear scale).
+        """
+        # Compute Welch periodogram
+        freqs, Pxx = _sp.welch(data, fs, **self.welch_params)
+
+        # Store frequencies and PSD values
+        self.freqs = freqs
+        self.psd = Pxx
+        return freqs, Pxx
+
+    def plot(self, title="", ylim=(-200, 0)):
+        """
+        Plot the computed PSD as a line plot.
+
+        Parameters:
+        - title: Plot title.
+        - ylim: Y-axis limits (dB).
+        """
+        if not hasattr(self, "freqs") or not hasattr(self, "psd"):
+            raise RuntimeError("You must compute the PSD before plotting it.")
+
+        # Convert PSD to dB scale
+        psd_db = 10 * _np.log10(self.psd / (self.ref ** 2))
+
+        # Plot PSD
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(self.freqs, psd_db, label="PSD", color="blue")
+
+        # Customize plot appearance
+        ax.set_title(f"[PSD] {title}")
+        ax.set_xlabel("Frequency [Hz]")
+        if self.ref == 1e-6:
+            ref = "1µ"
+        elif self.ref == 2e-5:
+            ref ="20µ"
+        else:
+            ref = f"{self.ref:02e}"
+        ax.set_ylabel(f'Level [dB re {ref}Pa²·s]')
+        ax.set_xscale("log")
+        ax.set_ylim(ylim)
+        ax.grid(which="both", alpha=0.75)
+        ax.set_axisbelow(True)
+        ax.legend()
+        return fig, ax
+
+class PSDPDF:
+
+    def __init__(self, ref=1e-6, seg_duration=1, overlap_pct=0, nbins=100, **kwargs):
+        """
+        Class to compute and visualize the probability density function (PDF) of PSD over multiple segments.
+
+        Parameters:
+        - ref: Reference value for scaling in Pa (default 1e-6).
+        - seg_duration: Duration of each segment for Welch computation (seconds).
+        - overlap_pct: Percentage overlap between consecutive segments.
+        - **kwargs: Additional arguments for scipy.signal.welch.
+        """
+        self.seg_duration = seg_duration
+        self.overlap_pct = overlap_pct
+        self.ref = ref
+        self.nbins = nbins
+
+        # Default Welch parameters, overridden by kwargs if provided
+        self.welch_params = {
+            "nperseg": None,
+            "noverlap": None,
+            "window": "hann",
+            "scaling": "density",
+        }
+        self.welch_params.update(kwargs)
+
+    def compute(self, data, fs):
+        """
+        Compute the PDF of PSD from signal segments.
+
+        Parameters:
+        - data: Input signal array.
+        - fs: Sampling frequency of the signal (Hz).
+
+        Returns:
+        - freqs: Array of frequencies (Hz).
+        - levels: Array of level bins (U²).
+        - pdf: 2D array representing the probability density (normalized).
+        """
+        # Calculate number of samples per segment
+        seg_samples = int(self.seg_duration * fs)
+        if seg_samples <= 0 or seg_samples > len(data):
+            raise ValueError("Invalid segment duration. It must be positive and less than the signal length.")
+
+        # Overlap in samples
+        overlap_samples = int(self.overlap_pct / 100 * seg_samples)
+
+        # Split signal into overlapping segments
+        segments = []
+        start = 0
+        while start + seg_samples <= len(data):
+            segments.append(data[start:start + seg_samples])
+            start += seg_samples - overlap_samples
+
+        # Welch computation for each segment
+        psd_segments = []
+        for segment in segments:
+            freqs, Pxx = _sp.welch(segment, fs, **self.welch_params)
+            psd_segments.append(Pxx)
+
+        # Combine PSDs into a single array (linear scale)
+        psd_segments = _np.array(psd_segments)
+
+        # Create level bins for histogram
+        levels_min = _np.nanmin(psd_segments)
+        levels_max = _np.nanmax(psd_segments)
+        levels = _np.linspace(levels_min, levels_max, self.nbins)
+
+        # Compute PDF using a histogram
+        pdf = _np.zeros((len(levels) - 1, len(freqs)))
+        for i, freq_psd in enumerate(_np.transpose(psd_segments)):
+            hist, _ = _np.histogram(freq_psd, bins=levels, density=True)
+            pdf[:, i] = hist
+
+        # Normalize the PDF to be between 0 and 1
+        pdf = (pdf - _np.nanmin(pdf)) / (_np.nanmax(pdf) - _np.nanmin(pdf))
+
+        # Replace zeros with NaNs
+        pdf[pdf == 0] = _np.nan
+
+        self.freqs = freqs
+        self.levels = levels
+        self.pdf = pdf
+
+        return freqs, levels, pdf
+
+    def plot(self, title="", ymin=0, ymax=200, vmin=0, vmax=1):
+        """
+        Plot the computed PDF as a colormap.
+
+        Parameters:
+        - title: Plot title.
+        - **kwargs: Additional arguments for plotting, including 'ylim' for y-axis limits and other settings.
+        """
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        pcm = ax.pcolormesh(
+            self.freqs,
+            10 * _np.log10(self.levels[:-1] / (self.ref**2)),
+            self.pdf,
+            cmap="jet",
+            shading="auto",
+            vmin=vmin,  # Setting the minimum value for color scaling
+            vmax=vmax,  # Setting the maximum value for color scaling
+            alpha=1,
+        )
+        cbar = fig.colorbar(pcm, ax=ax, label="Probability Density Estimate")
+
+        ax.set_title(f"[PSD-PDF] {title}")
+        ax.set_xlabel("Frequency [Hz]")
+        if self.ref == 1e-6:
+            ref = "1µ"
+        elif self.ref == 2e-5:
+            ref = "20µ"
+        else:
+            ref = f"{self.ref:02e}"
+        ax.set_ylabel(f'Level [dB re {ref}Pa²/Hz]')
+        ax.set_xscale("log")
+        ax.set_xlim((_np.max((self.freqs[0],1)), self.freqs[-1]))
+        ax.set_ylim(ymin, ymax)
+        ax.grid(which="both", alpha=0.5)
+        return fig, ax
+>>>>>>> Stashed changes
