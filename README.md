@@ -1,4 +1,22 @@
-# ARL Python Tools
+# ARL Python Tools modified
+
+A version with some more tools and matplotlib instead of bokeh.
+Fork from : https://github.com/org-arl/arlpy/
+
+## Usage
+
+Installation::
+```
+cd arlpy
+pip install -e .
+```
+
+To import all general modules::
+```
+import arlpy
+```
+
+# ARL Python Tools Original README
 
 [![CI](https://github.com/org-arl/arlpy/workflows/CI/badge.svg)](https://github.com/org-arl/arlpy/actions)
 
