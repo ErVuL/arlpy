@@ -792,7 +792,7 @@ def plot_spectrogram(fxx, pxx, ref=1e-6, title='', figsize=(10,6), **kwargs):
 
     Parameters:
     - fxx: Frequency values
-    - pxx: Level values to plot
+    - pxx: Level values to plot in Pa²/Hz
     - ref: Reference level. Default is 1e-6
     - title: Title for the plot. Default is an empty string.
     - figsize: Figure size tuple. Default is (10,6)
@@ -803,7 +803,7 @@ def plot_spectrogram(fxx, pxx, ref=1e-6, title='', figsize=(10,6), **kwargs):
     - ax: Matplotlib axes object
     """
     fig, ax = plt.subplots(figsize=figsize)
-    ax.specgram(pxx, Fs=fxx, **kwargs)
+    ax.specgram(10*_np.log10(pxx/(ref**2)), Fs=fxx, **kwargs)
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Frequency [Hz]')
     ax.set_title(f"[Spectrogram] {title}")
@@ -824,7 +824,7 @@ def plot_psd(fxx, pxx, ref=1e-6, title='', figsize=(10,6), **kwargs):
 
     Parameters:
     - fxx: Frequency vector of the PSD
-    - pxx: PSD expressed in dB re 1uPa/vHz
+    - pxx: PSD expressed in Pa²/Hz
     - ref: Reference level. Default is 1e-6
     - title: Title for the plot. Default is an empty string
     - figsize: Figure size tuple. Default is (10,6)
@@ -835,7 +835,7 @@ def plot_psd(fxx, pxx, ref=1e-6, title='', figsize=(10,6), **kwargs):
     - ax: Matplotlib axes object
     """
     fig, ax = plt.subplots(figsize=figsize)
-    ax.semilogx(fxx, pxx, **kwargs)
+    ax.semilogx(fxx, 10*_np.log10(pxx/(ref**2)), **kwargs)
     ax.set_xlabel('Frequency [Hz]')
     if ref == 1e-6:
         ref = "1µ"
@@ -866,9 +866,9 @@ def plot_freqz(b, a=1, fs=2.0, title=None, figsize=(10,6)):
     - ax: Matplotlib axes object
     """
     w, h = sig.freqz(b, a)
-    f = w * fs / (2*np.pi)
+    f = w * fs / (2*_np.pi)
     fig, ax = plt.subplots(figsize=figsize)
-    ax.plot(f, 20*np.log10(np.abs(h)))
+    ax.plot(f, 20*_np.log10(_np.abs(h)))
     if title:
         ax.set_title(title)
     ax.set_xlabel('Frequency [Hz]')
@@ -877,47 +877,3 @@ def plot_freqz(b, a=1, fs=2.0, title=None, figsize=(10,6)):
     plt.tight_layout()
     plt.show()
     return fig, ax
-
-def plot_wenz(wenz_model, title='', figsize=(10,6), **kwargs):
-    """
-    Plot all noise components and total noise from Wenz model.
-
-    Parameters:
-    - wenz_model: Wenz model object containing noise components
-    - title: Plot title. Default is empty string
-    - figsize: Figure size tuple. Default is (10,6)
-    - **kwargs: Additional keyword arguments to pass to plot
-
-    Returns:
-    - fig: Matplotlib figure object
-    - ax: Matplotlib axes object
-    """
-    fig, ax = plt.subplots(figsize=figsize)
-
-    ax.semilogx(wenz_model.f, wenz_model.total_noise,
-               label=f'Total noise ({wenz_model.water_depth} water)', color='black', **kwargs)
-    ax.semilogx(wenz_model.f, wenz_model.shipping_noise,
-               label=f'Shipping noise ({wenz_model.shipping_level} traffic)',
-               color='blue', linestyle='dashed', **kwargs)
-    ax.semilogx(wenz_model.f, wenz_model.wind_noise,
-               label=f'Wind noise ({wenz_model.wind_speed} kn)',
-               color='green', linestyle='dashed', **kwargs)
-    ax.semilogx(wenz_model.f, wenz_model.rain_noise,
-               label=f'Rain noise ({wenz_model.rain_rate} rain)',
-               color='orange', linestyle='dashed', **kwargs)
-    ax.semilogx(wenz_model.f, wenz_model.thermal_noise,
-               label='Thermal noise', color='red', linestyle='dashed', **kwargs)
-    ax.semilogx(wenz_model.f, wenz_model.turbulence_noise,
-               label='Turbulence noise', color='purple', linestyle='dashed', **kwargs)
-
-    ax.set_xlabel('Frequency [Hz]')
-    ax.set_ylabel('Noise Level [dB re 1µPa²]')
-    ax.set_title(f'[WENZ - Noise Level Estimate] {title}')
-    ax.set_xlim((wenz_model.f[0], wenz_model.f[-1]))
-    ax.set_ylim((6, 146))
-    ax.legend()
-    ax.grid(True, 'both')
-    plt.tight_layout()
-    plt.show()
-    return fig, ax
-

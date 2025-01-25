@@ -452,7 +452,7 @@ class WenzModel:
 
         ax.set_xlabel('Frequency [Hz]')
         ax.set_ylabel('Noise Level [dB re 1µPa²]')
-        ax.set_title(f'[WENZ - Noise Level Estimate] {title}')
+        ax.set_title(f'[WENZ - Noise Level Estimate] {title}', loc='left')
         ax.set_xlim((self.f[0], self.f[-1]))
         ax.set_ylim((6, 146))
         ax.legend()
@@ -582,7 +582,7 @@ class SEL:
 
         self.sel = _np.zeros(len(self.bands))
         for i, (low, center, high) in enumerate(self.bands):
-            idx = _np.logical_and(f >= low, f <= high)
+            idx = _np.logical_and(f >= low, f < high)
             self.sel[i] = _np.sum(Sxx_sum[idx])
 
         return self.sel, self.bands
@@ -604,9 +604,8 @@ class SEL:
         ax.bar(Fedges[:-1], 10 * _np.log10(self.sel / (self.ref ** 2)), width=width, align='edge', edgecolor='black')
 
         # If the duration is provided, include it in the title
-        ax.set_title(f'[SEL {self.duration}s] {title}')
+        ax.set_title(f'[SEL {self.duration}s] {title}', loc='left')
 
-        ax.set_xlabel('Frequency [Hz]')
         if self.ref == 1e-6:
             ref = "1µ"
         elif self.ref == 2e-5:
@@ -616,6 +615,7 @@ class SEL:
         ax.set_ylabel(f'Level [dB re {ref}Pa²·s]')
         if self.band_type != 'linear':
             ax.set_xscale('log')
+        ax.set_xlabel(f'Frequency ({self.band_type}) [Hz]')
         ax.set_ylim(ylim)
         ax.grid(which='both', alpha=0.75)
         ax.set_axisbelow(True)
@@ -662,7 +662,7 @@ class PSD:
         self.psd = Pxx
         return freqs, Pxx
 
-    def plot(self, title="", ylim=(-200, 0)):
+    def plot(self, title="", ymin=0, ymax=200):
         """
         Plot the computed PSD as a line plot.
 
@@ -678,10 +678,10 @@ class PSD:
 
         # Plot PSD
         fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(self.freqs, psd_db, label="PSD", color="blue")
+        ax.plot(self.freqs, psd_db)
 
         # Customize plot appearance
-        ax.set_title(f"[PSD] {title}")
+        ax.set_title(f"[PSD] {title}", loc='left')
         ax.set_xlabel("Frequency [Hz]")
         if self.ref == 1e-6:
             ref = "1µ"
@@ -689,17 +689,17 @@ class PSD:
             ref ="20µ"
         else:
             ref = f"{self.ref:02e}"
-        ax.set_ylabel(f'Level [dB re {ref}Pa²·s]')
+        ax.set_ylabel(f'Level [dB re {ref}Pa²/Hz]')
         ax.set_xscale("log")
-        ax.set_ylim(ylim)
+        ax.set_ylim((ymin,ymax))
+        ax.set_xlim((_np.max((self.freqs[0],1)),self.freqs[-1]))
         ax.grid(which="both", alpha=0.75)
         ax.set_axisbelow(True)
-        ax.legend()
         return fig, ax
 
 class PSDPDF:
 
-    def __init__(self, ref=1e-6, seg_duration=1, overlap_pct=0, nbins=100, **kwargs):
+    def __init__(self, ref=1e-6, seg_duration=1, overlap_pct=0, nbins=100, lvlmin=40, lvlmax=150, **kwargs):
         """
         Class to compute and visualize the probability density function (PDF) of PSD over multiple segments.
 
@@ -713,13 +713,15 @@ class PSDPDF:
         self.overlap_pct = overlap_pct
         self.ref = ref
         self.nbins = nbins
+        self.lvlmin = lvlmin
+        self.lvlmax = lvlmax
 
         # Default Welch parameters, overridden by kwargs if provided
         self.welch_params = {
-            "nperseg": None,
-            "noverlap": None,
+            "nperseg": 8192,
+            "noverlap": 4096,
             "window": "hann",
-            "scaling": "density",
+            "scaling": "density"
         }
         self.welch_params.update(kwargs)
 
@@ -733,42 +735,31 @@ class PSDPDF:
 
         Returns:
         - freqs: Array of frequencies (Hz).
-        - levels: Array of level bins (U²).
+        - levels: Array of level bins (dB re ref²).
         - pdf: 2D array representing the probability density (normalized).
         """
-        # Calculate number of samples per segment
-        seg_samples = int(self.seg_duration * fs)
-        if seg_samples <= 0 or seg_samples > len(data):
-            raise ValueError("Invalid segment duration. It must be positive and less than the signal length.")
-
-        # Overlap in samples
-        overlap_samples = int(self.overlap_pct / 100 * seg_samples)
-
-        # Split signal into overlapping segments
-        segments = []
-        start = 0
-        while start + seg_samples <= len(data):
-            segments.append(data[start:start + seg_samples])
-            start += seg_samples - overlap_samples
-
-        # Welch computation for each segment
-        psd_segments = []
-        for segment in segments:
-            freqs, Pxx = _sp.welch(segment, fs, **self.welch_params)
-            psd_segments.append(Pxx)
-
-        # Combine PSDs into a single array (linear scale)
-        psd_segments = _np.array(psd_segments)
+        # Calculate chunk size and overlap in samples
+        chunk_size = int(self.seg_duration * fs)
+        overlap_samples = int(chunk_size * self.overlap_pct / 100)
+        step = chunk_size - overlap_samples
 
         # Create level bins for histogram
-        levels_min = _np.nanmin(psd_segments)
-        levels_max = _np.nanmax(psd_segments)
-        levels = _np.linspace(levels_min, levels_max, self.nbins)
+        levels = _np.linspace(self.lvlmin, self.lvlmax, self.nbins)
+
+        # Process data in chunks
+        psd_list = []
+        for i in range(0, len(data) - chunk_size + 1, step):
+            chunk = data[i:i+chunk_size]
+            freqs, psd = _sp.welch(chunk, fs, **self.welch_params)
+            psd_list.append(psd)
+
+        # Convert accumulated PSDs to dB scale
+        psd_segments = 10 * _np.log10(_np.array(psd_list) / (self.ref ** 2))
 
         # Compute PDF using a histogram
         pdf = _np.zeros((len(levels) - 1, len(freqs)))
-        for i, freq_psd in enumerate(_np.transpose(psd_segments)):
-            hist, _ = _np.histogram(freq_psd, bins=levels, density=True)
+        for i in range(len(freqs)):
+            hist, _ = _np.histogram(psd_segments[:, i], bins=levels, density=True)
             pdf[:, i] = hist
 
         # Normalize the PDF to be between 0 and 1
@@ -777,8 +768,9 @@ class PSDPDF:
         # Replace zeros with NaNs
         pdf[pdf == 0] = _np.nan
 
+        self.binwidth_dB = levels[1] - levels[0]
         self.freqs = freqs
-        self.levels = levels
+        self.levels = 10**(levels/10)*(self.ref**2)
         self.pdf = pdf
 
         return freqs, levels, pdf
@@ -795,7 +787,7 @@ class PSDPDF:
         fig, ax = plt.subplots(figsize=(10, 6))
         pcm = ax.pcolormesh(
             self.freqs,
-            10 * _np.log10(self.levels[:-1] / (self.ref**2)),
+            10*_np.log10(self.levels[:-1]/(self.ref**2)),
             self.pdf,
             cmap="jet",
             shading="auto",
@@ -803,9 +795,9 @@ class PSDPDF:
             vmax=vmax,  # Setting the maximum value for color scaling
             alpha=1,
         )
-        cbar = fig.colorbar(pcm, ax=ax, label="Probability Density Estimate")
+        cbar = fig.colorbar(pcm, ax=ax, label=f"Probability Density Estimate [{self.binwidth_dB:.1f} dB/bin]")
 
-        ax.set_title(f"[PSD-PDF] {title}")
+        ax.set_title(f"[PSD-PDF {self.seg_duration}s] {title}", loc='left')
         ax.set_xlabel("Frequency [Hz]")
         if self.ref == 1e-6:
             ref = "1µ"
@@ -816,7 +808,97 @@ class PSDPDF:
         ax.set_ylabel(f'Level [dB re {ref}Pa²/Hz]')
         ax.set_xscale("log")
         ax.set_xlim((_np.max((self.freqs[0],1)), self.freqs[-1]))
-        ax.set_ylim(ymin, ymax)
+        ax.set_ylim((ymin, ymax))
         ax.grid(which="both", alpha=0.5)
+
+        return fig, ax
+
+class Spectrogram:
+
+    def __init__(self, ref=1e-6, **kwargs):
+        """
+        Spectrogram computation and visualization class.
+
+        Parameters:
+        - ref: Reference level for dB scaling.
+        - **kwargs: Additional arguments for scipy.signal.spectrogram.
+        """
+        self.ref = ref
+
+        # Default spectrogram parameters, overridden by kwargs if provided
+        self.spec_params = {
+            "nperseg": 8192,
+            "noverlap": 4096,
+            "window": "hann",
+        }
+        self.spec_params.update(kwargs)
+
+    def compute(self, data, fs):
+        """
+        Compute the spectrogram using scipy.signal.spectrogram.
+
+        Parameters:
+        - data: Input signal array (Pa).
+        - fs: Sampling frequency of the signal (Hz).
+
+        Returns:
+        - freqs: Array of frequencies (Hz).
+        - times: Array of time points (s).
+        - Sxx: 2D array of spectrogram values.
+        """
+        freqs, times, Sxx = _sp.spectrogram(data, fs, scaling='density', mode='psd',  **self.spec_params)
+
+        self.freqs = freqs
+        self.times = times
+        self.Sxx = Sxx
+
+        return freqs, times, Sxx
+
+    def plot(self, title="", ymin=1, ymax=None, vmin=0, vmax=200):
+        """
+        Plot the computed spectrogram as a colormap.
+
+        Parameters:
+        - title: Plot title.
+        - ymin: Minimum frequency to display (Hz).
+        - ymax: Maximum frequency to display (Hz).
+        - vmin: Minimum value for color scaling (dB).
+        - vmax: Maximum value for color scaling (dB).
+        """
+        if not hasattr(self, "freqs") or not hasattr(self, "times") or not hasattr(self, "Sxx"):
+            raise RuntimeError("You must compute the spectrogram before plotting it.")
+
+        # Convert to dB scale
+        Sxx_db = 10 * _np.log10(self.Sxx / (self.ref ** 2))
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        pcm = ax.pcolormesh(
+            self.times,
+            self.freqs,
+            Sxx_db,
+            cmap="jet",
+            shading="auto",
+            vmin=vmin,
+            vmax=vmax
+        )
+        cbar = fig.colorbar(pcm, ax=ax)
+
+        if self.ref == 1e-6:
+            ref = "1µ"
+        elif self.ref == 2e-5:
+            ref = "20µ"
+        else:
+            ref = f"{self.ref:02e}"
+        cbar.set_label(f'Level [dB re {ref}Pa²/Hz]')
+        ax.set_title(f"[Spectrogram] {title}", loc='left')
+        ax.set_xlabel("Time [s]")
+        ax.set_ylabel("Frequency [Hz]")
+        #ax.set_yscale("log")
+
+        if ymax is None:
+            ymax = self.freqs[-1]
+
+        ax.set_ylim((ymin, ymax))
+        ax.grid(which="both", alpha=0.25, color='black')
 
         return fig, ax
