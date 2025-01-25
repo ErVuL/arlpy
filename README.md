@@ -8,7 +8,7 @@ and evolving, and understandably have some gaps, especially when it comes to
 domain-specific requirements. The `arlpy` package aims to fill in some of the
 gaps in the areas of underwater acoustics, signal processing, and communication.
 Additionally, `arlpy` also includes some commonly needed utilities and plotting
-routines based on `bokeh`.
+routines based on `bokeh` and matplotlib.
 
 ## General modules
 
@@ -39,7 +39,8 @@ general interest to others:
 
 Installation::
 ```
-pip install arlpy
+cd arlpy
+pip install -e .
 ```
 
 To import all general modules::
