@@ -688,7 +688,7 @@ class PSD:
         self.psd = Pxx
         return freqs, Pxx
 
-    def plot(self, title="", ymin=0, ymax=200):
+    def plot(self, title="", label="", ymin=0, ymax=200):
         """
         Plot the computed PSD as a line plot.
 
@@ -704,7 +704,7 @@ class PSD:
 
         # Plot PSD
         fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(self.freqs, psd_db)
+        ax.plot(self.freqs, psd_db, label=label)
 
         # Customize plot appearance
         ax.set_title(f"[PSD] {title}", loc='left')
@@ -721,7 +721,19 @@ class PSD:
         ax.set_xlim((_np.max((self.freqs[0],1)),self.freqs[-1]))
         ax.grid(which="both", alpha=0.75)
         ax.set_axisbelow(True)
+        if label != "":
+            ax.legend()
+
         return fig, ax
+
+    def add2plot(self, ax, label=""):
+
+        psd_db = 10 * _np.log10(self.psd / (self.ref ** 2))
+        ax.plot(self.freqs, psd_db, label=label)
+        if label != "":
+            ax.legend()
+
+        return ax
 
 class PSDPDF:
 
