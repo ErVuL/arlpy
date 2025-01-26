@@ -473,6 +473,7 @@ class SEL:
             band_type (str): Type of frequency bands ('octave', 'third_octave', or 'linear')
             num_bands (int): Number of bands for linear band_type
             ref (float): Reference pressure level in Pa
+            chunk_size (int): Size of chunks to process at a time
         """
         self.fmin = fmin
         self.fmax = fmax
@@ -558,7 +559,7 @@ class SEL:
 
         return bands
 
-    def compute(self, data, fs, nfft=None):
+    def compute(self, data, fs, chunk_size=262144, nfft=None):
         """
         Compute Sound Exposure Level for each frequency band.
 
@@ -570,20 +571,45 @@ class SEL:
         Returns:
             tuple: (sel, bands) where sel contains SEL values in Pa².s and bands contains frequency bands
         """
-        self.bands    = self._generate_frequency_bands(fs)
+        self.bands = self._generate_frequency_bands(fs)
         self.duration = len(data)/fs
+        if chunk_size > len(data):
+            self.chunk_size = len(data)
+        else:
+            self.chunk_size = chunk_size
 
         if nfft is None:
             nfft = fs
 
         window = _sp.windows.hann(nfft)
-        f, t, Sxx = _sp.spectrogram(data, fs, window=window, noverlap=0, nfft=nfft, scaling='spectrum')
-        Sxx_sum = _np.sum(Sxx, axis=1)
 
-        self.sel = _np.zeros(len(self.bands))
-        for i, (low, center, high) in enumerate(self.bands):
+        # Initialize frequency axis to determine band indices
+        f = _np.fft.rfftfreq(nfft, d=1/fs)
+
+        # Initialize band indices
+        band_indices = []
+        for low, center, high in self.bands:
             idx = _np.logical_and(f >= low, f < high)
-            self.sel[i] = _np.sum(Sxx_sum[idx])
+            band_indices.append(idx)
+
+        # Initialize SEL accumulator
+        self.sel = _np.zeros(len(self.bands))
+
+        # Process data in chunks
+        for i in range(0, len(data), chunk_size):
+            chunk = data[i:min(i + chunk_size, len(data))]
+
+            if len(chunk) < nfft:
+                chunk = _np.pad(chunk, (0, nfft - len(chunk)))
+
+            # Compute spectrogram for chunk
+            f, t, Sxx = _sp.spectrogram(chunk, fs, window=window, noverlap=0,
+                                      nfft=nfft, scaling='spectrum')
+            Sxx_sum = _np.sum(Sxx, axis=1)
+
+            # Accumulate SEL in each band
+            for k, idx in enumerate(band_indices):
+                self.sel[k] += _np.sum(Sxx_sum[idx])
 
         return self.sel, self.bands
 
@@ -748,22 +774,28 @@ class PSDPDF:
 
         # Process data in chunks
         psd_list = []
+
         for i in range(0, len(data) - chunk_size + 1, step):
-            chunk = data[i:i+chunk_size]
+            chunk = data[i:min(i+chunk_size, len(data))]
+
+            if len(chunk) < self.welch_params['nperseg']:
+                chunk = _np.pad(chunk, (0, self.welch_params['nperseg'] - len(chunk)))
+
             freqs, psd = _sp.welch(chunk, fs, **self.welch_params)
             psd_list.append(psd)
 
         # Convert accumulated PSDs to dB scale
         psd_segments = 10 * _np.log10(_np.array(psd_list) / (self.ref ** 2))
 
+        # Compute mean and standard deviation
+        self.mean_psd = _np.mean(psd_segments, axis=0)
+        self.std_psd = _np.std(psd_segments, axis=0)
+
         # Compute PDF using a histogram
         pdf = _np.zeros((len(levels) - 1, len(freqs)))
         for i in range(len(freqs)):
             hist, _ = _np.histogram(psd_segments[:, i], bins=levels, density=True)
             pdf[:, i] = hist
-
-        # Normalize the PDF to be between 0 and 1
-        pdf = (pdf - _np.nanmin(pdf)) / (_np.nanmax(pdf) - _np.nanmin(pdf))
 
         # Replace zeros with NaNs
         pdf[pdf == 0] = _np.nan
@@ -775,7 +807,7 @@ class PSDPDF:
 
         return freqs, levels, pdf
 
-    def plot(self, title="", ymin=0, ymax=200, vmin=0, vmax=1):
+    def plot(self, title="", ymin=0, ymax=200, vmin=0, vmax=None):
         """
         Plot the computed PDF as a colormap.
 
@@ -784,10 +816,14 @@ class PSDPDF:
         - **kwargs: Additional arguments for plotting, including 'ylim' for y-axis limits and other settings.
         """
 
+        if vmax == None:
+            vmax = 1/self.binwidth_dB
+
         fig, ax = plt.subplots(figsize=(10, 6))
+        align_ybins = self.binwidth_dB/2
         pcm = ax.pcolormesh(
             self.freqs,
-            10*_np.log10(self.levels[:-1]/(self.ref**2)),
+            10*_np.log10(self.levels[:-1]/(self.ref**2))+align_ybins,
             self.pdf,
             cmap="jet",
             shading="auto",
@@ -796,6 +832,11 @@ class PSDPDF:
             alpha=1,
         )
         cbar = fig.colorbar(pcm, ax=ax, label=f"Probability Density Estimate [{self.binwidth_dB:.1f} dB/bin]")
+
+        # Plot mean and standard deviation
+        ax.plot(self.freqs, self.mean_psd, 'k-', label='Mean', linewidth=1.5)
+        ax.plot(self.freqs, self.mean_psd + self.std_psd, 'k--', label='Mean ± STD')
+        ax.plot(self.freqs, self.mean_psd - self.std_psd, 'k--')
 
         ax.set_title(f"[PSD-PDF {self.seg_duration}s] {title}", loc='left')
         ax.set_xlabel("Frequency [Hz]")
@@ -810,6 +851,7 @@ class PSDPDF:
         ax.set_xlim((_np.max((self.freqs[0],1)), self.freqs[-1]))
         ax.set_ylim((ymin, ymax))
         ax.grid(which="both", alpha=0.5)
+        ax.legend(loc='upper right')
 
         return fig, ax
 
