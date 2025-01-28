@@ -463,7 +463,7 @@ class WenzModel:
 
 class SEL:
 
-    def __init__(self, fmin=8.9125, fmax=22387, band_type='third_octave', num_bands=30, ref=1e-6):
+    def __init__(self, fmin=8.9125, fmax=22387, band_type='third_octave', num_bands=30, ref=1e-6, integration_time=None):
         """
         Initialize SEL calculator.
 
@@ -473,7 +473,7 @@ class SEL:
             band_type (str): Type of frequency bands ('octave', 'third_octave', or 'linear')
             num_bands (int): Number of bands for linear band_type
             ref (float): Reference pressure level in Pa
-            chunk_size (int): Size of chunks to process at a time
+            integration_time (float): Integration time in seconds (if None, uses full signal length)
         """
         self.fmin = fmin
         self.fmax = fmax
@@ -481,6 +481,7 @@ class SEL:
         self.num_bands = num_bands
         self.duration = None
         self.ref = ref  # Store the reference level as an attribute
+        self.integration_time = integration_time
 
     def _adjust_fmin_fmax(self, fs):
         """
@@ -571,6 +572,11 @@ class SEL:
         Returns:
             tuple: (sel, bands) where sel contains SEL values in Pa².s and bands contains frequency bands
         """
+        # Determine how much data to process based on integration_time
+        if self.integration_time is not None:
+            samples_to_process = min(int(self.integration_time * fs), len(data))
+            data = data[:samples_to_process]
+
         self.bands = self._generate_frequency_bands(fs)
         self.duration = len(data)/fs
         if chunk_size > len(data):
@@ -688,7 +694,7 @@ class PSD:
         self.psd = Pxx
         return freqs, Pxx
 
-    def plot(self, title="", label="", ymin=0, ymax=200):
+    def plot(self, title="", label="", ymin=0, ymax=200, **kwargs):
         """
         Plot the computed PSD as a line plot.
 
@@ -704,7 +710,7 @@ class PSD:
 
         # Plot PSD
         fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(self.freqs, psd_db, label=label)
+        ax.plot(self.freqs, psd_db, label=label, **kwargs)
 
         # Customize plot appearance
         ax.set_title(f"[PSD] {title}", loc='left')
@@ -726,14 +732,147 @@ class PSD:
 
         return fig, ax
 
-    def add2plot(self, ax, label=""):
+    def add2plot(self, ax, label="", **kwargs):
 
         psd_db = 10 * _np.log10(self.psd / (self.ref ** 2))
-        ax.plot(self.freqs, psd_db, label=label)
+        ax.plot(self.freqs, psd_db, label=label, **kwargs)
         if label != "":
             ax.legend()
 
         return ax
+
+class FRF:
+
+    def __init__(self, **kwargs):
+        """
+        Transfer Function computation and visualization class.
+
+        Parameters:
+        - **kwargs: Additional arguments for scipy.signal.welch and csd.
+        """
+        # Default parameters, overridden by kwargs if provided
+        self.params = {
+            "nperseg": 8192,
+            "noverlap": 4096,
+            "window": "hann",
+            "scaling": "density",
+        }
+        self.params.update(kwargs)
+
+    def compute(self, x, y, fs):
+        """
+        Compute the Transfer Function using Welch's method.
+
+        Parameters:
+        - x: Input signal array (reference).
+        - y: Output signal array.
+        - fs: Sampling frequency of the signals (Hz).
+
+        Returns:
+        - freqs: Array of frequencies (Hz).
+        - tf: Array of transfer function values.
+        - coh: Array of coherence values.
+        """
+        # Compute cross-spectral densities
+        freqs, Pxx = _sp.welch(x, fs, **self.params)
+        _, Pyy = _sp.welch(y, fs, **self.params)
+        _, Pxy = _sp.csd(x, y, fs, **self.params)
+
+        # Compute transfer function and coherence
+        tf = Pxy/Pxx
+        coh = abs(Pxy)**2/(Pxx*Pyy)
+
+        # Store computed values
+        self.freqs = freqs
+        self.tf = tf
+        self.coh = coh
+
+        return freqs, tf, coh
+
+    def plot(self, title="", label="", ymin=-60, ymax=60, **kwargs):
+        """
+        Plot the computed Transfer Function as magnitude and phase plots.
+
+        Parameters:
+        - title: Plot title.
+        - label: Legend label.
+        - ymin, ymax: Y-axis limits for magnitude plot (dB).
+        - **kwargs: Additional plotting arguments.
+        """
+        if not hasattr(self, "freqs") or not hasattr(self, "tf"):
+            raise RuntimeError("You must compute the Transfer Function before plotting it.")
+
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12))
+        ax1.set_title(f"[FRF] {title}", loc="left")
+
+        # Magnitude plot
+        mag_db = 20 * _np.log10(_np.abs(self.tf))
+        ax1.plot(self.freqs, mag_db, label=label, **kwargs)
+        ax1.set_ylabel("Magnitude [dB]")
+        ax1.set_xscale("log")
+        ax1.set_ylim((ymin, ymax))
+        ax1.set_xlim((_np.max((self.freqs[0],1)), self.freqs[-1]))
+        ax1.grid(which='major', alpha=0.75)
+        ax1.grid(which='minor', alpha=0.25)
+        ax1.set_xticklabels([])
+        ax1.tick_params(axis='x', which='both', bottom=False)
+
+        # Phase plot
+        phase_deg = _np.angle(self.tf, deg=True)
+        ax2.plot(self.freqs, phase_deg, label=label, **kwargs)
+        ax2.set_ylabel("Phase [degrees]")
+        ax2.set_xscale("log")
+        ax2.set_ylim((-180, 180))
+        ax2.set_xlim((_np.max((self.freqs[0],1)), self.freqs[-1]))
+        ax2.grid(which='major', alpha=0.75)
+        ax2.grid(which='minor', alpha=0.25)
+        ax2.set_xticklabels([])
+        ax2.tick_params(axis='x', which='both', bottom=False)
+
+        # Coherence plot
+        ax3.plot(self.freqs, self.coh, label=label, **kwargs)
+        ax3.set_xlabel("Frequency [Hz]")
+        ax3.set_ylabel("Coherence")
+        ax3.set_xscale("log")
+        ax3.set_ylim((0.75, 1.01))
+        ax3.set_xlim((_np.max((self.freqs[0],1)), self.freqs[-1]))
+        ax3.grid(which='major', alpha=0.75)
+        ax3.grid(which='minor', alpha=0.25)
+        ax3.tick_params(axis='x', which='both')
+
+        if label != "":
+            ax1.legend()
+            ax2.legend()
+            ax3.legend()
+
+        plt.tight_layout()
+
+        return fig, (ax1, ax2, ax3)
+
+    def add2plot(self, axes, label="", **kwargs):
+        """
+        Add transfer function data to existing plots.
+
+        Parameters:
+        - axes: Tuple of (magnitude_axis, phase_axis, coherence_axis).
+        - label: Legend label.
+        - **kwargs: Additional plotting arguments.
+        """
+        ax1, ax2, ax3 = axes
+
+        mag_db = 20 * _np.log10(_np.abs(self.tf))
+        phase_deg = _np.angle(self.tf, deg=True)
+
+        ax1.plot(self.freqs, mag_db, label=label, **kwargs)
+        ax2.plot(self.freqs, phase_deg, label=label, **kwargs)
+        ax3.plot(self.freqs, self.coh, label=label, **kwargs)
+
+        if label != "":
+            ax1.legend()
+            ax2.legend()
+            ax3.legend()
+
+        return axes
 
 class PSDPDF:
 
@@ -843,7 +982,7 @@ class PSDPDF:
             vmax=vmax,  # Setting the maximum value for color scaling
             alpha=1,
         )
-        cbar = fig.colorbar(pcm, ax=ax, label=f"Probability Density Estimate [{self.binwidth_dB:.1f} dB/bin]")
+        fig.colorbar(pcm, ax=ax, label=f"Probability Density Estimate [{self.binwidth_dB:.1f} dB/bin]")
 
         # Plot mean and standard deviation
         ax.plot(self.freqs, self.mean_psd, 'k-', label='Mean', linewidth=1.5)
