@@ -759,10 +759,6 @@ class FRF:
         Where:
         - Pxx(f): Power Spectral Density (PSD) of the input signal (x).
         - Pxy(f): Cross-Power Spectral Density (CPSD) between input (x) and output (y).
-
-        References:
-        - Bendat, J. S., & Piersol, A. G. (2011). Random Data: Analysis and Measurement Procedures.
-        - Oppenheim, A. V., & Schafer, R. W. (1999). Discrete-Time Signal Processing.
         """
         # Default parameters, overridden by kwargs if provided
         self.params = {
@@ -812,9 +808,6 @@ class FRF:
             C(f) = |Pxy(f)|^2 / (Pxx(f) * Pyy(f))
 
         Coherence indicates the degree of linear dependency between input (x) and output (y) at each frequency.
-
-        References:
-        - Welch, P. (1967). The use of fast Fourier transform for the estimation of power spectra. IEEE Transactions on Audio and Electroacoustics.
         """
         # Compute cross-spectral densities
         freqs, Pxx = _sp.welch(x, fs, scaling='density', **self.params)
@@ -854,9 +847,6 @@ class FRF:
         Notes:
         STFT provides time-frequency analysis by splitting the signal into overlapping segments and applying the Fourier transform to each segment.
         This method is useful for non-stationary signals where the FRF may change over time.
-
-        References:
-        - Allen, J. B., & Rabiner, L. R. (1977). A unified approach to short-time Fourier analysis and synthesis. Proceedings of the IEEE.
         """
         # Create ShortTimeFFT object
         stft = _sp.ShortTimeFFT(_sp.windows.hann(self.params["nperseg"]),
