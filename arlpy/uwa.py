@@ -741,25 +741,47 @@ class PSD:
 
         return ax
 
-class FRF:
 
-    def __init__(self, **kwargs):
+class FRF:
+    def __init__(self, method='welch', **kwargs):
         """
-        Transfer Function computation and visualization class.
+        Transfer Function (Frequency Response Function, FRF) computation and visualization class.
 
         Parameters:
-        - **kwargs: Additional arguments for scipy.signal.welch and csd.
+        - **kwargs: Additional arguments for scipy.signal.welch and scipy.signal.csd.
+
+        Notes:
+        The Transfer Function (FRF) is a complex function that relates the input and output of a linear time-invariant (LTI) system in the frequency domain.
+        It is defined as:
+
+            H(f) = Pxy(f) / Pxx(f)
+
+        Where:
+        - Pxx(f): Power Spectral Density (PSD) of the input signal (x).
+        - Pxy(f): Cross-Power Spectral Density (CPSD) between input (x) and output (y).
+
+        References:
+        - Bendat, J. S., & Piersol, A. G. (2011). Random Data: Analysis and Measurement Procedures.
+        - Oppenheim, A. V., & Schafer, R. W. (1999). Discrete-Time Signal Processing.
         """
         # Default parameters, overridden by kwargs if provided
         self.params = {
             "nperseg": 8192,
             "noverlap": 4096,
-            "window": "hann",
-            "scaling": "density",
         }
         self.params.update(kwargs)
+        self .method = method
 
     def compute(self, x, y, fs):
+
+        if self.method == 'welch':
+            freqs, mag, phase, coh = self.compute_welch(x, y, fs)
+        elif self.method == 'stft':
+            freqs, mag, phase, coh = self.compute_stft(x, y, fs)
+
+        return freqs, mag, phase, coh
+
+    def compute_welch(self, x, y, fs):
         """
         Compute the Transfer Function using Welch's method.
 
@@ -770,24 +792,98 @@ class FRF:
 
         Returns:
         - freqs: Array of frequencies (Hz).
-        - tf: Array of transfer function values.
+        - tf: Array of transfer function values (complex).
         - coh: Array of coherence values.
+
+        Notes:
+        Welch's method is used to estimate the Power Spectral Density (PSD) and Cross-Spectral Density (CPSD).
+        It reduces noise by averaging periodograms obtained from overlapping segments of the signal.
+
+        Coherence is defined as:
+            C(f) = |Pxy(f)|^2 / (Pxx(f) * Pyy(f))
+
+        Coherence indicates the degree of linear dependency between input (x) and output (y) at each frequency.
+
+        References:
+        - Welch, P. (1967). The use of fast Fourier transform for the estimation of power spectra. IEEE Transactions on Audio and Electroacoustics.
         """
         # Compute cross-spectral densities
-        freqs, Pxx = _sp.welch(x, fs, **self.params)
-        _, Pyy = _sp.welch(y, fs, **self.params)
-        _, Pxy = _sp.csd(x, y, fs, **self.params)
+        freqs, Pxx = _sp.welch(x, fs, scaling='density', **self.params)
+        _, Pyy = _sp.welch(y, fs, scaling='density', **self.params)
+        _, Pxy = _sp.csd(x, y, fs, scaling='density', **self.params)
 
         # Compute transfer function and coherence
-        tf = Pxy/Pxx
-        coh = abs(Pxy)**2/(Pxx*Pyy)
+        tf = Pxy / Pxx
+        coh = abs(Pxy)**2 / (Pxx * Pyy)
 
         # Store computed values
         self.freqs = freqs
         self.tf = tf
         self.coh = coh
 
-        return freqs, tf, coh
+        # Split transfer function into magnitude and phase
+        mag = _np.abs(tf)
+        phase = _np.angle(tf, deg=True)
+
+        return freqs, mag, phase, coh
+
+    def compute_stft(self, x, y, fs):
+        """
+        Compute the Frequency Response Function (FRF) using Short-Time Fourier Transform (STFT).
+
+        Parameters:
+        - x: Input signal array (reference).
+        - y: Output signal array.
+        - fs: Sampling frequency of the signals (Hz).
+
+        Returns:
+        - freqs: Array of frequencies (Hz).
+        - mag: Magnitude of the transfer function.
+        - phase: Phase of the transfer function (degrees).
+        - coh_avg: Average coherence values.
+
+        Notes:
+        STFT provides time-frequency analysis by splitting the signal into overlapping segments and applying the Fourier transform to each segment.
+        This method is useful for non-stationary signals where the FRF may change over time.
+
+        References:
+        - Allen, J. B., & Rabiner, L. R. (1977). A unified approach to short-time Fourier analysis and synthesis. Proceedings of the IEEE.
+        """
+        # Create ShortTimeFFT object
+        stft = _sp.ShortTimeFFT(_sp.windows.hann(self.params["nperseg"]),
+                                hop=self.params["noverlap"],
+                                fs=fs,
+                                scale_to='psd')
+
+        # Compute STFT for x and y
+        Zxx = stft.spectrogram(x)
+        Zyy = stft.spectrogram(y)
+        freqs = _np.arange(stft.f_pts) * stft.delta_f
+
+        # Compute cross-spectrogram
+        Zxy = stft.spectrogram(x, y)
+
+        # Compute transfer function
+        tf = Zxy / Zxx
+        tf_avg = _np.mean(tf, axis=1)  # Moyenne complexe de la fonction de transfert
+
+        # Compute magnitude and phase after averaging
+        mag = _np.abs(tf_avg)  # Module après moyennage
+        phase = _np.angle(tf_avg, deg=True)  # Phase après moyennage
+
+        # Compute coherence based on averaged TF
+        Sxx_avg = _np.mean(_np.abs(Zxx), axis=1)
+        Syy_avg = _np.mean(_np.abs(Zyy), axis=1)
+        Sxy_avg = _np.mean(Zxy, axis=1)
+        coh_avg = _np.abs(Sxy_avg)**2 / (Sxx_avg * Syy_avg)
+
+        # Store computed values
+        self.freqs = freqs
+        self.tf = tf_avg
+        self.coh = coh_avg
+
+        return freqs, mag, phase, coh_avg
+
 
     def plot(self, title="", label="", ymin=-60, ymax=60, **kwargs):
         """
@@ -798,11 +894,18 @@ class FRF:
         - label: Legend label.
         - ymin, ymax: Y-axis limits for magnitude plot (dB).
         - **kwargs: Additional plotting arguments.
+
+        Notes:
+        The magnitude (in dB) is computed as:
+            20 * log10(|H(f)|)
+
+        Phase is given in degrees.
+        Coherence is plotted to assess the reliability of the FRF.
         """
         if not hasattr(self, "freqs") or not hasattr(self, "tf"):
             raise RuntimeError("You must compute the Transfer Function before plotting it.")
 
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12))
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
         ax1.set_title(f"[FRF] {title}", loc="left")
 
         # Magnitude plot
@@ -811,7 +914,7 @@ class FRF:
         ax1.set_ylabel("Magnitude [dB]")
         ax1.set_xscale("log")
         ax1.set_ylim((ymin, ymax))
-        ax1.set_xlim((_np.max((self.freqs[0],1)), self.freqs[-1]))
+        ax1.set_xlim((_np.max((self.freqs[0], 1)), self.freqs[-1]))
         ax1.grid(which='major', alpha=0.75)
         ax1.grid(which='minor', alpha=0.25)
         ax1.set_xticklabels([])
@@ -823,7 +926,7 @@ class FRF:
         ax2.set_ylabel("Phase [degrees]")
         ax2.set_xscale("log")
         ax2.set_ylim((-180, 180))
-        ax2.set_xlim((_np.max((self.freqs[0],1)), self.freqs[-1]))
+        ax2.set_xlim((_np.max((self.freqs[0], 1)), self.freqs[-1]))
         ax2.grid(which='major', alpha=0.75)
         ax2.grid(which='minor', alpha=0.25)
         ax2.set_xticklabels([])
@@ -835,7 +938,7 @@ class FRF:
         ax3.set_ylabel("Coherence")
         ax3.set_xscale("log")
         ax3.set_ylim((0.75, 1.01))
-        ax3.set_xlim((_np.max((self.freqs[0],1)), self.freqs[-1]))
+        ax3.set_xlim((_np.max((self.freqs[0], 1)), self.freqs[-1]))
         ax3.grid(which='major', alpha=0.75)
         ax3.grid(which='minor', alpha=0.25)
         ax3.tick_params(axis='x', which='both')
@@ -873,6 +976,7 @@ class FRF:
             ax3.legend()
 
         return axes
+
 
 class PSDPDF:
 
