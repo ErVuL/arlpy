@@ -767,13 +767,22 @@ class FRF:
         # Default parameters, overridden by kwargs if provided
         self.params = {
             "nperseg": 8192,
-            "noverlap": 4096,
+            "noverlap": 0,
         }
         self.params.update(kwargs)
         self .method = method
 
-    def compute(self, x, y, fs):
+    def compute(self, x, y, fs, method=None, nperseg=None, noverlap=None):
 
+        if method != None:
+            self.method = method
+            
+        if nperseg != None:
+            self.params['nperseg'] = nperseg
+            
+        if noverlap != None:
+            self.params['noverlap'] = noverlap
+        
         if self.method == 'welch':
             freqs, mag, phase, coh = self.compute_welch(x, y, fs)
         elif self.method == 'stft':
@@ -851,7 +860,7 @@ class FRF:
         """
         # Create ShortTimeFFT object
         stft = _sp.ShortTimeFFT(_sp.windows.hann(self.params["nperseg"]),
-                                hop=self.params["noverlap"],
+                                hop=self.params["nperseg"]-self.params["noverlap"],
                                 fs=fs,
                                 scale_to='psd')
 
