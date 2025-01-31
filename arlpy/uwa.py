@@ -772,13 +772,13 @@ class FRF:
 
         if method != None:
             self.method = method
-            
+
         if nperseg != None:
             self.params['nperseg'] = nperseg
-            
+
         if noverlap != None:
             self.params['noverlap'] = noverlap
-        
+
         if self.method == 'welch':
             freqs, mag, phase, coh = self.compute_welch(x, y, fs)
         elif self.method == 'stft':
@@ -975,7 +975,6 @@ class FRF:
             ax3.legend()
 
         return axes
-
 
 class PSDPDF:
 
@@ -1198,3 +1197,71 @@ class Spectrogram:
         ax.grid(which="both", alpha=0.25, color='black')
 
         return fig, ax
+
+def SSRP(Pxx, Fxx, duration=1, scale=1):
+    """
+    Spectral Synthesis of Random Processes.
+
+    Create a noise in the time domain based on a given PSD.
+    The PSD length should be 2**N for efficient computation.
+    The signal will be sampled at Fxx[-1]*2.
+
+    :param Pxx: Power spectral density in (U/scale)**2/Hz
+    :param Fxx: Frequency array in Hz
+    :param duration: Duration of the generated signal in seconds
+    :param scale: Scale factor
+    :returns: tuple (t, x, fs) where t is time array in s, x is signal array in U, fs is sampling frequency in Hz
+
+    >>> import numpy as np
+    >>> fs = 1000
+    >>> f = np.linspace(0, fs/2, 512)
+    >>> Pxx = np.ones_like(f)
+    >>> t, x, fs = SSRP(Pxx, f, 1, 1)
+    """
+    dF = (Fxx[1]-Fxx[0])
+    Pxx = Pxx*dF
+    fmin = Fxx[0]
+    fmax = Fxx[-1]
+    fs = fmax*2
+    v = Pxx * fmin / 4
+    N = len(Pxx)
+
+    # Calculate chunk parameters
+    chunk_size = 2 * (N + 1)  # Size of each chunk
+    overlap_size = chunk_size // 4  # 25% overlap
+    samples_needed = int(duration * fs)
+    num_chunks = int(_np.ceil(samples_needed / (chunk_size - overlap_size)))
+
+    # Initialize output arrays
+    x_total = _np.zeros(samples_needed)
+    t_total = _np.arange(samples_needed) / fs
+
+    # Generate chunks
+    for i in range(num_chunks):
+        # Generate chunk
+        vi = _np.random.randn(N)
+        vq = _np.random.randn(N)
+        w = (vi + 1j * vq) * _np.sqrt(v)
+        chunk = _np.fft.irfft(_np.concatenate(([0], w)), chunk_size)
+        chunk = chunk * chunk_size
+
+        # Create fade in/out windows
+        fade = _np.ones(chunk_size)
+        if i > 0:  # Fade in
+            fade[:overlap_size] = _np.linspace(0, 1, overlap_size)**(1/2)
+        if i < num_chunks-1:  # Fade out
+            fade[-overlap_size:] = _np.linspace(1, 0, overlap_size)**(1/2)
+        chunk = chunk * fade
+
+        # Calculate chunk position
+        start_idx = i * (chunk_size - overlap_size)
+        end_idx = start_idx + chunk_size
+
+        # Add chunk to output, accounting for final chunk potentially being too long
+        if end_idx > samples_needed:
+            chunk = chunk[:samples_needed-start_idx]
+            end_idx = samples_needed
+
+        x_total[start_idx:end_idx] += chunk[:end_idx-start_idx] * scale
+
+    return t_total, x_total, int(fs)
