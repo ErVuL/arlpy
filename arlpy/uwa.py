@@ -1248,9 +1248,9 @@ def SSRP(Pxx, Fxx, duration=1, scale=1):
         # Create fade in/out windows
         fade = _np.ones(chunk_size)
         if i > 0:  # Fade in
-            fade[:overlap_size] = _np.linspace(0, 1, overlap_size)**(1/2)
+            fade[:overlap_size] = _np.sin(_np.pi/2 * _np.linspace(0, 1, overlap_size))
         if i < num_chunks-1:  # Fade out
-            fade[-overlap_size:] = _np.linspace(1, 0, overlap_size)**(1/2)
+            fade[-overlap_size:] = _np.sin(_np.pi/2 * _np.linspace(1, 0, overlap_size))
         chunk = chunk * fade
 
         # Calculate chunk position
