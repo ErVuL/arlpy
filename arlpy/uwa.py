@@ -313,19 +313,19 @@ class WenzModel:
     """
 
 
-    def __init__(self, frequencies=_np.linspace(1,100000,100000), wind_speed=5, rain_rate='no', water_depth='deep', shipping_level='low'):
+    def __init__(self, Fxx=_np.linspace(1,100000,100000), wind_speed=5, rain_rate='no', water_depth='deep', shipping_level='low'):
 
         """
         Initialize the Wenz model with parameters.
 
         Parameters:
-            frequencies (array): Frequency vector in Hz
+            Fxx (array): Frequency vector in Hz
             wind_speed (float): Wind speed in knots
             rain_rate (str): 'no', 'light', 'moderate', 'heavy', or 'veryheavy'
             water_depth (str): 'shallow' or 'deep'
             shipping_level (str): 'no', 'low', 'medium', or 'high'
         """
-        self.f = _np.array(frequencies).flatten()
+        self.Fxx = _np.array(Fxx).flatten()
         self.wind_speed = wind_speed
         self.rain_rate = rain_rate
         self.water_depth = water_depth
@@ -335,7 +335,7 @@ class WenzModel:
     def _compute_wind_noise(self):
         """Calculate wind-based noise component."""
         if self.wind_speed == 0:
-            return _np.zeros_like(self.f)
+            return _np.zeros_like(self.Fxx)
 
         f_wind = 2000  # Cutoff for wind noise section
         s1w = 1.5     # Constant in wind calcs
@@ -345,8 +345,8 @@ class WenzModel:
 
         cst = 45 if self.water_depth == 'shallow' else 42
 
-        i_wind = self.f <= f_wind
-        f_temp = self.f[i_wind] if _np.any(i_wind) else _np.array([2000])
+        i_wind = self.Fxx <= f_wind
+        f_temp = self.Fxx[i_wind] if _np.any(i_wind) else _np.array([2000])
 
         f0w = 770 - 100 * _np.log10(self.wind_speed)
         L0w = cst + 20 * _np.log10(self.wind_speed) - 17 * _np.log10(f0w / 770)
@@ -355,18 +355,18 @@ class WenzModel:
         Lw = L1w * (1 + (L1w / L2w) ** (-a)) ** (1 / a)
         temp_noise_dist = 10 ** (Lw / 10)
 
-        NL = _np.zeros_like(self.f)
+        NL = _np.zeros_like(self.Fxx)
         if _np.any(i_wind):
             NL[i_wind] = temp_noise_dist
         if _np.any(~i_wind):
             prop_const = temp_noise_dist[-1] / f_temp[-1] ** slope
-            NL[~i_wind] = prop_const * self.f[~i_wind] ** slope
+            NL[~i_wind] = prop_const * self.Fxx[~i_wind] ** slope
 
         return 10 * _np.log10(NL)
 
     def _compute_thermal_noise(self):
         """Calculate thermal noise component."""
-        noise = -75.0 + 20.0 * _np.log10(self.f)
+        noise = -75.0 + 20.0 * _np.log10(self.Fxx)
         noise[noise <= 0] = 1
         return noise
 
@@ -376,22 +376,22 @@ class WenzModel:
         c2 = {'low': 1, 'medium': 4, 'high': 7, 'no': 0}.get(self.shipping_level, 4)
 
         if self.shipping_level != 'no':
-            noise = 76 - 20 * (_np.log10(self.f) - _np.log10(c1))**2 + 5 * (c2 - 4)
+            noise = 76 - 20 * (_np.log10(self.Fxx) - _np.log10(c1))**2 + 5 * (c2 - 4)
             noise[noise <= 0] = 1
             return noise
-        return _np.zeros_like(self.f)
+        return _np.zeros_like(self.Fxx)
 
     def _compute_turbulence_noise(self):
         """Calculate turbulence noise component."""
 
-        noise = 108.5 - 32.5 * _np.log10(self.f)
+        noise = 108.5 - 32.5 * _np.log10(self.Fxx)
         noise[noise <= 0] = 1
         return noise
 
     def _compute_rain_noise(self):
 
         if self.rain_rate == "no":
-            return _np.zeros(len(self.f))
+            return _np.zeros(len(self.Fxx))
 
         """Calculate rain noise component."""
         r0 = [0, 51.0769, 61.5358, 65.1107, 74.3464]
@@ -400,14 +400,14 @@ class WenzModel:
         r3 = [0, 0.0335, 0.0277, 0.0251, 0.0277]
 
         i_rain = {'light': 1, 'moderate': 2, 'heavy': 3, 'veryheavy': 4}.get(self.rain_rate, 1)
-        fk = self.f / 1000
+        fk = self.Fxx / 1000
         noise = r0[i_rain] + r1[i_rain] * fk + r2[i_rain] * fk**2 + r3[i_rain] * fk**3
 
         slope = -5.0 * (0.1 / _np.log10(2))
-        ind = _np.where(self.f < 7000)[0][-1]
+        ind = _np.where(self.Fxx < 7000)[0][-1]
         temp_noise = 10**(noise[ind] / 10)
-        prop_const = temp_noise / self.f[ind]**slope
-        noise[self.f > 7000] = 10 * _np.log10(prop_const * self.f[self.f > 7000]**slope)
+        prop_const = temp_noise / self.Fxx[ind]**slope
+        noise[self.Fxx > 7000] = 10 * _np.log10(prop_const * self.Fxx[self.Fxx > 7000]**slope)
 
         return noise
 
@@ -429,31 +429,32 @@ class WenzModel:
         self.turbulence_noise = self._compute_turbulence_noise()
         self.rain_noise = self._compute_rain_noise()
         self.total_noise = self._compute_total_noise()
+        self.Pxx = 10**(self.total_noise/10)*1e-12
 
     def plot(self, title='', **kwargs):
         """Plot all noise components and total noise."""
         fig, ax = plt.subplots()
 
-        ax.semilogx(self.f, self.total_noise,
+        ax.semilogx(self.Fxx, self.total_noise,
                     label=f'Total noise ({self.water_depth} water)', color='black', **kwargs)
-        ax.semilogx(self.f, self.shipping_noise,
+        ax.semilogx(self.Fxx, self.shipping_noise,
                     label=f'Shipping noise ({self.shipping_level} traffic)',
                     color='blue', linestyle='dashed', **kwargs)
-        ax.semilogx(self.f, self.wind_noise,
+        ax.semilogx(self.Fxx, self.wind_noise,
                     label=f'Wind noise ({self.wind_speed} kn)',
                     color='green', linestyle='dashed', **kwargs)
-        ax.semilogx(self.f, self.rain_noise,
+        ax.semilogx(self.Fxx, self.rain_noise,
                     label=f'Rain noise ({self.rain_rate} rain)',
                     color='orange', linestyle='dashed', **kwargs)
-        ax.semilogx(self.f, self.thermal_noise,
+        ax.semilogx(self.Fxx, self.thermal_noise,
                     label='Thermal noise', color='red', linestyle='dashed', **kwargs)
-        ax.semilogx(self.f, self.turbulence_noise,
+        ax.semilogx(self.Fxx, self.turbulence_noise,
                     label='Turbulence noise', color='purple', linestyle='dashed', **kwargs)
 
         ax.set_xlabel('Frequency [Hz]')
         ax.set_ylabel('Noise Level [dB re 1µPa²]')
         ax.set_title(f'[WENZ - Noise Level Estimate] {title}', loc='left')
-        ax.set_xlim((self.f[0], self.f[-1]))
+        ax.set_xlim((self.Fxx[0], self.Fxx[-1]))
         ax.set_ylim((6, 146))
         ax.legend()
         ax.grid(True, 'both')
@@ -694,7 +695,7 @@ class PSD:
         self.psd = Pxx
         return freqs, Pxx
 
-    def plot(self, title="", label="", ymin=0, ymax=200, **kwargs):
+    def plot(self, title="", label="", ymin=0, ymax=150, **kwargs):
         """
         Plot the computed PSD as a line plot.
 
@@ -732,10 +733,16 @@ class PSD:
 
         return fig, ax
 
-    def add2plot(self, ax, label="", **kwargs):
+    def add2plot(self, ax, Fxx=None, Pxx=None, ref=None, label="", **kwargs):
 
-        psd_db = 10 * _np.log10(self.psd / (self.ref ** 2))
-        ax.plot(self.freqs, psd_db, label=label, **kwargs)
+        if Fxx is None and Pxx is None:
+            Fxx = self.freqs
+            Pxx = self.psd
+        if ref is None:
+            ref = self.ref
+            
+        psd_db = 10 * _np.log10(Pxx / (ref ** 2))
+        ax.plot(Fxx, psd_db, label=label, **kwargs)
         if label != "":
             ax.legend()
 
@@ -1228,7 +1235,7 @@ def SSRP(Pxx, Fxx, duration=1, scale=1):
 
     # Calculate chunk parameters
     chunk_size = 2 * (N + 1)  # Size of each chunk
-    overlap_size = chunk_size // 4  # 25% overlap
+    overlap_size = chunk_size // 4  # 50% overlap
     samples_needed = int(duration * fs)
     num_chunks = int(_np.ceil(samples_needed / (chunk_size - overlap_size)))
 
