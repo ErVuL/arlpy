@@ -5,8 +5,8 @@ import arlpy.uwa as uwa
 if __name__ == "__main__":
 
     # PSD of required signal
-    wenz = uwa.WenzModel(Fxx=np.linspace(1,24000,65536))
-    duration = 30 # s
+    wenz = uwa.WenzModel(Fxx=np.linspace(1,192000,65536))
+    duration = 10 # s
 
     # Signal synthesis
     Gtime, Gsignal, fs = uwa.SSRP(wenz.Pxx, wenz.Fxx, duration, scale=1)
@@ -21,7 +21,7 @@ if __name__ == "__main__":
     fig1, ax1 =  plt.subplots(1,1)
     ax1.plot(Gtime,Gsignal)
     ax1.set_xlabel('Time [s]')
-    ax1.set_ylabel('Amplitude [U]')
+    ax1.set_ylabel('Amplitude [Pa]')
     ax1.set_title('Generated signal', loc='left')
     ax1.grid(True, which="both")
     wenz.plot()
