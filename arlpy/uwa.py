@@ -711,7 +711,7 @@ class PSD:
 
         # Plot PSD
         fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(self.freqs, psd_db, label=label, **kwargs)
+        ax.semilogx(self.freqs, psd_db, label=label, **kwargs)
 
         # Customize plot appearance
         ax.set_title(f"[PSD] {title}", loc='left')
@@ -723,11 +723,10 @@ class PSD:
         else:
             ref = f"{self.ref:02e}"
         ax.set_ylabel(f'Level [dB re {ref}Pa²/Hz]')
-        ax.set_xscale("log")
         ax.set_ylim((ymin,ymax))
         ax.set_xlim((_np.max((self.freqs[0],1)),self.freqs[-1]))
         ax.grid(which="both", alpha=0.75)
-        ax.set_axisbelow(True)
+        plt.tight_layout()
         if label != "":
             ax.legend()
 
@@ -795,7 +794,9 @@ class FRF:
 
     def compute_welch(self, x, y, fs):
         """
-        Compute the Transfer Function using Welch's method.
+        Compute the Frequency Response Function (FRF) using Welch's method.
+        This method is more dedicated to stationary signals.
+        Coherence indicates the degree of linear dependency between input (x) and output (y) at each frequency.
 
         Parameters:
         - x: Input signal array (reference).
@@ -806,15 +807,6 @@ class FRF:
         - freqs: Array of frequencies (Hz).
         - tf: Array of transfer function values (complex).
         - coh: Array of coherence values.
-
-        Notes:
-        Welch's method is used to estimate the Power Spectral Density (PSD) and Cross-Spectral Density (CPSD).
-        It reduces noise by averaging periodograms obtained from overlapping segments of the signal.
-
-        Coherence is defined as:
-            C(f) = |Pxy(f)|^2 / (Pxx(f) * Pyy(f))
-
-        Coherence indicates the degree of linear dependency between input (x) and output (y) at each frequency.
         """
         # Compute cross-spectral densities
         freqs, Pxx = _sp.welch(x, fs, scaling='density', **self.params)
@@ -839,6 +831,8 @@ class FRF:
     def compute_stft(self, x, y, fs):
         """
         Compute the Frequency Response Function (FRF) using Short-Time Fourier Transform (STFT).
+        This method is more dedicated to non-stationary signals.
+        Coherence indicates the degree of linear dependency between input (x) and output (y) at each frequency.
 
         Parameters:
         - x: Input signal array (reference).
@@ -850,10 +844,6 @@ class FRF:
         - mag: Magnitude of the transfer function.
         - phase: Phase of the transfer function (degrees).
         - coh_avg: Average coherence values.
-
-        Notes:
-        STFT provides time-frequency analysis by splitting the signal into overlapping segments and applying the Fourier transform to each segment.
-        This method is useful for non-stationary signals where the FRF may change over time.
         """
         # Create ShortTimeFFT object
         stft = _sp.ShortTimeFFT(_sp.windows.hann(self.params["nperseg"]),

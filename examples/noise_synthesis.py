@@ -12,7 +12,7 @@ if __name__ == "__main__":
     Gtime, Gsignal, fs = uwa.SSRP(wenz.Pxx, wenz.Fxx, duration, scale=1)
     
     # PSD
-    psd = uwa.PSD()
+    psd = uwa.PSD(nperseg=16384*2*2)
     Fxx, Pxx = psd.compute(Gsignal, fs)
     
     # Plot
