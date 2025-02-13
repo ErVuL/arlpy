@@ -1,4 +1,5 @@
 import arlpy.uwa as uwa
+import arlpy.signal as usp
 import numpy as _np
 import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
@@ -19,31 +20,31 @@ if __name__ == "__main__":
     signal = signal + _np.random.normal(0, 0.1, int(fs*duration))
     
     # SEL
-    sel = uwa.SEL()
+    sel = usp.SEL()
     sel.compute(signal, fs, chunk_size=192000)
     sel.plot(title="Example Signal")
     
     # PSD
-    psd = uwa.PSD()
+    psd = usp.PSD()
     psd.compute(signal, fs)
     fig, ax = psd.plot(title="Example Signal", label='signal 1')
     psd.compute(signal/2, fs)
     psd.add2plot(ax, label="signal 2", linestyle='dashed')
     
     # FRF    
-    frf = uwa.FRF()
+    frf = usp.FRF()
     frf.compute(signal, lowpass(signal*10, 2000, fs), fs, nperseg=16384)
     fig, ax = frf.plot(title="Example Signal", label="sig 1")
     frf.compute(signal, lowpass(signal*10, 40000, fs), fs, method='stft', nperseg=16384)
     frf.add2plot(ax, label='sig 2', linestyle='dashed')
     
     # PSDPDF
-    psdpdf = uwa.PSDPDF(seg_duration=0.1, nperseg=4096, noverlap=4096/2, nbins=100)
+    psdpdf = usp.PSDPDF(seg_duration=0.1, nperseg=4096, noverlap=4096/2, nbins=100)
     psdpdf.compute(signal, fs)
     psdpdf.plot(title="Example Signal")
     
     # Spectrogram
-    spec = uwa.Spectrogram()
+    spec = usp.Spectrogram()
     spec.compute(signal, fs)
     spec.plot(title="Example Signal", ymin=100, vmax=180)
     

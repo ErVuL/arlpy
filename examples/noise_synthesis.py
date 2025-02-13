@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import arlpy.uwa as uwa
+import arlpy.signal as usp
 
 if __name__ == "__main__":
 
@@ -9,10 +10,10 @@ if __name__ == "__main__":
     duration = 60 # s
 
     # Signal synthesis
-    Gtime, Gsignal, fs = uwa.SSRP(wenz.Pxx, wenz.Fxx, duration, scale=1)
+    Gtime, Gsignal, fs = usp.SSRP(wenz.Pxx, wenz.Fxx, duration, scale=1)
     
     # PSD
-    psd = uwa.PSD(nperseg=16384*2*2)
+    psd = usp.PSD(nperseg=16384*2*2)
     Fxx, Pxx = psd.compute(Gsignal, fs)
     
     # Plot
