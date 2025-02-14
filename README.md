@@ -1,6 +1,6 @@
 # ARL Python Tools modified
 
-A custom version of arlpy with some more tools and propagation models. It uses matplotlib instead of bokeh. This work is a week-end project, it may contains some errors, bugs and mising functionnalities.
+A custom version of arlpy (for Linux based OS) with some more tools and propagation models from OALIB. It uses matplotlib instead of bokeh. This work is a week-end project, it may contains some errors, bugs and mising functionnalities.
 Fork from : https://github.com/org-arl/arlpy/
 
 ## Usage
