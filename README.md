@@ -12,10 +12,10 @@ Fork from : https://github.com/org-arl/arlpy/
 Install dependencies:
 
     sudo apt/dnf install git texlive-base gfortran cmake
-    cd <installation_path>
 
 Activate your python virtual env, go to your ***<installation_path>***, then clone git projects:
 
+    cd <installation_path>
     git clone git@github.com:ErVuL/arlpy.git
     git clone git@github.com:ErVuL/pyram.git
     git clone git@github.com:ErVuL/Acoustics-Toolbox.git
