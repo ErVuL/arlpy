@@ -6,14 +6,14 @@ import arlpy.signal as usp
 if __name__ == "__main__":
 
     # PSD of required signal
-    wenz = uwa.WenzModel(Fxx=np.linspace(1,192000,65536), shipping_level='medium', wind_speed=10)
+    wenz = uwa.WenzModel(Fxx=np.linspace(1,48000,65536), shipping_level='medium', wind_speed=10)
     duration = 60 # s
 
     # Signal synthesis
     Gtime, Gsignal, fs = usp.SSRP(wenz.Pxx, wenz.Fxx, duration, scale=1)
     
     # PSD
-    psd = usp.PSD(nperseg=16384*2*2)
+    psd = usp.PSD(nperseg=32768)
     Fxx, Pxx = psd.compute(Gsignal, fs)
     
     # Plot

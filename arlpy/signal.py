@@ -1276,3 +1276,6 @@ class FRF:
             ax3.legend()
 
         return axes
+    
+def resample(data, UpSamplingFactor, DownSamplingFactor):
+    return _sig.resample_poly(data.astype(float), up=UpSamplingFactor, down=DownSamplingFactor)
