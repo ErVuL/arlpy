@@ -63,8 +63,8 @@ You have to manually uninstall dependencies if you want to.
 | Add spectro func in dB re 1uPa/vHz for rec signals   | Done                  |
 | Add FRF for stationnary and transient signals        | Done                  |
 | Update bellhop                                       | In progress ($\beta$) |
-| Add pyram to arlpy                                   | Done (beta) ($\beta$) |
-| Add kraken to arlpy                                  | Done (beta) ($\beta$) |
+| Add pyram to arlpy                                   | In progress ($\beta$) |
+| Add kraken to arlpy                                  | In progress ($\beta$) |
 | Manage all options for Bellhop, Kraken and RAM       | In progress           |
 | Maintain up to date unittest and assert in arlpy     | In progress           |
 | Maintain up to date function and class comments      | In progress           |
