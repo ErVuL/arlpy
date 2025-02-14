@@ -45,6 +45,39 @@ Activate your python virtual env, go to your ***<installation_path>***, then:
     
 You have to manually uninstall dependencies if you want to.
 
+## Roadmap
+
+| TODO                                                 | Status      |
+|:----------------------------------------------------:|:-----------:|
+| Make oalib installation works properly               | Done        |
+| Update deprecated pyram types                        | Done        |
+| Simplify acoustic env() in arlpy                     | Done        |
+| Make a simple installation process                   | Done        |
+| Compatibility with Spyder                            | Done        |
+| Add basic plots                                      | Done        |
+| Add Wenz curves simulator                            | Done        |
+| Update bellhop                                       | Done (beta) |
+| Add pyram to arlpy                                   | Done (beta) |
+| Add kraken to arlpy                                  | Done (beta) |
+| Handle source range and left propagation             | Done        |
+| Add common sound profile plot                        | Done        |
+| Add plot PSD func in dB re 1uPa/vHz for rec signals  | Done        |
+| Add statistical PSD in dB re 1uPa/vHz                | Done        |
+| Add spectro func in dB re 1uPa/vHz for rec signals   | Done        |
+| Add FRF for stationnary and transient signals        | Done        |
+| Manage all options for Bellhop, Kraken and RAM       | In progress |
+| Maintain up to date unittest and assert in arlpy     | In progress |
+| Maintain up to date function and class comments      | In progress |
+| Totally remove pandas                                | Not started |
+| Add channel simulator filter using IR ?              | Not started |
+| Add Krakenc to arlpy                                 | Not started |
+| Add earthquakes and explosions to Wenz model         | Not started |
+| Consider Windows compatibility                       | Not started |
+| ...                                                  | ...         |
+| Add scooter to arlpy                                 | Not started |
+| Add sparc to arlpy                                   | Not started |
+| Consider using C++ version of bellhop                | Not started |
+
 ## About
 
 ### PYRAM
