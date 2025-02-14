@@ -13,7 +13,7 @@ Install dependencies:
 
     sudo apt/dnf install git texlive-base gfortran cmake
 
-Activate your python virtual env, go to your ***<installation_path>***, then clone git projects:
+Activate your python virtual env, then clone git projects:
 
     cd <installation_path>
     git clone git@github.com:ErVuL/arlpy.git
@@ -37,7 +37,7 @@ Install OALIB toolbox:
 
 ### Examples
 
-Examples containing:
+Some scripts are available into ***<installation_path>/arlpy/examples***, it contains:
 
 - Power spectral density estimate
 - Power spectral density PDF
@@ -46,12 +46,11 @@ Examples containing:
 - Acoustic propagation modeling (BELLHOP, RAM, KRAKEN)
 - Wenz noise modeling
 
-are located into ***<installation_path>/arlpy/examples***.
-
 ### Uninstall
 
-Activate your python virtual env, go to your ***<installation_path>***, then:
+Activate your python virtual env, then:
 
+    cd <installation_path>
     pip uninstall arlpy pyram
     rm -rf arlpy
     rm -rf pyram
