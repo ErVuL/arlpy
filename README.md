@@ -41,7 +41,7 @@ Activate your python virtual env and type:
     rm -rf pyram
     rm -rf Acoustics-Toolbox
     sudo rm -rf /opt/build/at
-    sed -i '/\/opt\/build\/at\/bin/d' ~/.bashrc
+    sudo sed -i '/\/opt\/build\/at\/bin/d' ~/.bashrc
     
 You have to manually uninstall dependencies if you want to.
 
