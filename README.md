@@ -32,13 +32,6 @@ Then activate your python virtual env and type:
     sudo make install
     sudo echo 'export PATH="/opt/build/at/bin:$PATH"' >> ~/.bashrc
 
-
-### Import modules
-```
-import arlpy
-import pyram
-```
-
 ### Uninstall
 
 Activate your python virtual env and type:
