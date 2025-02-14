@@ -585,7 +585,7 @@ def plot_transmission_loss(env, TL, model='Unknown model', vmin=-120, vmax=0, de
     ax.set_ylim((Y[0], Y[-1]))
     ax.set_xlabel('Range [km]')
     ax.set_ylabel('Depth [m]')
-    ax.set_title(f"[{model} - Transmission loss @ {env['tx_freq']} Hz] {env['name']}")
+    ax.set_title(f"[{model} - Transmission loss @ {env['tx_freq']} Hz] {env['name']}", loc="left")
 
     # Add color bar
     cbar1 = fig.colorbar(im1, ax=ax)
@@ -674,7 +674,7 @@ def plot_ssp(env, Nxy=500, **kwargs):
         ax.set_ylim((ymin, ymax))
         ax.set_xlabel('Range [km]')
         ax.set_ylabel('Depth [m]')
-        ax.set_title(f"[Sound speed profile] {env['name']}")
+        ax.set_title(f"[Sound speed profile] {env['name']}", loc="left")
         ax.invert_yaxis()
         plt.tight_layout()
         plt.show()
@@ -685,7 +685,7 @@ def plot_ssp(env, Nxy=500, **kwargs):
             Y, Z = _np.array(env['ssp_depth']), _np.array(env['ssp'])
         else:
             Y, Z = _np.array([0, _np.max(env['bot_interface'][:,1])]), _np.array([env['ssp'], env['ssp']])
-        ax.set_title(f"[Sound speed profile] {env['name']}")
+        ax.set_title(f"[Sound speed profile] {env['name']}", loc="left")
         ax.set_xlim((vmin, vmax))
         ax.invert_yaxis()
         ax.grid(True)
@@ -724,7 +724,7 @@ def plot_beam(env, vmin=-60, vmax=20, **kwargs):
     ax.grid(True)
     ax.set_ylim((vmin, vmax))
     ax.set_xlabel('$\Phi$ [deg]')
-    ax.set_title(f"[Source directivity [dB]] {env['name']}", va='bottom')
+    ax.set_title(f"[Source directivity [dB]] {env['name']}", va='bottom', loc="left")
     plt.tight_layout()
     plt.show()
 
@@ -769,7 +769,7 @@ def plot_arrivals(arrivals, env, model='Unknown model', dB=False, color='steelbl
         ax.stem(t, y, linefmt=color, markerfmt=color, basefmt='k')
 
     ax.set_ylabel(ylabel)
-    ax.set_title(f"[{model} - Arrivals] {env['name']}")
+    ax.set_title(f"[{model} - Arrivals] {env['name']}", loc="left")
     ax.set_xlabel('Arrival time [s]')
     ax.grid('all')
     plt.tight_layout()
@@ -806,7 +806,7 @@ def plot_arrivals_beam(arrivals, env, model='Unknown model', ref_amp=1, **kwargs
     strong_inds  = cvals > -max_db_down
     ax.scatter(rec_angles[strong_inds]/360*2*_np.pi, cvals[strong_inds], marker='x', color='black', linewidths=1, alpha=0.75)
 
-    ax.set_title(f"[{model} - Arrivals beam [dB]] {env['name']}")
+    ax.set_title(f"[{model} - Arrivals beam [dB]] {env['name']}", loc="left")
     ax.set_xlabel('$\Phi$ [deg]')
     ax.grid('all')
 
@@ -886,7 +886,7 @@ def plot_rays(rays, env, model='Unknown model', nRay=100, invert_colors=False, *
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Depth [m]")
     ax.set_ylim((_np.min(env['top_interface'][:,1]), _np.max(env['bot_interface'][:, 1])))
-    ax.set_title(f"[{model} - Rays ({nInit-nRay})] {env['name']}")
+    ax.set_title(f"[{model} - Rays ({nInit-nRay})] {env['name']}", loc="left")
     ax.scatter(0, env['tx_depth'], label="Source", color="k", s=250, marker="*")
 
     # Invert y-axis, add grid, and display plot
@@ -970,7 +970,7 @@ def plot_eigen_rays(eigen_rays, env, model='Unknown model', nRay=10, invert_colo
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Depth [m]")
     ax.set_ylim((_np.min(env['top_interface'][:, 1]), _np.max(env['bot_interface'][:, 1])))
-    ax.set_title(f"[{model} - Eigen rays ({nInit-nRay})] {env['name']}")
+    ax.set_title(f"[{model} - Eigen rays ({nInit-nRay})] {env['name']}", loc="left")
     ax.scatter(0, env['tx_depth'], label="Source", color="k", s=250, marker="*")
 
     # Invert y-axis, add grid, and display plot
@@ -1015,7 +1015,7 @@ def plot_impulse_response(impulse_response, impulse_response_fs, env, model='Unk
     ax.set_xlim([0, irlen])  # Set x-axis limit
     ax.set_xlabel('Sample [S]')  # Set x-axis label
     ax.set_ylabel('Amplitude')  # Set y-axis label
-    ax.set_title(f"[{model} - Impulse response ({nn} @ {impulse_response_fs} S/s)] {env['name']}")  # Set title
+    ax.set_title(f"[{model} - Impulse response ({nn} @ {impulse_response_fs} S/s)] {env['name']}", loc="left")  # Set title
     ax.grid('all')  # Add grid
     plt.tight_layout()  # Adjust layout
     plt.show()  # Show plot
@@ -1082,7 +1082,7 @@ def plot_bot_density(env, vmin=0, vmax=4, Nxy=500, **kwargs):
     cbar.ax.set_ylabel('Density [g/cm$^{3}$]')
     ax.set_xlabel('Range [km]')
     ax.set_ylabel('Depth [m]')
-    ax.set_title(f"[Bottom density] {env['name']}")
+    ax.set_title(f"[Bottom density] {env['name']}", loc="left")
     ax.invert_yaxis()
     plt.tight_layout()
     plt.show()
@@ -1098,7 +1098,7 @@ def plot_modes(modes, env, model='Unknown model', nMode=10, vmin=-0.2, vmax=0.2)
     ax.grid()
     ax.set_ylim([0,_np.max(env['bot_interface'][:,1])])
     ax.set_xlim([vmin, vmax])
-    ax.set_title(f"[{model} - Modes ({nMode})] {env['name']}")
+    ax.set_title(f"[{model} - Modes ({nMode})] {env['name']}", loc="left")
     ax.invert_yaxis()
 
     return fig, ax
@@ -1162,7 +1162,7 @@ def plot_bot_attn(env, vmin=0, vmax=0.04, Nxy=500, **kwargs):
     cbar.ax.set_ylabel('Attenuation [dB/$\lambda$]')
     ax.set_xlabel('Range [km]')
     ax.set_ylabel('Depth [m]')
-    ax.set_title(f"[Bottom attenuation] {env['name']}")
+    ax.set_title(f"[Bottom attenuation] {env['name']}", loc="left")
     ax.invert_yaxis()
     plt.tight_layout()
     plt.show()
@@ -1202,7 +1202,7 @@ def plot_bathy(env, **kwargs):
     ax.set_xlabel('Range [km]')
     ax.set_ylabel('Depth [m]')
     ax.grid('all')
-    ax.set_title(f"[Bathymetry] {env['name']}")
+    ax.set_title(f"[Bathymetry] {env['name']}", loc="left")
     ax.invert_yaxis()
 
     plt.tight_layout()
@@ -1644,31 +1644,31 @@ class BELLHOP:
         # Bottom halfspace extra lines (6a) (6b)
         # @todo     Add Grain size
         if  _np.size(self.env['bot_PwaveSpeed']) > 1:
-            print("[INFO] BELLHOP: Do not support multiple Pwave speed definition, using median value instead.")
+            print("[WARNING] BELLHOP: Do not support multiple Pwave speed definition, using median value instead.")
             bot_PwaveSpeed = _np.median(self.env['bot_PwaveSpeed'])
         else:
             bot_PwaveSpeed = self.env['bot_PwaveSpeed']
 
         if  _np.size(self.env['bot_SwaveSpeed']) > 1:
-            print("[INFO] BELLHOP: Do not support multiple Swave speed definition, using median value instead.")
+            print("[WARNING] BELLHOP: Do not support multiple Swave speed definition, using median value instead.")
             bot_SwaveSpeed = _np.median(self.env['bot_SwaveSpeed'])
         else:
             bot_SwaveSpeed = self.env['bot_SwaveSpeed']
 
         if  _np.size(self.env['bot_density']) > 1:
-            print("[INFO] BELLHOP: Do not support multiple bottom density definition, using median value instead.")
+            print("[WARNING] BELLHOP: Do not support multiple bottom density definition, using median value instead.")
             bot_density = _np.median(self.env['bot_density'])
         else:
             bot_density = self.env['bot_density']
 
         if  _np.size(self.env['bot_PwaveAttn']) > 1:
-            print("[INFO] BELLHOP: Do not support multiple Pwave attn definition, using median value instead.")
+            print("[WARNING] BELLHOP: Do not support multiple Pwave attn definition, using median value instead.")
             bot_PwaveAttn = _np.median(self.env['bot_PwaveAttn'])
         else:
             bot_PwaveAttn = self.env['bot_PwaveAttn']
 
         if  _np.size(self.env['bot_SwaveAttn']) > 1:
-            print("[INFO] BELLHOP: Do not support multiple Swave speed definition, using median value instead.")
+            print("[WARNING] BELLHOP: Do not support multiple Swave speed definition, using median value instead.")
             bot_SwaveAttn = _np.median(self.env['bot_SwaveAttn'])
         else:
             bot_SwaveAttn = self.env['bot_SwaveAttn']

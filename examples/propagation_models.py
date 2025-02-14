@@ -5,7 +5,7 @@ if __name__ == '__main__':
 
     # Results grid   
     x = np.linspace(0, 10000, 2048)
-    z = np.linspace(-15, 3100,  2048)
+    z = np.linspace(0, 3100,  2048)
                     
     # Surface 
     surfaceWaveHeight = 3 # m
@@ -24,16 +24,9 @@ if __name__ == '__main__':
                           [1200,  1600, 1600],
                           [1600,  1200, 1200], 
                           [1600,  1600, 1600]])
-    """
-    ssp_range = np.array([0])
-    ssp_depth = np.array([500, 1000, 2000, 2500])
-    ssp       = np.array([[1500], 
-                         [1200], 
-                         [1532],
-                         [1400]])
-    """
+
     # Source specs
-    tx_freq  = 100
+    tx_freq  = 50
     tx_depth = 500 
 
     # Bottom settings 
@@ -104,17 +97,17 @@ if __name__ == '__main__':
         )
     
     # Compute and plot 
-    RAM     = pm.RAM(env, cp=True)
+    RAM = pm.RAM(env, cp=True)
     RAM.compute_transmission_loss()
     RAM.plot_transmission_loss()
-    RAM.plot_ssp(vmin=1000, vmax=2000)
     RAM.plot_bot_density()
     RAM.plot_bot_attn()
-    RAM.plot_ssp()
     
     KRAKEN = pm.KRAKEN(env)
     KRAKEN.compute_transmission_loss()
+    KRAKEN.compute_modes()
     KRAKEN.plot_transmission_loss()
+    KRAKEN.plot_modes()
     
     BELLHOP = pm.BELLHOP(env, cp=True)
     BELLHOP.compute_transmission_loss()
@@ -135,13 +128,3 @@ if __name__ == '__main__':
     #BELLHOP.compute_impulse_respsonse(fs=24000, nArrival=10)
     #BELLHOP.plot_impulse_response() 
     
-    
-    
-
-    
-    
-
-    
-    
-    
-
