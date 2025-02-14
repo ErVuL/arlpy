@@ -1,6 +1,8 @@
 # ARL Python Tools modified
 
-A custom version of arlpy (for Linux based OS) with some more tools and propagation models from OALIB. It uses matplotlib instead of bokeh. This work is a week-end project, it may contains some errors, bugs and mising functionnalities.
+Python module dedicated to underwater acoustics application.\
+Integration of OALIB propagation models and pyram into arlpy. This work is a week-end project, it may contains some errors, bugs and mising functionnalities. I would be happy to receive some pull requests !
+
 Fork from : https://github.com/org-arl/arlpy/
 
 ## Usage
@@ -61,6 +63,7 @@ You have to manually uninstall dependencies if you want to.
 | Add plot PSD func in dB re 1uPa/vHz for rec signals  | Done                  |
 | Add statistical PSD in dB re 1uPa/vHz                | Done                  |
 | Add spectro func in dB re 1uPa/vHz for rec signals   | Done                  |
+| Add SEL measurement                                  | Done                  |
 | Add FRF for stationnary and transient signals        | Done                  |
 | Update bellhop                                       | In progress ($\beta$) |
 | Add pyram to arlpy                                   | In progress ($\beta$) |
