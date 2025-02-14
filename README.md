@@ -17,7 +17,7 @@ Activate your python virtual env, go to your ***<installation_path>***, then clo
     git clone git@github.com:ErVuL/pyram.git
     git clone git@github.com:ErVuL/Acoustics-Toolbox.git
 
-Install pip local modules:
+Pip install local modules:
 
     pip install -e ./arlpy
     pip install -e ./pyram
