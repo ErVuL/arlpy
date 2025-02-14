@@ -7,22 +7,23 @@ Fork from : https://github.com/org-arl/arlpy/
 
 ### Install
 
-For Debian based distros:
+Install dependencies:
 
-    sudo apt install git texlive-base gfortran cmake
-    
-For Fedora based distros:
+    sudo apt/dnf install git texlive-base gfortran cmake
 
-    sudo dnf install git texlive-base gfortran cmake 
+Activate your python virtual env, go to your ***<installation_path>***, then clone git projects:
 
-Then activate your python virtual env and type:
-
-    cd <installation_path>
     git clone git@github.com:ErVuL/arlpy.git
     git clone git@github.com:ErVuL/pyram.git
     git clone git@github.com:ErVuL/Acoustics-Toolbox.git
+
+Install pip local modules:
+
     pip install -e ./arlpy
     pip install -e ./pyram
+
+Install OALIB toolbox:
+
     sudo mkdir -p /opt/build/at
     sudo cp -r Acoustics-Toolbox/* /opt/build/at
     cd /opt/build/at
@@ -33,9 +34,8 @@ Then activate your python virtual env and type:
 
 ### Uninstall
 
-Activate your python virtual env and type:
+Activate your python virtual env, go to your ***<installation_path>***, then:
 
-    cd <installation_path>
     pip uninstall arlpy pyram
     rm -rf arlpy
     rm -rf pyram
