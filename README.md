@@ -48,7 +48,7 @@ You have to manually uninstall dependencies if you want to.
 ## Roadmap
 
 | TODO                                                 | Status      |
-|:----------------------------------------------------:|:-----------:|
+|:-----------------------------------------------------|:-----------:|
 | Make oalib installation works properly               | Done        |
 | Update deprecated pyram types                        | Done        |
 | Simplify acoustic env() in arlpy                     | Done        |
