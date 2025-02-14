@@ -1,6 +1,7 @@
 # ARL Python Tools modified
 
-A version with some more tools and matplotlib instead of bokeh.
+A custom version with some more tools and models. 
+It uses matplotlib instead of bokeh.
 Fork from : https://github.com/org-arl/arlpy/
 
 ## Usage
