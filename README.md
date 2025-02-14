@@ -34,6 +34,19 @@ Install OALIB toolbox:
     sudo make install
     sudo echo 'export PATH="/opt/build/at/bin:$PATH"' >> ~/.bashrc
 
+### Examples
+
+Examples containing:
+
+- Power spectral density estimate
+- Power spectral density PDF
+- Frequency response function estimate
+- SEL measurement
+- Acoustic propagation modeling (BELLHOP, RAM, KRAKEN)
+- Wenz noise modeling
+
+are located into ***<installation_path>/arlpy/examples***.
+
 ### Uninstall
 
 Activate your python virtual env, go to your ***<installation_path>***, then:
