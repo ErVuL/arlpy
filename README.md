@@ -5,73 +5,77 @@ Fork from : https://github.com/org-arl/arlpy/
 
 ## Usage
 
-Installation::
-```
-cd arlpy
-pip install -e .
-```
+### Install
 
-To import all general modules::
-```
-import arlpy
-```
+For Debian based distros:
 
-# ARL Python Tools Original README
+    sudo apt install git texlive-base gfortran cmake
+    
+For Fedora based distros:
 
-[![CI](https://github.com/org-arl/arlpy/workflows/CI/badge.svg)](https://github.com/org-arl/arlpy/actions)
+    sudo dnf install git texlive-base gfortran cmake 
 
-Packages such as `numpy` and `scipy` provide excellent mathematical tools for
-scientists and engineers using Python. However, these packages are still young
-and evolving, and understandably have some gaps, especially when it comes to
-domain-specific requirements. The `arlpy` package aims to fill in some of the
-gaps in the areas of underwater acoustics, signal processing, and communication.
-Additionally, `arlpy` also includes some commonly needed utilities and plotting
-routines based on `bokeh`.
+Then activate your python virtual env and type:
 
-## General modules
+    cd <installation_path>
+    git clone git@github.com:ErVuL/arlpy.git
+    git clone git@github.com:ErVuL/pyram.git
+    git clone git@github.com:ErVuL/Acoustics-Toolbox.git
+    pip install -e ./arlpy
+    pip install -e ./pyram
+    sudo mkdir -p /opt/build/at
+    sudo cp -r Acoustics-Toolbox/* /opt/build/at
+    cd /opt/build/at
+    sudo make clean
+    sudo make all
+    sudo make install
+    sudo echo 'export PATH="/opt/build/at/bin:$PATH"' >> ~/.bashrc
 
-The following modules are general and are likely to be of interest to researchers
-and developers working on signal processing, communication and underwater acoustics:
 
-* Signal processing (`arlpy.signal`)
-* Communications (`arlpy.comms`)
-* Beamforming and array processing (`arlpy.bf`)
-* Stable distributions (`arlpy.stable`)
-* Geographical coordinates (`arlpy.geo`)
-* Underwater acoustics (`arlpy.uwa`)
-* Underwater acoustic propagation modeling (`arlpy.uwapm`)
-* Plotting utilities (`arlpy.plot`)
-* Common utilities (`arlpy.utils`)
-
-## Special-purpose modules
-
-The following modules are specific to tools available at the ARL and may not be of
-general interest to others:
-
-* Digital Towed Array (`arlpy.dtla`)
-* ROMANIS (`arlpy.romanis`)
-* HiDAQ (`arlpy.hidaq`)
-* UNET (`arlpy.unet`)
-
-## Usage
-
-Installation::
-```
-pip install arlpy
-```
-
-To import all general modules::
+### Import modules
 ```
 import arlpy
+import pyram
 ```
 
-## Notes
+### Uninstall
 
-Png export of bokeh plots requires `selenium`, `pillow` and `phantomjs`. These are not
-installed as automatic depdendencies, since they are optional and only required
-for png export. These should be installed manually, if desired.
+Activate your python virtual env and type:
 
-## Useful links
+    cd <installation_path>
+    pip uninstall arlpy pyram
+    rm -rf arlpy
+    rm -rf pyram
+    rm -rf Acoustics-Toolbox
+    sudo rm -rf /opt/build/at
+    
+You have to manually remove the line ***export PATH="/opt/build/at/bin:$PATH"*** from your ***.bashrc*** file,
+and uninstall dependencies if you want to.
 
-* [arlpy home](https://github.com/org-arl/arlpy)
-* [arlpy documentation](https://arlpy.readthedocs.io/en/latest/)
+## About
+
+### PYRAM
+
+Range dependant Acoustic Model is a Parabolic Equation solver.\
+Python adaptation of RAM v1.5.\
+Fork from https://github.com/marcuskd/pyram.
+
+### OALIB AT
+
+OALIB source code (fortran) written in the 80's and 90's. Contains:
+  - BELLHOP: Beam/ray trace code
+  - KRAKEN: Normal mode code
+  - SCOOTER: Finite element FFP code
+  - SPARC: Time domain FFP code
+
+Fork from https://github.com/oalib-acoustics/Acoustics-Toolbox/tree/main.
+
+### ARLPY
+
+Python project with some signal processing, underwater acoustics utilities and also able to interact with bellhop.\
+Fork from https://github.com/org-arl/arlpy.
+
+### UTM
+
+Bidirectional UTM-WGS84 converter for python.\
+Fork from https://github.com/Turbo87/utm.git.
