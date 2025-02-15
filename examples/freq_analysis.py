@@ -2,11 +2,11 @@ import arlpy.uwa as uwa
 import arlpy.signal as usp
 import numpy as _np
 import matplotlib.pyplot as plt
-from scipy.signal import butter, filtfilt
+from scipy.signal import butter, lfilter
 
 def lowpass(signal, cutoff, fs, order=4):
     b, a = butter(order, cutoff / (0.5 * fs), btype='low')
-    return filtfilt(b, a, signal)
+    return lfilter(b, a, signal)  # Causal filtering, introducing phase delay
 
 # Example usage
 if __name__ == "__main__":
@@ -33,10 +33,10 @@ if __name__ == "__main__":
     
     # FRF    
     frf = usp.FRF()
-    frf.compute(signal, lowpass(signal*10, 2000, fs), fs, nperseg=16384)
-    fig, ax = frf.plot(title="Example Signal", label="sig 1")
-    frf.compute(signal, lowpass(signal*10, 40000, fs), fs, method='stft', nperseg=16384)
-    frf.add2plot(ax, label='sig 2', linestyle='dashed')
+    frf.compute(signal, lowpass(signal*10, 15000, fs), fs, method='stft', estimate='H2', nperseg=16384)
+    fig, ax = frf.plot(title="Example signal", label="Butterworth LP 15000 + 20dB")
+    frf.compute(signal, lowpass(signal*10, 15000, fs), fs, method='welch', estimate='H1', nperseg=16384)
+    frf.add2plot(ax, label="Butterworth LP 15000 + 20dB", linestyle='dashed')
     
     # PSDPDF
     psdpdf = usp.PSDPDF(seg_duration=0.1, nperseg=4096, noverlap=4096/2, nbins=100)

@@ -1045,9 +1045,17 @@ class PSD:
 
 
 class FRF:
-    def __init__(self, method='welch', **kwargs):
+    def __init__(self, method='welch', estimate='H1', **kwargs):
         """
         Transfer Function (Frequency Response Function, FRF) computation and visualization class.
+        
+        Method:
+        - Welch: use Welch periodogram for PSD estimate, dedicated to stationnary signals
+        - STFT:  spectrogram based calculus, dedicated to non stationnary signals
+        
+        Estimation calculus:
+        - H1: minimizes the effect of noise introduced at the system output
+        - H2: minimizes the effect of noise introduced at the system input
 
         Parameters:
         - **kwargs: Additional arguments for scipy.signal.welch and scipy.signal.csd.
@@ -1056,7 +1064,8 @@ class FRF:
         The Transfer Function (FRF) is a complex function that relates the input and output of a linear time-invariant (LTI) system in the frequency domain.
         It is defined as:
 
-            H(f) = Pxy(f) / Pxx(f)
+            H1(f) = Pyx(f) / Pxx(f)
+            H2(f) = Pyy(f) / Pxy(f)
 
         Where:
         - Pxx(f): Power Spectral Density (PSD) of the input signal (x).
@@ -1069,8 +1078,9 @@ class FRF:
         }
         self.params.update(kwargs)
         self .method = method
+        self.estimate = estimate
 
-    def compute(self, x, y, fs, method=None, nperseg=None, noverlap=None):
+    def compute(self, x, y, fs, method=None, estimate=None, nperseg=None, noverlap=None):
 
         if method != None:
             self.method = method
@@ -1080,6 +1090,9 @@ class FRF:
 
         if noverlap != None:
             self.params['noverlap'] = noverlap
+        
+        if estimate != None:
+            self.estimate = estimate
 
         if self.method == 'welch':
             freqs, mag, phase, coh = self.compute_welch(x, y, fs)
@@ -1107,11 +1120,15 @@ class FRF:
         # Compute cross-spectral densities
         freqs, Pxx = _sp.welch(x, fs, scaling='density', **self.params)
         _, Pyy = _sp.welch(y, fs, scaling='density', **self.params)
-        _, Pxy = _sp.csd(x, y, fs, scaling='density', **self.params)
-
-        # Compute transfer function and coherence
-        tf = Pxy / Pxx
-        coh = abs(Pxy)**2 / (Pxx * Pyy)
+        
+        if self.estimate == 'H2':
+            _, Pxy = _sp.csd(y, x, fs, scaling='density', **self.params)
+            tf = Pyy / Pxy
+            coh = abs(Pxy)**2 / (Pxx * Pyy)
+        else:
+            _, Pyx = _sp.csd(x, y, fs, scaling='density', **self.params)
+            tf = Pyx / Pxx
+            coh = abs(Pyx)**2 / (Pxx * Pyy)
 
         # Store computed values
         self.freqs = freqs
@@ -1151,23 +1168,25 @@ class FRF:
         Zxx = stft.spectrogram(x)
         Zyy = stft.spectrogram(y)
         freqs = _np.arange(stft.f_pts) * stft.delta_f
-
-        # Compute cross-spectrogram
-        Zxy = stft.spectrogram(x, y)
-
-        # Compute transfer function
-        tf = Zxy / Zxx
-        tf_avg = _np.mean(tf, axis=1)
-
-        # Compute magnitude and phase after averaging
-        mag = _np.abs(tf_avg)  # Module après moyennage
-        phase = _np.angle(tf_avg, deg=True)  # Phase après moyennage
-
-        # Compute coherence based on averaged TF
+        
         Sxx_avg = _np.mean(_np.abs(Zxx), axis=1)
         Syy_avg = _np.mean(_np.abs(Zyy), axis=1)
-        Sxy_avg = _np.mean(Zxy, axis=1)
-        coh_avg = _np.abs(Sxy_avg)**2 / (Sxx_avg * Syy_avg)
+
+        if self.estimate == 'H2':
+            Zxy = stft.spectrogram(x, y)
+            tf = Zyy / Zxy
+            Sxy_avg = _np.mean(Zxy, axis=1)
+            coh_avg = _np.abs(Sxy_avg)**2 / (Sxx_avg * Syy_avg)
+        else:
+            Zyx = stft.spectrogram(y, x)
+            tf = Zyx / Zxx
+            Syx_avg = _np.mean(Zyx, axis=1)
+            coh_avg = _np.abs(Syx_avg)**2 / (Sxx_avg * Syy_avg)        
+
+        # Compute magnitude and phase after averaging
+        tf_avg = _np.mean(tf, axis=1)
+        mag = _np.abs(tf_avg)  # Module après moyennage
+        phase = _np.angle(tf_avg, deg=True)  # Phase après moyennage
 
         # Store computed values
         self.freqs = freqs
@@ -1199,6 +1218,10 @@ class FRF:
 
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
         ax1.set_title(f"[FRF] {title}", loc="left")
+        
+        if label != "":
+            addstr = f"[{self.method}-{self.estimate}] "
+            label = addstr.upper() + label
 
         # Magnitude plot
         mag_db = 20 * _np.log10(_np.abs(self.tf))
@@ -1244,7 +1267,7 @@ class FRF:
 
         return fig, (ax1, ax2, ax3)
 
-    def add2plot(self, axes, freqs=None, mag=None, phase=None, coh=None, label="", **kwargs):
+    def add2plot(self, axes, freqs=None, mag=None, phase=None, coh=None, method=None, estimate=None, label="", **kwargs):
         """
         Add transfer function data to existing plots.
 
@@ -1254,7 +1277,16 @@ class FRF:
         - **kwargs: Additional plotting arguments.
         """
         ax1, ax2, ax3 = axes
-
+        
+        if estimate is None:
+            estimate = self.estimate
+        if method is None:
+            method = self.method
+            
+        if label != "":
+            addstr = f"[{method}-{estimate}] "
+            label = addstr.upper() + label
+            
         if freqs is None or mag is None:
             ax1.plot(self.freqs, 20 * _np.log10(_np.abs(self.tf)), label=label, **kwargs)
         else:
