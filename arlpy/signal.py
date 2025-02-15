@@ -1045,7 +1045,7 @@ class PSD:
 
 
 class FRF:
-    def __init__(self, method='welch', estimate='H1', **kwargs):
+    def __init__(self, method='welch', estimator='H1', **kwargs):
         """
         Transfer Function (Frequency Response Function, FRF) computation and visualization class.
         
@@ -1053,7 +1053,7 @@ class FRF:
         - Welch: use Welch periodogram for PSD estimate, dedicated to stationnary signals
         - STFT:  spectrogram based calculus, dedicated to non stationnary signals
         
-        Estimation calculus:
+        Estimator:
         - H1: minimizes the effect of noise introduced at the system output
         - H2: minimizes the effect of noise introduced at the system input
 
@@ -1078,9 +1078,9 @@ class FRF:
         }
         self.params.update(kwargs)
         self .method = method
-        self.estimate = estimate
+        self.estimator = estimator
 
-    def compute(self, x, y, fs, method=None, estimate=None, nperseg=None, noverlap=None):
+    def compute(self, x, y, fs, method=None, estimator=None, nperseg=None, noverlap=None):
 
         if method != None:
             self.method = method
@@ -1091,8 +1091,8 @@ class FRF:
         if noverlap != None:
             self.params['noverlap'] = noverlap
         
-        if estimate != None:
-            self.estimate = estimate
+        if estimator != None:
+            self.estimator = estimator
 
         if self.method == 'welch':
             freqs, mag, phase, coh = self.compute_welch(x, y, fs)
@@ -1121,7 +1121,7 @@ class FRF:
         freqs, Pxx = _sp.welch(x, fs, scaling='density', **self.params)
         _, Pyy = _sp.welch(y, fs, scaling='density', **self.params)
         
-        if self.estimate == 'H2':
+        if self.estimator == 'H2':
             _, Pxy = _sp.csd(y, x, fs, scaling='density', **self.params)
             tf = Pyy / Pxy
             coh = abs(Pxy)**2 / (Pxx * Pyy)
@@ -1172,7 +1172,7 @@ class FRF:
         Sxx_avg = _np.mean(_np.abs(Zxx), axis=1)
         Syy_avg = _np.mean(_np.abs(Zyy), axis=1)
 
-        if self.estimate == 'H2':
+        if self.estimator == 'H2':
             Zxy = stft.spectrogram(x, y)
             tf = Zyy / Zxy
             Sxy_avg = _np.mean(Zxy, axis=1)
@@ -1220,7 +1220,7 @@ class FRF:
         ax1.set_title(f"[FRF] {title}", loc="left")
         
         if label != "":
-            addstr = f"[{self.method}-{self.estimate}] "
+            addstr = f"[{self.method}-{self.estimator}] "
             label = addstr.upper() + label
 
         # Magnitude plot
@@ -1267,7 +1267,7 @@ class FRF:
 
         return fig, (ax1, ax2, ax3)
 
-    def add2plot(self, axes, freqs=None, mag=None, phase=None, coh=None, method=None, estimate=None, label="", **kwargs):
+    def add2plot(self, axes, freqs=None, mag=None, phase=None, coh=None, method=None, estimator=None, label="", **kwargs):
         """
         Add transfer function data to existing plots.
 
@@ -1278,13 +1278,13 @@ class FRF:
         """
         ax1, ax2, ax3 = axes
         
-        if estimate is None:
-            estimate = self.estimate
+        if estimator is None:
+            estimator = self.estimator
         if method is None:
             method = self.method
             
         if label != "":
-            addstr = f"[{method}-{estimate}] "
+            addstr = f"[{method}-{estimator}] "
             label = addstr.upper() + label
             
         if freqs is None or mag is None:

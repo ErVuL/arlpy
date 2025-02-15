@@ -33,9 +33,9 @@ if __name__ == "__main__":
     
     # FRF    
     frf = usp.FRF()
-    frf.compute(signal, lowpass(signal*10, 15000, fs), fs, method='stft', estimate='H2', nperseg=16384)
+    frf.compute(signal, lowpass(signal*10, 15000, fs), fs, method='stft', estimator='H2', nperseg=16384)
     fig, ax = frf.plot(title="Example signal", label="Butterworth LP 15000 + 20dB")
-    frf.compute(signal, lowpass(signal*10, 15000, fs), fs, method='welch', estimate='H1', nperseg=16384)
+    frf.compute(signal, lowpass(signal*10, 15000, fs), fs, method='welch', estimator='H1', nperseg=16384)
     frf.add2plot(ax, label="Butterworth LP 15000 + 20dB", linestyle='dashed')
     
     # PSDPDF
