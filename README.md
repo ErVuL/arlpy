@@ -37,14 +37,14 @@ Install OALIB toolbox:
     sudo make install
     sudo echo 'export PATH="/opt/build/at/bin:$PATH"' >> ~/.bashrc
 
-If you consider installing the OALIB toolbox somewhere else than the proposed solution, you will have to replace ***</opt/build/at>*** by ***<oalib_installation_path>***  in ***arlpy/uwapm.py***:
+If you consider installing the OALIB toolbox somewhere else than the proposed solution, you will have to replace ***</opt/build/at/bin>*** by ***<oalib_installation_path/bin>***  in ***arlpy/uwapm.py***:
 
     # Add acoustic toolbox path to Python path
-    os.environ['PATH'] = os.environ['PATH'].replace(':<oalib_installation_path>', '')+":<oalib_installation_path>"
+    os.environ['PATH'] = os.environ['PATH'].replace(':<oalib_installation_path/bin>', '')+":<oalib_installation_path/bin>"
 
 and in your ***.bashrc***
 
-    export PATH="<oalib_installation_path>:$PATH"
+    export PATH="<oalib_installation_path/bin>:$PATH"
 
 ### Examples
 
