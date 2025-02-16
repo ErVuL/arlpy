@@ -84,6 +84,8 @@ You have to manually uninstall dependencies if you want to.
 | Manage all options for Bellhop, Kraken and RAM       | In progress           |
 | Maintain up to date unittest and assert in arlpy     | In progress           |
 | Maintain up to date function and class comments      | In progress           |
+| Use optimal pade term in RAM                         | Not started           |
+| Adjust output grid to exact requested one in RAM     | Not started           |
 | Totally remove pandas                                | Not started           |
 | Add channel simulator filter using IR ?              | Not started           |
 | Add Krakenc to arlpy                                 | Not started           |
