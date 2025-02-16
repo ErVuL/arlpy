@@ -7,7 +7,18 @@ Fork from : https://github.com/org-arl/arlpy/
 
 ## Usage
 
-### Install
+The installation process is dedicated to Linux based OS, but an adaptation for Mac or Windows may be possible.
+
+If you consider installing the OALIB toolbox somewhere else than the proposed solution, you will have to edit the ***PATH*** defined in ***arlpy/uwapm.py***:
+
+    # Add acoustic toolbox path to Python path
+    os.environ['PATH'] = os.environ['PATH'].replace(':/opt/build/at/bin', '')+":/opt/build/at/bin"
+
+and the other one defined into your ***.bashrc***
+
+    export PATH="/opt/build/at/bin:$PATH"
+
+#### Install
 
 Install dependencies:
 
@@ -62,37 +73,39 @@ You have to manually uninstall dependencies if you want to.
 
 ## Roadmap
 
-| TODO                                                 | Status                |
-|:-----------------------------------------------------|:---------------------:|
-| Make oalib installation works properly               | Done                  |
-| Update deprecated pyram types                        | Done                  |
-| Simplify acoustic env() in arlpy                     | Done                  |
-| Make a simple installation process                   | Done                  |
-| Compatibility with Spyder                            | Done                  |
-| Add basic plots                                      | Done                  |
-| Add Wenz curves simulator                            | Done                  |
-| Handle source range and left propagation             | Done                  |
-| Add common sound profile plot                        | Done                  |
-| Add plot PSD func in dB re 1uPa/vHz for rec signals  | Done                  |
-| Add statistical PSD in dB re 1uPa/vHz                | Done                  |
-| Add spectro func in dB re 1uPa/vHz for rec signals   | Done                  |
-| Add SEL measurement                                  | Done                  |
-| Add FRF for stationnary and transient signals        | Done                  |
-| Update bellhop                                       | In progress ($\beta$) |
-| Add pyram to arlpy                                   | In progress ($\beta$) |
-| Add kraken to arlpy                                  | In progress ($\beta$) |
-| Manage all options for Bellhop, Kraken and RAM       | In progress           |
-| Maintain up to date unittest and assert in arlpy     | In progress           |
-| Maintain up to date function and class comments      | In progress           |
-| Totally remove pandas                                | Not started           |
-| Add channel simulator filter using IR ?              | Not started           |
-| Add Krakenc to arlpy                                 | Not started           |
-| Add earthquakes and explosions to Wenz model         | Not started           |
-| Consider Windows compatibility                       | Not started           |
-| ...                                                  | ...                   |
-| Add scooter to arlpy                                 | Not started           |
-| Add sparc to arlpy                                   | Not started           |
-| Consider using C++ version of bellhop                | Not started           |
+| To do                                                |        Status         |                                      Comments | 
+|:-----------------------------------------------------|:---------------------:|----------------------------------------------:|
+| Make oalib installation works properly               | Done                  |                                               |
+| Update deprecated pyram types                        | Done                  |                                               |
+| Simplify acoustic env() in arlpy                     | Done                  |                                               |
+| Make a simple installation process                   | Done                  |                                               |
+| Compatibility with Spyder                            | Done                  |                                               |
+| Add basic plots                                      | Done                  |                                               |
+| Add Wenz curves simulator                            | Done                  | docs_uac/WenzCurves.pdf                       |
+| Add common sound profile plot                        | Done                  |                                               |
+| Add plot PSD func in dB re 1uPa/vHz for rec signals  | Done                  |                                               |
+| Add statistical PSD in dB re 1uPa/vHz                | Done                  |                                               |
+| Add spectro func in dB re 1uPa/vHz for rec signals   | Done                  |                                               |
+| Add SEL measurement                                  | Done                  |                                               |
+| Add FRF for stationnary and transient signals        | Done                  |                                               |
+| Handle source range and left propagation ? or not ?  | In progress ($\beta$) | maybe a bad idea                              |
+| Update bellhop                                       | In progress ($\beta$) | docs_uac/Bellhop_userGuide.pdf                |
+| Add pyram to arlpy                                   | In progress ($\beta$) | docs_uac/RAM.pdf                              |
+| Add kraken to arlpy                                  | In progress ($\beta$) | docs_uac/KrakenNormalModeProgram_2001.pdf     |
+| Manage all options for Bellhop, Kraken and RAM       | In progress           |                                               |
+| Maintain up to date unittest and assert in arlpy     | In progress           |                                               |
+| Maintain up to date function and class comments      | In progress           |                                               |
+| Use optimal pade term in RAM                         | Not started           | docs_uac/RAM_pade_opti.pdf                    |
+| Adjust output grid to exact requested one in RAM     | Not started           |                                               |
+| Totally remove pandas                                | Not started           |                                               |
+| Add channel simulator filter using IR ?              | Not started           |                                               |
+| Add Krakenc to arlpy                                 | Not started           |                                               |
+| Add earthquakes and explosions to Wenz model         | Not started           |                                               |
+| Consider Mac/Windows compatibility                   | Not started           |                                               |
+| ...                                                  | ...                   |                                               |
+| Add scooter to arlpy                                 | Not started           |                                               |
+| Add sparc to arlpy                                   | Not started           | docs_uac/SPARC_time_marched_ffp.pdf           |
+| Consider using C++ version of bellhop                | Not started           | https://github.com/A-New-BellHope/bellhopcuda |
 
 ## About
 
