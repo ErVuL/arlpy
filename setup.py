@@ -5,7 +5,7 @@ with open('README.md') as f:
 
 setup(
     name='arlpy',
-    version='1.0.2',
+    version='1.0.3',
     description='Underwater acoustics toolbox based on arlpy, oalib and pyram',
     long_description=readme,
     author='Theo Bertet',
