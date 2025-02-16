@@ -9,15 +9,6 @@ Fork from : https://github.com/org-arl/arlpy/
 
 The installation process is dedicated to Linux based OS, but an adaptation for Mac or Windows may be possible.
 
-If you consider installing the OALIB toolbox somewhere else than the proposed solution, you will have to replace ***"/opt/build/at"*** by ***<oalib_installation_path>***  in ***arlpy/uwapm.py***:
-
-    # Add acoustic toolbox path to Python path
-    os.environ['PATH'] = os.environ['PATH'].replace(':<oalib_installation_path>', '')+":<oalib_installation_path>"
-
-and in your ***.bashrc***
-
-    export PATH="<oalib_installation_path>:$PATH"
-
 #### Install
 
 Install dependencies:
@@ -45,6 +36,15 @@ Install OALIB toolbox:
     sudo make all
     sudo make install
     sudo echo 'export PATH="/opt/build/at/bin:$PATH"' >> ~/.bashrc
+
+If you consider installing the OALIB toolbox somewhere else than the proposed solution, you will have to replace ***"/opt/build/at"*** by ***<oalib_installation_path>***  in ***arlpy/uwapm.py***:
+
+    # Add acoustic toolbox path to Python path
+    os.environ['PATH'] = os.environ['PATH'].replace(':<oalib_installation_path>', '')+":<oalib_installation_path>"
+
+and in your ***.bashrc***
+
+    export PATH="<oalib_installation_path>:$PATH"
 
 ### Examples
 
