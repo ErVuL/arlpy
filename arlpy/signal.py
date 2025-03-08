@@ -18,6 +18,9 @@ import arlpy.utils as _utils
 import scipy.signal as _sp
 import matplotlib.pyplot as plt
 import math
+from scipy.linalg import toeplitz
+from matplotlib.gridspec import GridSpec
+
 
 def time(n, fs):
     """Generate a time vector for time series.
@@ -470,7 +473,7 @@ def detect_impulses(x, fs, k=10, tdist=1e-3):
 
 class PSDPDF:
 
-    def __init__(self, ref=1e-6, seg_duration=1, overlap_pct=0, nbins=100, lvlmin=40, lvlmax=150, **kwargs):
+    def __init__(self, ref=1e-6, seg_duration=1, overlap_pct=0, nbins=100, lvlmin=0, lvlmax=150, **kwargs):
         """
         Class to compute and visualize the probability density function (PDF) of PSD over multiple segments.
 
@@ -499,58 +502,58 @@ class PSDPDF:
     def compute(self, data, fs):
         """
         Compute the PDF of PSD from signal segments.
-
+    
         Parameters:
         - data: Input signal array.
         - fs: Sampling frequency of the signal (Hz).
-
+    
         Returns:
         - freqs: Array of frequencies (Hz).
         - levels: Array of level bins (dB re ref²).
-        - pdf: 2D array representing the probability density (normalized).
+        - pdf_matrix: 2D array representing the probability density (normalized).
         """
         # Calculate chunk size and overlap in samples
         chunk_size = int(self.seg_duration * fs)
         overlap_samples = int(chunk_size * self.overlap_pct / 100)
         step = chunk_size - overlap_samples
-
+    
         # Create level bins for histogram
         levels = _np.linspace(self.lvlmin, self.lvlmax, self.nbins)
-
+    
         # Process data in chunks
         psd_list = []
-
+    
         for i in range(0, len(data) - chunk_size + 1, step):
-            chunk = data[i:min(i+chunk_size, len(data))]
-
+            chunk = data[i:min(i + chunk_size, len(data))]
+    
             if len(chunk) < self.welch_params['nperseg']:
-                chunk = _np.pad(chunk, (0, self.welch_params['nperseg'] - len(chunk)))
-
+                break
+    
             freqs, psd = _sp.welch(chunk, fs, **self.welch_params)
             psd_list.append(psd)
-
+    
         # Convert accumulated PSDs to dB scale
         psd_segments = 10 * _np.log10(_np.array(psd_list) / (self.ref ** 2))
-
+    
         # Compute mean and standard deviation
         self.mean_psd = _np.mean(psd_segments, axis=0)
         self.std_psd = _np.std(psd_segments, axis=0)
-
+    
         # Compute PDF using a histogram
-        pdf = _np.zeros((len(levels) - 1, len(freqs)))
+        pdf_matrix = _np.zeros((len(levels) - 1, len(freqs)))
         for i in range(len(freqs)):
             hist, _ = _np.histogram(psd_segments[:, i], bins=levels, density=True)
-            pdf[:, i] = hist
-
+            pdf_matrix[:, i] = hist
+    
         # Replace zeros with NaNs
-        pdf[pdf == 0] = _np.nan
-
+        pdf_matrix[pdf_matrix == 0] = _np.nan
+    
         self.binwidth_dB = levels[1] - levels[0]
         self.freqs = freqs
-        self.levels = 10**(levels/10)*(self.ref**2)
-        self.pdf = pdf
-
-        return freqs, levels, pdf
+        self.levels = 10 ** (levels / 10) * (self.ref ** 2)
+        self.pdf = pdf_matrix
+    
+        return freqs, levels, pdf_matrix
 
     def plot(self, title="", ymin=0, ymax=200, vmin=0, vmax=None):
         """
@@ -1035,7 +1038,7 @@ class PSD:
             Pxx = self.psd
         if ref is None:
             ref = self.ref
-            
+
         psd_db = 10 * _np.log10(Pxx / (ref ** 2))
         ax.plot(Fxx, psd_db, label=label, **kwargs)
         if label != "":
@@ -1043,21 +1046,22 @@ class PSD:
 
         return ax
 
-
 class FRF:
-    def __init__(self, method='welch', estimator='H1', **kwargs):
+    def __init__(self, method='welch', estimator='H1', m=512, scales=None, **kwargs):
         """
         Transfer Function (Frequency Response Function, FRF) computation and visualization class.
-        
+
         Method:
-        - Welch: use Welch periodogram for PSD estimate, dedicated to stationnary signals
-        - STFT:  spectrogram based calculus, dedicated to non stationnary signals
-        
+        - Welch: use Welch periodogram for PSD estimate, dedicated to stationary signals
+        - Wavelet: continuous wavelet transform based calculus, dedicated to non-stationary signals
+
         Estimator:
         - H1: minimizes the effect of noise introduced at the system output
         - H2: minimizes the effect of noise introduced at the system input
 
         Parameters:
+        - wavelet: Wavelet to use for CWT (default: 'morl' for Morlet wavelet)
+        - scales: Scales to use for wavelet transform. If None, automatically determined.
         - **kwargs: Additional arguments for scipy.signal.welch and scipy.signal.csd.
 
         Notes:
@@ -1066,38 +1070,70 @@ class FRF:
 
             H1(f) = Pyx(f) / Pxx(f)
             H2(f) = Pyy(f) / Pxy(f)
+            Hv(f) = 0.5 * (H1(f) + 1/H2*(f)) - sqrt(0.25 * (H1(f) - 1/H2*(f))^2 + Pnx*Pny/(|Pxy|^2))
 
         Where:
         - Pxx(f): Power Spectral Density (PSD) of the input signal (x).
         - Pxy(f): Cross-Power Spectral Density (CPSD) between input (x) and output (y).
+        - Pnx, Pny: Noise power at input and output.
         """
+        import numpy as _np
+        
         # Default parameters, overridden by kwargs if provided
         self.params = {
             "nperseg": 8192,
             "noverlap": 0,
         }
         self.params.update(kwargs)
-        self .method = method
+        self.method = method
         self.estimator = estimator
+        self.scales = scales
+        self.Minfo = _np.array([[0]])
+        self.Vinfo = _np.array([[0]])
+        self.m = m
 
-    def compute(self, x, y, fs, method=None, estimator=None, nperseg=None, noverlap=None):
-
-        if method != None:
+    def compute(self, x, y, fs, m=None, method=None, estimator=None, nperseg=None, noverlap=None, wavelet=None, scales=None):
+        """
+        Compute the Frequency Response Function (FRF).
+        
+        Parameters:
+        - x: Input signal array (reference).
+        - y: Output signal array.
+        - fs: Sampling frequency of the signals (Hz).
+        - method: Method to use ('welch' or 'tf')
+        - estimator: Estimator to use ('H1', 'H2') (for Welch method)
+        - nperseg: Length of each segment (for Welch method)
+        - noverlap: Number of overlapping points between segments (for Welch method)
+        - m : impulse response length in sample (for tf only)
+        
+        Returns:
+        - freqs: Array of frequencies (Hz).
+        - mag: Magnitude of the transfer function.
+        - phase: Phase of the transfer function (degrees).
+        - coh: Coherence values.
+        """
+        if method is not None:
             self.method = method
 
-        if nperseg != None:
+        if nperseg is not None:
             self.params['nperseg'] = nperseg
 
-        if noverlap != None:
+        if noverlap is not None:
             self.params['noverlap'] = noverlap
-        
-        if estimator != None:
+
+        if estimator is not None:
             self.estimator = estimator
+            
+        if scales is not None:
+            self.scales = scales
+            
+        if m is not None:
+            self.m = m
 
         if self.method == 'welch':
             freqs, mag, phase, coh = self.compute_welch(x, y, fs)
-        elif self.method == 'stft':
-            freqs, mag, phase, coh = self.compute_stft(x, y, fs)
+        elif self.method == 'tf':
+            freqs, mag, phase, coh = self.compute_tf(y, x, fs, self.m, len(x))
 
         return freqs, mag, phase, coh
 
@@ -1114,88 +1150,188 @@ class FRF:
 
         Returns:
         - freqs: Array of frequencies (Hz).
-        - tf: Array of transfer function values (complex).
+        - mag: Magnitude of the transfer function.
+        - phase: Phase of the transfer function (degrees).
         - coh: Array of coherence values.
         """
+        
         # Compute cross-spectral densities
         freqs, Pxx = _sp.welch(x, fs, scaling='density', **self.params)
         _, Pyy = _sp.welch(y, fs, scaling='density', **self.params)
-        
+        _, Pxy = _sp.csd(y, x, fs, scaling='density', **self.params)
+
+        # Compute transfer function based on estimator choice
         if self.estimator == 'H2':
-            _, Pxy = _sp.csd(y, x, fs, scaling='density', **self.params)
             tf = Pyy / Pxy
-            coh = abs(Pxy)**2 / (Pxx * Pyy)
-        else:
-            _, Pyx = _sp.csd(x, y, fs, scaling='density', **self.params)
-            tf = Pyx / Pxx
-            coh = abs(Pyx)**2 / (Pxx * Pyy)
+        else:  # Default to H1
+            tf = _np.conj(Pxy) / Pxx
+
+        # Compute coherence, magnitude and phase
+        coh = abs(Pxy)**2 / (Pxx * Pyy)
+        mag = _np.abs(tf)
+        phase = _np.angle(tf, deg=True)
 
         # Store computed values
         self.freqs = freqs
         self.tf = tf
         self.coh = coh
 
-        # Split transfer function into magnitude and phase
-        mag = _np.abs(tf)
-        phase = _np.angle(tf, deg=True)
-
         return freqs, mag, phase, coh
-
-    def compute_stft(self, x, y, fs):
+    
+    def compute_tf(self, y, u, fs, m, N):
         """
-        Compute the Frequency Response Function (FRF) using Short-Time Fourier Transform (STFT).
-        This method is more dedicated to non-stationary signals.
-        Coherence indicates the degree of linear dependency between input (x) and output (y) at each frequency.
-
-        Parameters:
-        - x: Input signal array (reference).
-        - y: Output signal array.
-        - fs: Sampling frequency of the signals (Hz).
-
-        Returns:
-        - freqs: Array of frequencies (Hz).
-        - mag: Magnitude of the transfer function.
-        - phase: Phase of the transfer function (degrees).
-        - coh_avg: Average coherence values.
-        """
-        # Create ShortTimeFFT object
-        stft = _sp.ShortTimeFFT(_sp.windows.hann(self.params["nperseg"]),
-                                hop=self.params["nperseg"]-self.params["noverlap"],
-                                fs=fs,
-                                scale_to='psd')
-
-        # Compute STFT for x and y
-        Zxx = stft.spectrogram(x)
-        Zyy = stft.spectrogram(y)
-        freqs = _np.arange(stft.f_pts) * stft.delta_f
+        Finds the impulse response, g via an information matrix/vector method
         
-        Sxx_avg = _np.mean(_np.abs(Zxx), axis=1)
-        Syy_avg = _np.mean(_np.abs(Zyy), axis=1)
-
-        if self.estimator == 'H2':
-            Zxy = stft.spectrogram(x, y)
-            tf = Zyy / Zxy
-            Sxy_avg = _np.mean(Zxy, axis=1)
-            coh_avg = _np.abs(Sxy_avg)**2 / (Sxx_avg * Syy_avg)
-        else:
-            Zyx = stft.spectrogram(y, x)
-            tf = Zyx / Zxx
-            Syx_avg = _np.mean(Zyx, axis=1)
-            coh_avg = _np.abs(Syx_avg)**2 / (Sxx_avg * Syy_avg)        
-
-        # Compute magnitude and phase after averaging
-        tf_avg = _np.mean(tf, axis=1)
-        mag = _np.abs(tf_avg)  # Module après moyennage
-        phase = _np.angle(tf_avg, deg=True)  # Phase après moyennage
-
+        This code follows the math of Ilvedson MIT MS Thesis
+        "Transfer Function Estimation Using Time-Frequency
+        Analysis" 1998
+        Section 2.2.1
+        
+        Parameters:
+        -----------
+        y : array-like
+            System output
+        u : array-like
+            System input
+        m : int
+            y depends on m previous u data points
+        N : int
+            Will only consider first N data points of y and u (N >= m)
+        fs : int
+            sample rate in Hz
+        
+        Returns:
+        --------
+        Minfo : ndarray
+            Information matrix
+        Vinfo : ndarray
+            Information vector
+        g : ndarray
+            Impulse response estimate
+        """
+        # Make sure inputs are numpy arrays
+        y = _np.array(y)
+        u = _np.array(u)
+        
+        # In MATLAB, indices start at 1, but in Python they start at 0
+        u_temp = u[0:N]
+        phiuu = _np.zeros(m)
+        phiuy = _np.zeros(m)
+        
+        # Calculate U'U and U'y the fast way
+        for i in range(m):
+            phiuu[i] = _np.dot(u[0:N], u_temp)
+            phiuy[i] = _np.dot(y[0:N], u_temp)
+            # Shift by one data point (equivalent to MATLAB's [u_temp(N); u_temp(1:(N-1))])
+            u_temp = _np.concatenate(([u_temp[N-1]], u_temp[0:N-1]))
+        
+        # Create Toeplitz matrix
+        A = toeplitz(phiuu)
+        
+        # Calculate extra terms
+        u_temp = _np.flip(u[0:N])
+        W = _np.zeros((m-1, m))
+        
+        for i in range(m-1):
+            # Shift by one data point
+            u_temp = _np.concatenate(([u_temp[N-1]], u_temp[0:N-1]))
+            W[i, :] = u_temp[0:m]
+        
+        # Information matrix and vector
+        self.Minfo = A - _np.dot(W.T, W)
+        self.Vinfo = phiuy - _np.dot(W.T, y[0:m-1])
+        
+        # Least squares estimation
+        g = _np.linalg.solve(self.Minfo, self.Vinfo)
+        w_imp, h = _sig.freqz(g, worN=512)
+        freqs = w_imp * fs / (2 * _np.pi)
+        
+        # Mag and phase
+        mag = _np.abs(h)
+        phase = _np.angle(h, deg=True)
+        
         # Store computed values
         self.freqs = freqs
-        self.tf = tf_avg
-        self.coh = coh_avg
-
-        return freqs, mag, phase, coh_avg
-
-
+        self.tf = h
+        
+        return freqs, mag, phase, None
+        
+    def plot_impulse_info(self, title="", figsize=(12, 8), **kwargs):
+        """
+        Plot the information matrix (Minfo), information vector (Vinfo), 
+        and optionally the estimated impulse response (g).
+        """
+        
+        # Create figure and gridspec
+        fig = plt.figure(figsize=figsize)
+        
+        gs = GridSpec(1, 2, width_ratios=[2, 1])
+        
+        # Plot Minfo as heatmap
+        ax1 = fig.add_subplot(gs[0, 0])
+        im = ax1.imshow(self.Minfo, cmap='viridis', aspect='equal')
+        ax1.set_title(f'[Information Matrix] {title}', loc='left')
+        ax1.set_xlabel('Index j')
+        ax1.set_ylabel('Index i')
+        
+        # Add colorbar to Minfo plot
+        cbar = plt.colorbar(im, ax=ax1, shrink=0.8)
+        cbar.set_label('Correlation Value')
+    
+        # Plot Vinfo as bar chart
+        ax2 = fig.add_subplot(gs[0, 1])
+        indices = _np.arange(len(self.Vinfo))
+        ax2.bar(indices, self.Vinfo, color='skyblue', edgecolor='navy')
+        ax2.set_title(f'[Information Vector] {title}', loc='left')
+        ax2.set_xlabel('Index i')
+        ax2.set_ylabel('Cross-correlation Value')
+        
+        plt.tight_layout()
+        
+        return fig, [ax1, ax2]
+        
+    
+    def plot_coh(self, title="", label="", **kwargs):
+                    
+        fig, ax = plt.subplots(1, 1, figsize=(10, 12))
+        
+        if label != "":
+            addstr = f"[{self.method}-{self.estimator}] "
+            label = addstr.upper() + label
+        
+        # Coherence plot
+        ax.plot(self.freqs, self.coh, label=label, **kwargs)
+        ax.set_xlabel("Frequency [Hz]")
+        ax.set_ylabel("Coherence")
+        ax.set_xscale("log")
+        ax.set_ylim((0.75, 1.01))
+        ax.set_xlim((_np.max((self.freqs[0], 1)), self.freqs[-1]))
+        ax.grid(which='major', alpha=0.75)
+        ax.grid(which='minor', alpha=0.25)
+        ax.tick_params(axis='x', which='both')
+        ax.set_title(f"[Coherence] {title}", loc='left')
+        
+        if label != "":
+            ax.legend()
+            
+        return fig, ax
+    
+    def add2plot_coh(self, axes, title="", label="", **kwargs):
+                    
+        ax = axes
+        
+        if label != "":
+            addstr = f"[{self.method}-{self.estimator}] "
+            label = addstr.upper() + label
+        
+        # Coherence plot
+        ax.plot(self.freqs, self.coh, label=label, **kwargs)
+        
+        if label != "":
+            ax.legend()
+            
+        return ax
+        
     def plot(self, title="", label="", ymin=-60, ymax=60, **kwargs):
         """
         Plot the computed Transfer Function as magnitude and phase plots.
@@ -1213,15 +1349,20 @@ class FRF:
         Phase is given in degrees.
         Coherence is plotted to assess the reliability of the FRF.
         """
+        
         if not hasattr(self, "freqs") or not hasattr(self, "tf"):
             raise RuntimeError("You must compute the Transfer Function before plotting it.")
 
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12), sharex=True)
         ax1.set_title(f"[FRF] {title}", loc="left")
-        
+
         if label != "":
-            addstr = f"[{self.method}-{self.estimator}] "
-            label = addstr.upper() + label
+            if self.method == "welch":
+                addstr = f"[{self.method}-{self.estimator}] "
+                label = addstr.upper() + label
+            else:
+                addstr = f"[{self.method}] "
+                label = addstr.upper() + label
 
         # Magnitude plot
         mag_db = 20 * _np.log10(_np.abs(self.tf))
@@ -1247,25 +1388,13 @@ class FRF:
         ax2.set_xticklabels([])
         ax2.tick_params(axis='x', which='both', bottom=False)
 
-        # Coherence plot
-        ax3.plot(self.freqs, self.coh, label=label, **kwargs)
-        ax3.set_xlabel("Frequency [Hz]")
-        ax3.set_ylabel("Coherence")
-        ax3.set_xscale("log")
-        ax3.set_ylim((0.75, 1.01))
-        ax3.set_xlim((_np.max((self.freqs[0], 1)), self.freqs[-1]))
-        ax3.grid(which='major', alpha=0.75)
-        ax3.grid(which='minor', alpha=0.25)
-        ax3.tick_params(axis='x', which='both')
-
         if label != "":
             ax1.legend()
             ax2.legend()
-            ax3.legend()
 
         plt.tight_layout()
 
-        return fig, (ax1, ax2, ax3)
+        return fig, (ax1, ax2)
 
     def add2plot(self, axes, freqs=None, mag=None, phase=None, coh=None, method=None, estimator=None, label="", **kwargs):
         """
@@ -1276,38 +1405,38 @@ class FRF:
         - label: Legend label.
         - **kwargs: Additional plotting arguments.
         """
-        ax1, ax2, ax3 = axes
         
+        ax1, ax2 = axes
+
         if estimator is None:
             estimator = self.estimator
         if method is None:
             method = self.method
-            
+
         if label != "":
-            addstr = f"[{method}-{estimator}] "
-            label = addstr.upper() + label
-            
+            if self.method == "welch":
+                addstr = f"[{self.method}-{self.estimator}] "
+                label = addstr.upper() + label
+            else:
+                addstr = f"[{self.method}] "
+                label = addstr.upper() + label
+
         if freqs is None or mag is None:
             ax1.plot(self.freqs, 20 * _np.log10(_np.abs(self.tf)), label=label, **kwargs)
         else:
             ax1.plot(freqs, 20 * _np.log10(mag), label=label, **kwargs)
-        
+
         if freqs is None or phase is None:
             ax2.plot(self.freqs, _np.angle(self.tf, deg=True), label=label, **kwargs)
         else:
             ax2.plot(freqs, phase, label=label, **kwargs)
-        
-        if freqs is None or coh is None:
-            ax3.plot(self.freqs, self.coh, label=label, **kwargs)
-        else:
-            ax3.plot(freqs, coh, label=label, **kwargs)
+
 
         if label != "":
             ax1.legend()
             ax2.legend()
-            ax3.legend()
 
         return axes
-    
+
 def resample(data, UpSamplingFactor, DownSamplingFactor):
     return _sig.resample_poly(data.astype(float), up=UpSamplingFactor, down=DownSamplingFactor)

@@ -3,6 +3,7 @@ import arlpy.signal as usp
 import numpy as _np
 import matplotlib.pyplot as plt
 from scipy.signal import butter, lfilter
+import scipy.signal as _sig
 
 def lowpass(signal, cutoff, fs, order=4):
     b, a = butter(order, cutoff / (0.5 * fs), btype='low')
@@ -11,41 +12,65 @@ def lowpass(signal, cutoff, fs, order=4):
 # Example usage
 if __name__ == "__main__":
     
-    # Generate signal
+    # Generate chirp signal
     fs = 192000  # Sampling frequency
     duration = 10  # Duration in seconds
-    signal = (_np.sin(2*_np.pi*1000*_np.linspace(0, duration, int(fs*duration))) + 
-              0.5*_np.sin(2*_np.pi*2000*_np.linspace(0, duration, int(fs*duration))) + 
-              0.25*_np.sin(2*_np.pi*4000*_np.linspace(0, duration, int(fs*duration))))
-    signal = signal + _np.random.normal(0, 0.1, int(fs*duration))
+    t = _np.linspace(0, duration, int(fs * duration))  # Time vector
+    
+    # Define chirp parameters
+    f0 = 1  # Start frequency of the chirp (Hz)
+    f1 = fs/2  # End frequency of the chirp (Hz)
+    t1 = duration  # Time at which f1 is reached (end of the chirp)
+    method = 'linear'  # Frequency sweep method ('linear', 'quadratic', 'logarithmic', etc.)
+    
+    # Generate chirp signal
+    signal_1 = 1000*_sig.chirp(t, f0, t1, f1, method=method)
+    
+    # Add noise to the chirp signal
+    signal_1 += _np.random.normal(0, 200, int(fs * duration))
+    
+    # Process signal_2 (e.g., apply a lowpass filter and add noise)
+    def lowpass(signal, cutoff, fs, order=5):
+        nyquist = 0.5 * fs
+        normal_cutoff = cutoff / nyquist
+        b, a = _sig.butter(order, normal_cutoff, btype='low', analog=False)
+        filtered_signal = _sig.lfilter(b, a, signal)
+        return filtered_signal
+    
+    signal_2 = lowpass(signal_1 * 10, fs/4, fs) + _np.random.normal(0, 50, int(fs * duration))
     
     # SEL
     sel = usp.SEL()
-    sel.compute(signal, fs, chunk_size=192000)
+    sel.compute(signal_1, fs, chunk_size=fs)
     sel.plot(title="Example Signal")
     
     # PSD
     psd = usp.PSD()
-    psd.compute(signal, fs)
+    psd.compute(signal_1, fs)
     fig, ax = psd.plot(title="Example Signal", label='signal 1')
-    psd.compute(signal/2, fs)
+    psd.compute(signal_2, fs)
     psd.add2plot(ax, label="signal 2", linestyle='dashed')
     
     # FRF    
     frf = usp.FRF()
-    frf.compute(signal, lowpass(signal*10, 15000, fs), fs, method='stft', estimator='H2', nperseg=16384)
+    frf.compute(signal_1, signal_2, fs, method='welch', estimator='H1', nperseg=8192)
     fig, ax = frf.plot(title="Example signal", label="Butterworth LP 15000 + 20dB")
-    frf.compute(signal, lowpass(signal*10, 15000, fs), fs, method='welch', estimator='H1', nperseg=16384)
+    fig_coh, ax_coh = frf.plot_coh(label="Butterworth LP 15000 + 20dB")
+    frf.compute(signal_1, signal_2, fs, method='welch', estimator='H2', nperseg=8192)
     frf.add2plot(ax, label="Butterworth LP 15000 + 20dB", linestyle='dashed')
+    frf.add2plot_coh(ax_coh, label="Butterworth LP 15000 + 20dB", linestyle='dashed')
+    frf.compute(signal_1, signal_2, fs, method='tf', m=32)
+    frf.add2plot(ax, label="Butterworth LP 15000 + 20dB", linestyle='dashed')
+    frf.plot_impulse_info(title="Example signal")
     
     # PSDPDF
-    psdpdf = usp.PSDPDF(seg_duration=0.1, nperseg=4096, noverlap=4096/2, nbins=100)
-    psdpdf.compute(signal, fs)
+    psdpdf = usp.PSDPDF(seg_duration=0.01, nperseg=1024, noverlap=1024/2, nbins=100)
+    psdpdf.compute(signal_1, fs)
     psdpdf.plot(title="Example Signal")
     
     # Spectrogram
     spec = usp.Spectrogram()
-    spec.compute(signal, fs)
+    spec.compute(signal_1, fs)
     spec.plot(title="Example Signal", ymin=100, vmax=180)
     
     plt.show()
