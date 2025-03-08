@@ -87,13 +87,11 @@ You have to manually uninstall dependencies if you want to.
 | Add statistical PSD in dB re 1uPa/vHz                | Done                  |                                               |
 | Add spectro func in dB re 1uPa/vHz for rec signals   | Done                  |                                               |
 | Add SEL measurement                                  | Done                  |                                               |
-| Add FRF for stationnary and transient signals        | Done                  |                                               |
+| Add empirical FRF estimation methods                 | Done                  |                                               |
 | Handle source range and left propagation ? or not ?  | In progress ($\beta$) | maybe a bad idea                              |
 | Update bellhop                                       | In progress ($\beta$) | docs_uac/Bellhop_userGuide.pdf                |
 | Add pyram to arlpy                                   | In progress ($\beta$) | docs_uac/RAM.pdf                              |
 | Add kraken to arlpy                                  | In progress ($\beta$) | docs_uac/KrakenNormalModeProgram_2001.pdf     |
-| BugFix: Review FRF in stft mode                      | In progress           | Mean over best coherence only ?               |
-| BugFix: PSD2PDF division problem                     | In progress           | RuntimeWarning: invalid value encountered ... |
 | Manage all options for Bellhop, Kraken and RAM       | In progress           |                                               |
 | Maintain up to date unittest and assert in arlpy     | In progress           |                                               |
 | Maintain up to date function and class comments      | In progress           |                                               |
