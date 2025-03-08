@@ -9,15 +9,6 @@ Fork from : https://github.com/org-arl/arlpy/
 
 The installation process is dedicated to Linux based OS, but an adaptation for Mac or Windows may be possible.
 
-If you consider installing the OALIB toolbox somewhere else than the proposed solution, you will have to replace ***"/opt/build/at"*** by ***<oalib_installation_path>***  in ***arlpy/uwapm.py***:
-
-    # Add acoustic toolbox path to Python path
-    os.environ['PATH'] = os.environ['PATH'].replace(':<oalib_installation_path>', '')+":<oalib_installation_path>"
-
-and in your ***.bashrc***
-
-    export PATH="<oalib_installation_path>:$PATH"
-
 #### Install
 
 Install dependencies:
@@ -45,6 +36,15 @@ Install OALIB toolbox:
     sudo make all
     sudo make install
     sudo echo 'export PATH="/opt/build/at/bin:$PATH"' >> ~/.bashrc
+
+If you consider installing the OALIB toolbox somewhere else than the proposed solution, you will have to replace ***</opt/build/at/bin>*** by ***<oalib_installation_path/bin>***  in ***arlpy/uwapm.py***:
+
+    # Add acoustic toolbox path to Python path
+    os.environ['PATH'] = os.environ['PATH'].replace(':<oalib_installation_path/bin>', '')+":<oalib_installation_path/bin>"
+
+and in your ***.bashrc***
+
+    export PATH="<oalib_installation_path/bin>:$PATH"
 
 ### Examples
 
@@ -92,6 +92,8 @@ You have to manually uninstall dependencies if you want to.
 | Update bellhop                                       | In progress ($\beta$) | docs_uac/Bellhop_userGuide.pdf                |
 | Add pyram to arlpy                                   | In progress ($\beta$) | docs_uac/RAM.pdf                              |
 | Add kraken to arlpy                                  | In progress ($\beta$) | docs_uac/KrakenNormalModeProgram_2001.pdf     |
+| BugFix: Review FRF in stft mode                      | In progress           | Mean over best coherence only ?               |
+| BugFix: PSD2PDF division problem                     | In progress           | RuntimeWarning: invalid value encountered ... |
 | Manage all options for Bellhop, Kraken and RAM       | In progress           |                                               |
 | Maintain up to date unittest and assert in arlpy     | In progress           |                                               |
 | Maintain up to date function and class comments      | In progress           |                                               |
