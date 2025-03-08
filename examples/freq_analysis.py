@@ -37,7 +37,7 @@ if __name__ == "__main__":
         filtered_signal = _sig.lfilter(b, a, signal)
         return filtered_signal
     
-    signal_2 = lowpass(signal_1 * 10, fs/4, fs) + _np.random.normal(0, 50, int(fs * duration))
+    signal_2 = lowpass(signal_1 * 10, fs/10, fs) + _np.random.normal(0, 50, int(fs * duration))
     
     # SEL
     sel = usp.SEL()
@@ -59,7 +59,7 @@ if __name__ == "__main__":
     frf.compute(signal_1, signal_2, fs, method='welch', estimator='H2', nperseg=8192)
     frf.add2plot(ax, label="Butterworth LP 15000 + 20dB", linestyle='dashed')
     frf.add2plot_coh(ax_coh, label="Butterworth LP 15000 + 20dB", linestyle='dashed')
-    frf.compute(signal_1, signal_2, fs, method='tf', m=32)
+    frf.compute(signal_1, signal_2, fs, method='tf', m=64)
     frf.add2plot(ax, label="Butterworth LP 15000 + 20dB", linestyle='dashed')
     frf.plot_impulse_info(title="Example signal")
     

@@ -1052,8 +1052,8 @@ class FRF:
         Transfer Function (Frequency Response Function, FRF) computation and visualization class.
 
         Method:
-        - Welch: use Welch periodogram for PSD estimate, dedicated to stationary signals
-        - Wavelet: continuous wavelet transform based calculus, dedicated to non-stationary signals
+        - welch: use Welch periodogram for PSD estimate, dedicated to stationary signals
+        - tf: use Time Frequency method (Ilvedson MIT MS Thesis, 1998)
 
         Estimator:
         - H1: minimizes the effect of noise introduced at the system output
@@ -1070,12 +1070,10 @@ class FRF:
 
             H1(f) = Pyx(f) / Pxx(f)
             H2(f) = Pyy(f) / Pxy(f)
-            Hv(f) = 0.5 * (H1(f) + 1/H2*(f)) - sqrt(0.25 * (H1(f) - 1/H2*(f))^2 + Pnx*Pny/(|Pxy|^2))
 
         Where:
         - Pxx(f): Power Spectral Density (PSD) of the input signal (x).
         - Pxy(f): Cross-Power Spectral Density (CPSD) between input (x) and output (y).
-        - Pnx, Pny: Noise power at input and output.
         """
         import numpy as _np
         
@@ -1091,6 +1089,7 @@ class FRF:
         self.Minfo = _np.array([[0]])
         self.Vinfo = _np.array([[0]])
         self.m = m
+        self.g = 0
 
     def compute(self, x, y, fs, m=None, method=None, estimator=None, nperseg=None, noverlap=None, wavelet=None, scales=None):
         """
@@ -1110,7 +1109,8 @@ class FRF:
         - freqs: Array of frequencies (Hz).
         - mag: Magnitude of the transfer function.
         - phase: Phase of the transfer function (degrees).
-        - coh: Coherence values.
+        - coh: Coherence values for Welch method.
+        - g: Impulse response estimate for TF method.
         """
         if method is not None:
             self.method = method
@@ -1131,11 +1131,11 @@ class FRF:
             self.m = m
 
         if self.method == 'welch':
-            freqs, mag, phase, coh = self.compute_welch(x, y, fs)
+            freqs, mag, phase, coh, g = self.compute_welch(x, y, fs)
         elif self.method == 'tf':
-            freqs, mag, phase, coh = self.compute_tf(y, x, fs, self.m, len(x))
+            freqs, mag, phase, coh, g = self.compute_tf(y, x, fs, self.m, len(x))
 
-        return freqs, mag, phase, coh
+        return freqs, mag, phase, coh, g
 
     def compute_welch(self, x, y, fs):
         """
@@ -1176,7 +1176,7 @@ class FRF:
         self.tf = tf
         self.coh = coh
 
-        return freqs, mag, phase, coh
+        return freqs, mag, phase, coh, None
     
     def compute_tf(self, y, u, fs, m, N):
         """
@@ -1253,19 +1253,21 @@ class FRF:
         # Store computed values
         self.freqs = freqs
         self.tf = h
+        self.g = g
         
-        return freqs, mag, phase, None
+        return freqs, mag, phase, None, g
         
     def plot_impulse_info(self, title="", figsize=(12, 8), **kwargs):
         """
         Plot the information matrix (Minfo), information vector (Vinfo), 
-        and optionally the estimated impulse response (g).
+        and the estimated impulse response (g).
         """
         
         # Create figure and gridspec
         fig = plt.figure(figsize=figsize)
         
-        gs = GridSpec(1, 2, width_ratios=[2, 1])
+        # Define a 2x2 grid with adjusted height ratios
+        gs = GridSpec(2, 2, width_ratios=[2, 1], height_ratios=[2, 1])
         
         # Plot Minfo as heatmap
         ax1 = fig.add_subplot(gs[0, 0])
@@ -1277,7 +1279,7 @@ class FRF:
         # Add colorbar to Minfo plot
         cbar = plt.colorbar(im, ax=ax1, shrink=0.8)
         cbar.set_label('Correlation Value')
-    
+           
         # Plot Vinfo as bar chart
         ax2 = fig.add_subplot(gs[0, 1])
         indices = _np.arange(len(self.Vinfo))
@@ -1286,14 +1288,23 @@ class FRF:
         ax2.set_xlabel('Index i')
         ax2.set_ylabel('Cross-correlation Value')
         
+        # Plot impulse response (self.g)
+        ax3 = fig.add_subplot(gs[1, :])  # Span both columns in the second row
+        ax3.plot(self.g, color='red', linestyle='-', marker='o', markersize=4)
+        ax3.set_title(f'[Impulse Response] {title}', loc='left')
+        ax3.set_xlabel('Time Index')
+        ax3.set_ylabel('Amplitude')
+        ax3.grid(True)
+        ax3.legend()
+        
         plt.tight_layout()
         
-        return fig, [ax1, ax2]
+        return fig, [ax1, ax2, ax3]
         
     
     def plot_coh(self, title="", label="", **kwargs):
                     
-        fig, ax = plt.subplots(1, 1, figsize=(10, 12))
+        fig, ax = plt.subplots(1, 1)
         
         if label != "":
             addstr = f"[{self.method}-{self.estimator}] "
@@ -1380,13 +1391,13 @@ class FRF:
         phase_deg = _np.angle(self.tf, deg=True)
         ax2.plot(self.freqs, phase_deg, label=label, **kwargs)
         ax2.set_ylabel("Phase [degrees]")
+        ax2.set_xlabel("Frequency [Hz]")
         ax2.set_xscale("log")
         ax2.set_ylim((-180, 180))
         ax2.set_xlim((_np.max((self.freqs[0], 1)), self.freqs[-1]))
         ax2.grid(which='major', alpha=0.75)
         ax2.grid(which='minor', alpha=0.25)
-        ax2.set_xticklabels([])
-        ax2.tick_params(axis='x', which='both', bottom=False)
+        ax2.tick_params(axis='x', which='both', bottom=True)
 
         if label != "":
             ax1.legend()
