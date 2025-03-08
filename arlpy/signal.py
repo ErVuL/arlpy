@@ -1295,7 +1295,6 @@ class FRF:
         ax3.set_xlabel('Time Index')
         ax3.set_ylabel('Amplitude')
         ax3.grid(True)
-        ax3.legend()
         
         plt.tight_layout()
         
