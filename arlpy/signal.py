@@ -1047,22 +1047,22 @@ class PSD:
         return ax
 
 class FRF:
-    def __init__(self, method='welch', estimator='H1', m=512, scales=None, **kwargs):
+    def __init__(self, method='welch', estimator='H1', m=512, **kwargs):
         """
         Transfer Function (Frequency Response Function, FRF) computation and visualization class.
 
         Method:
         - welch: use Welch periodogram for PSD estimate, dedicated to stationary signals
-        - tf: use Time Frequency method (Ilvedson MIT MS Thesis, 1998)
+        - ls-ir: use least square impulse response method, this is analogous to using 
+                 spectral analysis in the frequency domain to calculate the Empirical 
+                 Transfer Function Estimate (ETFE)
 
         Estimator:
         - H1: minimizes the effect of noise introduced at the system output
         - H2: minimizes the effect of noise introduced at the system input
 
         Parameters:
-        - wavelet: Wavelet to use for CWT (default: 'morl' for Morlet wavelet)
-        - scales: Scales to use for wavelet transform. If None, automatically determined.
-        - **kwargs: Additional arguments for scipy.signal.welch and scipy.signal.csd.
+        - m: length of the impulse response in sample for the ls-ir method
 
         Notes:
         The Transfer Function (FRF) is a complex function that relates the input and output of a linear time-invariant (LTI) system in the frequency domain.
@@ -1085,11 +1085,10 @@ class FRF:
         self.params.update(kwargs)
         self.method = method
         self.estimator = estimator
-        self.scales = scales
         self.Minfo = _np.array([[0]])
         self.Vinfo = _np.array([[0]])
         self.m = m
-        self.g = 0
+        self.g = 0 # Impulse response
 
     def compute(self, x, y, fs, m=None, method=None, estimator=None, nperseg=None, noverlap=None, wavelet=None, scales=None):
         """
@@ -1132,8 +1131,8 @@ class FRF:
 
         if self.method == 'welch':
             freqs, mag, phase, coh, g = self.compute_welch(x, y, fs)
-        elif self.method == 'tf':
-            freqs, mag, phase, coh, g = self.compute_tf(y, x, fs, self.m, len(x))
+        elif self.method == 'ls-ir':
+            freqs, mag, phase, coh, g = self.compute_lsir(y, x, fs, self.m, len(x))
 
         return freqs, mag, phase, coh, g
 
@@ -1178,7 +1177,7 @@ class FRF:
 
         return freqs, mag, phase, coh, None
     
-    def compute_tf(self, y, u, fs, m, N):
+    def compute_lsir(self, y, u, fs, m, N):
         """
         Finds the impulse response, g via an information matrix/vector method
         
@@ -1222,7 +1221,6 @@ class FRF:
         for i in range(m):
             phiuu[i] = _np.dot(u[0:N], u_temp)
             phiuy[i] = _np.dot(y[0:N], u_temp)
-            # Shift by one data point (equivalent to MATLAB's [u_temp(N); u_temp(1:(N-1))])
             u_temp = _np.concatenate(([u_temp[N-1]], u_temp[0:N-1]))
         
         # Create Toeplitz matrix
@@ -1243,9 +1241,8 @@ class FRF:
         
         # Least squares estimation
         g = _np.linalg.solve(self.Minfo, self.Vinfo)
-        w_imp, h = _sig.freqz(g, worN=512)
+        w_imp, h = _sig.freqz(g, worN=int(self.params['nperseg']/2+1))
         freqs = w_imp * fs / (2 * _np.pi)
-        
         # Mag and phase
         mag = _np.abs(h)
         phase = _np.angle(h, deg=True)

@@ -14,7 +14,7 @@ if __name__ == "__main__":
     
     # Generate chirp signal
     fs = 192000  # Sampling frequency
-    duration = 10  # Duration in seconds
+    duration = 5  # Duration in seconds
     t = _np.linspace(0, duration, int(fs * duration))  # Time vector
     
     # Define chirp parameters
@@ -24,7 +24,7 @@ if __name__ == "__main__":
     method = 'linear'  # Frequency sweep method ('linear', 'quadratic', 'logarithmic', etc.)
     
     # Generate chirp signal
-    signal_1 = 1000*_sig.chirp(t, f0, t1, f1, method=method)
+    signal_1 = 200*_sig.chirp(t, f0, t1, f1, method=method)
     
     # Add noise to the chirp signal
     signal_1 += _np.random.normal(0, 200, int(fs * duration))
@@ -48,19 +48,22 @@ if __name__ == "__main__":
     psd = usp.PSD()
     psd.compute(signal_1, fs)
     fig, ax = psd.plot(title="Example Signal", label='signal 1')
+    
     psd.compute(signal_2, fs)
     psd.add2plot(ax, label="signal 2", linestyle='dashed')
     
     # FRF    
     frf = usp.FRF()
     frf.compute(signal_1, signal_2, fs, method='welch', estimator='H1', nperseg=8192)
-    fig, ax = frf.plot(title="Example signal", label="Butterworth LP 15000 + 20dB")
-    fig_coh, ax_coh = frf.plot_coh(label="Butterworth LP 15000 + 20dB")
+    fig, ax = frf.plot(title="Example signal", label="Butterworth LP")
+    fig_coh, ax_coh = frf.plot_coh(label="Butterworth LP")
+    
     frf.compute(signal_1, signal_2, fs, method='welch', estimator='H2', nperseg=8192)
-    frf.add2plot(ax, label="Butterworth LP 15000 + 20dB", linestyle='dashed')
-    frf.add2plot_coh(ax_coh, label="Butterworth LP 15000 + 20dB", linestyle='dashed')
-    frf.compute(signal_1, signal_2, fs, method='tf', m=64)
-    frf.add2plot(ax, label="Butterworth LP 15000 + 20dB", linestyle='dashed')
+    frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
+    frf.add2plot_coh(ax_coh, label="Butterworth LP", linestyle='dashed')
+    
+    frf.compute(signal_1, signal_2, fs, method='ls-ir', m=64)
+    frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
     frf.plot_impulse_info(title="Example signal")
     
     # PSDPDF
