@@ -1136,6 +1136,45 @@ class FRF:
 
         return freqs, mag, phase, coh, g
 
+    def shift2maxCor(x, y, idx_min, idx_max):
+        """
+        Shifts two signals `x` and `y` based on the maximum cross-correlation between their 
+        sections defined by `idx_min` and `idx_max`.
+    
+        Parameters:
+        - x (numpy array): First signal to be shifted.
+        - y (numpy array): Second signal to be shifted.
+        - idx_min (int): The starting index of the section to be used for correlation.
+        - idx_max (int): The ending index of the section to be used for correlation.
+    
+        Returns:
+        - tuple: The shifted signals `x` and `y` as numpy arrays.
+        
+        This function computes the cross-correlation between slices of the signals `x` and `y`, 
+        extracts the lag that maximizes the correlation, and shifts one of the signals accordingly.
+        """
+        
+        # Extract the section of x and y defined by the indices idx_min and idx_max
+        x1 = x[idx_min:idx_max]
+        y1 = y[idx_min:idx_max]
+        
+        # Calculate the cross-correlation between the two signals in the specified range
+        correlation = _sig.correlate(x1, y1, mode="full")
+        
+        # Calculate the lags associated with the correlation values
+        lags = _sig.correlation_lags(x1.size, y1.size, mode="full")
+        
+        # Find the lag that gives the maximum correlation
+        lag = lags[_np.argmax(correlation)]
+        
+        # Shift y or x depending on the sign of the lag
+        if lag < 0:
+            y = y[abs(lag):]  # Shift y forward if lag is negative
+        else:
+            x = x[lag:]  # Shift x forward if lag is positive
+        
+        return x, y  # Return the shifted signals
+    
     def compute_welch(self, x, y, fs):
         """
         Compute the Frequency Response Function (FRF) using Welch's method.
@@ -1212,22 +1251,21 @@ class FRF:
         y = _np.array(y)
         u = _np.array(u)
         
-        # In MATLAB, indices start at 1, but in Python they start at 0
-        u_temp = u[0:N]
+        u_temp = u[:N]
         phiuu = _np.zeros(m)
         phiuy = _np.zeros(m)
         
         # Calculate U'U and U'y the fast way
         for i in range(m):
-            phiuu[i] = _np.dot(u[0:N], u_temp)
-            phiuy[i] = _np.dot(y[0:N], u_temp)
+            phiuu[i] = _np.dot(u[:N], u_temp)
+            phiuy[i] = _np.dot(y[:N], u_temp)
             u_temp = _np.concatenate(([u_temp[N-1]], u_temp[0:N-1]))
         
         # Create Toeplitz matrix
         A = toeplitz(phiuu)
         
         # Calculate extra terms
-        u_temp = _np.flip(u[0:N])
+        u_temp = _np.flip(u[:N])
         W = _np.zeros((m-1, m))
         
         for i in range(m-1):

@@ -24,10 +24,10 @@ if __name__ == "__main__":
     method = 'linear'  # Frequency sweep method ('linear', 'quadratic', 'logarithmic', etc.)
     
     # Generate chirp signal
-    signal_1 = 200*_sig.chirp(t, f0, t1, f1, method=method)
+    signal_1 = 100*_sig.chirp(t, f0, t1, f1, method=method)
     
     # Add noise to the chirp signal
-    signal_1 += _np.random.normal(0, 200, int(fs * duration))
+    signal_1 += _np.random.normal(0, 100, int(fs * duration))
     
     # Process signal_2 (e.g., apply a lowpass filter and add noise)
     def lowpass(signal, cutoff, fs, order=5):
