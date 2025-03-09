@@ -1055,7 +1055,8 @@ class FRF:
         Method:
         - welch: use Welch periodogram for PSD estimate, dedicated to stationary signals
         - ls-ir: use least square impulse response method
-        - etfe: use ETFE method for periodic signals
+        - etfe: use ETFE method over the whole signal
+        - p_etfe: use Periodic ETFE that compute average signal over segments
 
         Estimator:
         - H1: minimizes the effect of noise introduced at the system output
