@@ -54,11 +54,17 @@ if __name__ == "__main__":
     
     # FRF    
     frf = usp.FRF()
-    frf.compute(signal_1, signal_2, fs, method='welch', estimator='H1', nperseg=8192)
+    frf.compute(signal_1, signal_2, fs, method='etfe')
     fig, ax = frf.plot(title="Example signal", label="Butterworth LP")
+    
+    frf.compute(signal_1, signal_2, fs, method='welch', estimator='H1', nperseg=8192)
+    frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
     fig_coh, ax_coh = frf.plot_coh(label="Butterworth LP")
     
-    frf.compute(signal_1, signal_2, fs, method='welch', estimator='H2', nperseg=8192)
+    frf.compute(signal_1, signal_2, fs, method='p_etfe', nperseg=8192)
+    frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
+        
+    frf.compute(signal_1, signal_2, fs, method='welch', estimator='H2')
     frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
     frf.add2plot_coh(ax_coh, label="Butterworth LP", linestyle='dashed')
     

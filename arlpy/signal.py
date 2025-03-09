@@ -19,6 +19,7 @@ import scipy.signal as _sp
 import matplotlib.pyplot as plt
 import math
 from scipy.linalg import toeplitz
+from scipy import fft as _fft
 from matplotlib.gridspec import GridSpec
 
 
@@ -1053,9 +1054,8 @@ class FRF:
 
         Method:
         - welch: use Welch periodogram for PSD estimate, dedicated to stationary signals
-        - ls-ir: use least square impulse response method, this is analogous to using 
-                 spectral analysis in the frequency domain to calculate the Empirical 
-                 Transfer Function Estimate (ETFE)
+        - ls-ir: use least square impulse response method
+        - etfe: use ETFE method for periodic signals
 
         Estimator:
         - H1: minimizes the effect of noise introduced at the system output
@@ -1133,6 +1133,10 @@ class FRF:
             freqs, mag, phase, coh, g = self.compute_welch(x, y, fs)
         elif self.method == 'ls-ir':
             freqs, mag, phase, coh, g = self.compute_lsir(y, x, fs, self.m, len(x))
+        elif self.method == 'etfe':
+            freqs, mag, phase, coh, g = self.compute_etfe(x, y, fs)
+        elif self.method == 'p_etfe':
+            freqs, mag, phase, coh, g = self.compute_periodic_etfe(x, y, fs)
 
         return freqs, mag, phase, coh, g
 
@@ -1215,6 +1219,123 @@ class FRF:
         self.coh = coh
 
         return freqs, mag, phase, coh, None
+        
+    def compute_periodic_etfe(self, x, y, fs, nperseg=None):
+        """
+        Compute ETFE for periodic data.
+        
+        Parameters:
+        - x: Input signal.
+        - y: Output signal.
+        - fs: Sampling frequency.
+        - nperseg: Segment length of period in sample.
+        
+        Returns:
+        - freqs: Frequencies.
+        - mag: Magnitude of transfer function.
+        - phase: Phase of transfer function.
+        - coh: None (not computed).
+        - g: None (not computed).
+        """
+        
+        if nperseg:
+            self.params['nperseg'] = nperseg
+            
+        # For periodic data, we compute at frequencies k*2*pi/period/Ts
+        # up to the Nyquist frequency
+        period = self.params['nperseg']
+        n_periods = len(x) // period
+        
+        if n_periods < 1:
+            raise ValueError("Signal length must be at least one period.")
+        
+        # Extract a whole number of periods
+        x = x[:n_periods * period]
+        y = y[:n_periods * period]
+        
+        # Reshape to n_periods rows of period columns
+        x_reshaped = x.reshape(n_periods, period)
+        y_reshaped = y.reshape(n_periods, period)
+        
+        # Average over periods to reduce noise
+        x_avg = _np.mean(x_reshaped, axis=0)
+        y_avg = _np.mean(y_reshaped, axis=0)
+        
+        # Compute FFT of averaged signals
+        X = _np.fft.rfft(x_avg)+_np.finfo(float).eps
+        Y = _np.fft.rfft(y_avg)+_np.finfo(float).eps
+        
+        # Compute frequencies
+        freqs = _np.fft.rfftfreq(period, d=1/fs)
+        
+        # Initialize transfer function
+        tf = _np.zeros_like(X, dtype=complex)
+        
+        # Compute transfer function where input has significant energy
+        tf = Y / X
+        
+        # Calculate magnitude and phase
+        mag = _np.abs(tf)
+        phase = _np.angle(tf, deg=True)
+        
+        # Store computed values
+        self.freqs = freqs
+        self.tf = tf
+        
+        return freqs, mag, phase, None, None
+    
+    def compute_etfe(self, x, y, fs):
+        """
+        Compute the Empirical Transfer Function Estimate (ETFE)
+        
+        This method directly estimates the transfer function by dividing the output Fourier transform
+        by the input Fourier transform.
+        
+        Parameters:
+        - x: Input signal array (reference). For time series data, pass None or empty array.
+        - y: Output signal array.
+        - fs: Sampling frequency of the signals (Hz).
+        - n_freqs: Number of frequency points for non-periodic data (N parameter in MATLAB).
+                  Default is 128.
+        - is_periodic: Whether the data is periodic.
+        - period: For periodic data, the period in samples. If None, auto-detection is attempted.
+        
+        Returns:
+        - freqs: Array of frequencies (Hz).
+        - mag: Magnitude of the transfer function.
+        - phase: Phase of the transfer function (degrees).
+        - coh: None (coherence is not directly computed for ETFE).
+        - g: None (impulse response not computed).
+        """
+        
+        # Ensure signals are the same length
+        min_len = min(len(x), len(y))
+        x = x[:min_len]
+        y = y[:min_len]
+        
+        # Compute FFTs
+        X = _np.fft.rfft(x) + _np.finfo(float).eps
+        Y = _np.fft.rfft(y)
+        
+        # Determine frequency grid based on n_freqs
+        n_fft = min_len
+        freqs = _np.fft.rfftfreq(n_fft, d=1/fs)
+        
+        # Initialize transfer function
+        tf = _np.zeros_like(X, dtype=complex)
+        
+        # Compute transfer function
+        tf = Y / X
+        
+        # Calculate magnitude and phase
+        mag = _np.abs(tf)
+        phase = _np.angle(tf, deg=True)
+        
+        # Store computed values
+        self.freqs = freqs
+        self.tf = tf
+        
+        return freqs, mag, phase, None, None
     
     def compute_lsir(self, y, u, fs, m, N):
         """
@@ -1406,6 +1527,9 @@ class FRF:
             if self.method == "welch":
                 addstr = f"[{self.method}-{self.estimator}] "
                 label = addstr.upper() + label
+            elif self.method == "p_etfe":
+                addstr = f"[{self.method}-{self.params['nperseg']}] "
+                label = addstr.upper() + label
             else:
                 addstr = f"[{self.method}] "
                 label = addstr.upper() + label
@@ -1462,6 +1586,9 @@ class FRF:
         if label != "":
             if self.method == "welch":
                 addstr = f"[{self.method}-{self.estimator}] "
+                label = addstr.upper() + label
+            elif self.method == "p_etfe":
+                addstr = f"[{self.method}-{self.params['nperseg']}] "
                 label = addstr.upper() + label
             else:
                 addstr = f"[{self.method}] "
