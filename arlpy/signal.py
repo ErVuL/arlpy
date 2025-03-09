@@ -1243,6 +1243,7 @@ class FRF:
         g = _np.linalg.solve(self.Minfo, self.Vinfo)
         w_imp, h = _sig.freqz(g, worN=int(self.params['nperseg']/2+1))
         freqs = w_imp * fs / (2 * _np.pi)
+        
         # Mag and phase
         mag = _np.abs(h)
         phase = _np.angle(h, deg=True)
