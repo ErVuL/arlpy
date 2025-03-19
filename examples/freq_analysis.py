@@ -14,7 +14,7 @@ if __name__ == "__main__":
     
     # Generate chirp signal
     fs = 192000  # Sampling frequency
-    duration = 5  # Duration in seconds
+    duration = 1  # Duration in seconds
     t = _np.linspace(0, duration, int(fs * duration))  # Time vector
     
     # Define chirp parameters
@@ -57,18 +57,18 @@ if __name__ == "__main__":
     frf.compute(signal_1, signal_2, fs, method='etfe')
     fig, ax = frf.plot(title="Example signal", label="Butterworth LP")
     
-    frf.compute(signal_1, signal_2, fs, method='welch', estimator='H1', nperseg=8192)
+    frf.compute(signal_1, signal_2, fs, method='welch', estimator='H1', nperseg=2048)
     frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
     fig_coh, ax_coh = frf.plot_coh(label="Butterworth LP")
     
-    frf.compute(signal_1, signal_2, fs, method='p_etfe', nperseg=8192)
+    frf.compute(signal_1, signal_2, fs, method='p_etfe', nperseg=2048)
     frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
         
     frf.compute(signal_1, signal_2, fs, method='welch', estimator='H2')
     frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
     frf.add2plot_coh(ax_coh, label="Butterworth LP", linestyle='dashed')
     
-    frf.compute(signal_1, signal_2, fs, method='ls_ir', m='AIC')
+    frf.compute(signal_1, signal_2, fs, method='ls_ir', m='AIC', m_max=1024, stop_count=10)
     frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
     frf.plot_impulse_info(title="Example signal")
     

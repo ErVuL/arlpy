@@ -1091,7 +1091,7 @@ class FRF:
         self.m = m
         self.g = 0 # Impulse response
 
-    def compute(self, x, y, fs, m=None, method=None, estimator=None, nperseg=None, noverlap=None, wavelet=None, scales=None):
+    def compute(self, x, y, fs, m=None, method=None, estimator=None, nperseg=None, noverlap=None, wavelet=None, scales=None, m_max=4096, stop_count=50):
         """
         Compute the Frequency Response Function (FRF).
         
@@ -1104,6 +1104,8 @@ class FRF:
         - nperseg: Length of each segment (for Welch method)
         - noverlap: Number of overlapping points between segments (for Welch method)
         - m : impulse response length in sample (for tf only)
+        - m_max : Maximum m value possible for best AIC research
+        - stop_count : Stop best AIC research after stop_count steps with no improvements
         
         Returns:
         - freqs: Array of frequencies (Hz).
@@ -1133,7 +1135,7 @@ class FRF:
         if self.method == 'welch':
             freqs, mag, phase, coh, g = self.compute_welch(x, y, fs)
         elif self.method == 'ls_ir':
-            freqs, mag, phase, coh, g = self.compute_lsir(y, x, fs, self.m, len(x))
+            freqs, mag, phase, coh, g = self.compute_lsir(y, x, fs, self.m, len(x), m_max=m_max, stop_count=stop_count)
         elif self.method == 'etfe':
             freqs, mag, phase, coh, g = self.compute_etfe(x, y, fs)
         elif self.method == 'p_etfe':
@@ -1296,8 +1298,7 @@ class FRF:
         - x: Input signal array (reference). For time series data, pass None or empty array.
         - y: Output signal array.
         - fs: Sampling frequency of the signals (Hz).
-        - n_freqs: Number of frequency points for non-periodi                    print(aic)
-c data (N parameter in MATLAB).
+        - n_freqs: Number of frequency points for non-periodic data (N parameter in MATLAB).
                   Default is 128.
         - is_periodic: Whether the data is periodic.
         - period: For periodic data, the period in samples. If None, auto-detection is attempted.
@@ -1339,7 +1340,7 @@ c data (N parameter in MATLAB).
         
         return freqs, mag, phase, None, None
     
-    def compute_lsir(self, y, u, fs, m, N, m_max=2048):
+    def compute_lsir(self, y, u, fs, m, N, m_max=4096, stop_count=50):
         """
         Finds the impulse response, g via an information matrix/vector method.
         AIC criterion can be used for automatic m definition.
@@ -1360,9 +1361,11 @@ c data (N parameter in MATLAB).
         N : int
             Will only consider first N data points of y and u (N >= m)
         fs : int
-            sample rate in Hz
+            Sample rate in Hz
         m_max : int
-            maximum m value possible for best AIC research
+            Maximum m value possible for best AIC research
+        stop_count : int
+            Stop best AIC research after stop_count steps with no improvements
         
         Returns:
         --------
@@ -1429,7 +1432,7 @@ c data (N parameter in MATLAB).
                     else:
                         aic_cnt += 1
                         
-                    if aic_cnt >= 100:
+                    if aic_cnt >= stop_count:
                         # Avoid useless computation
                         break
                 
