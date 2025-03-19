@@ -68,7 +68,7 @@ if __name__ == "__main__":
     frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
     frf.add2plot_coh(ax_coh, label="Butterworth LP", linestyle='dashed')
     
-    frf.compute(signal_1, signal_2, fs, method='ls-ir', m=64)
+    frf.compute(signal_1, signal_2, fs, method='ls_ir', m='AIC')
     frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
     frf.plot_impulse_info(title="Example signal")
     

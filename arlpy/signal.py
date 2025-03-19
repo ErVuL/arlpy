@@ -1054,7 +1054,7 @@ class FRF:
 
         Method:
         - welch: use Welch periodogram for PSD estimate, dedicated to stationary signals
-        - ls-ir: use least square impulse response method
+        - ls_ir: use least square impulse response method
         - etfe: use ETFE method over the whole signal
         - p_etfe: use Periodic ETFE that compute average signal over segments
 
@@ -1063,7 +1063,7 @@ class FRF:
         - H2: minimizes the effect of noise introduced at the system input
 
         Parameters:
-        - m: length of the impulse response in sample for the ls-ir method
+        - m: length of the impulse response in sample for the ls_ir method
 
         Notes:
         The Transfer Function (FRF) is a complex function that relates the input and output of a linear time-invariant (LTI) system in the frequency domain.
@@ -1132,7 +1132,7 @@ class FRF:
 
         if self.method == 'welch':
             freqs, mag, phase, coh, g = self.compute_welch(x, y, fs)
-        elif self.method == 'ls-ir':
+        elif self.method == 'ls_ir':
             freqs, mag, phase, coh, g = self.compute_lsir(y, x, fs, self.m, len(x))
         elif self.method == 'etfe':
             freqs, mag, phase, coh, g = self.compute_etfe(x, y, fs)
@@ -1296,7 +1296,8 @@ class FRF:
         - x: Input signal array (reference). For time series data, pass None or empty array.
         - y: Output signal array.
         - fs: Sampling frequency of the signals (Hz).
-        - n_freqs: Number of frequency points for non-periodic data (N parameter in MATLAB).
+        - n_freqs: Number of frequency points for non-periodi                    print(aic)
+c data (N parameter in MATLAB).
                   Default is 128.
         - is_periodic: Whether the data is periodic.
         - period: For periodic data, the period in samples. If None, auto-detection is attempted.
@@ -1338,11 +1339,12 @@ class FRF:
         
         return freqs, mag, phase, None, None
     
-    def compute_lsir(self, y, u, fs, m, N):
+    def compute_lsir(self, y, u, fs, m, N, m_max=2048):
         """
-        Finds the impulse response, g via an information matrix/vector method
+        Finds the impulse response, g via an information matrix/vector method.
+        AIC criterion can be used for automatic m definition.
         
-        This code follows the math of Ilvedson MIT MS Thesis
+        This code follows in part the math of Ilvedson MIT MS Thesis
         "Transfer Function Estimation Using Time-Frequency
         Analysis" 1998
         Section 2.2.1
@@ -1353,12 +1355,14 @@ class FRF:
             System output
         u : array-like
             System input
-        m : int
+        m : int or 'AIC'
             y depends on m previous u data points
         N : int
             Will only consider first N data points of y and u (N >= m)
         fs : int
             sample rate in Hz
+        m_max : int
+            maximum m value possible for best AIC research
         
         Returns:
         --------
@@ -1369,52 +1373,130 @@ class FRF:
         g : ndarray
             Impulse response estimate
         """
-        # Make sure inputs are numpy arrays
+        
         y = _np.array(y)
         u = _np.array(u)
+        self.m = m
         
-        u_temp = u[:N]
-        phiuu = _np.zeros(m)
-        phiuy = _np.zeros(m)
+        if m == 'AIC':
+            
+            # Determine m using AIC
+            m_max = min(m_max, N - 1)
+            best_aic = _np.inf
+            best_m = 1
+            best_g = None
+            aic_cnt = 0
+            
+            for m_candidate in range(1, m_max + 1):
+                try:
+                    # Compute information matrix and vector for current m_candidate
+                    u_temp = u[:N].copy()
+                    phiuu = _np.zeros(m_candidate)
+                    phiuy = _np.zeros(m_candidate)
+                    
+                    for i in range(m_candidate):
+                        phiuu[i] = _np.dot(u[:N], u_temp)
+                        phiuy[i] = _np.dot(y[:N], u_temp)
+                        u_temp = _np.concatenate(([u_temp[-1]], u_temp[:-1]))  # Right shift
+                    
+                    A = toeplitz(phiuu)
+                    u_flipped = _np.flip(u[:N]).copy()
+                    W = _np.zeros((m_candidate - 1, m_candidate))
+                    
+                    for i in range(m_candidate - 1):
+                        u_flipped = _np.concatenate(([u_flipped[-1]], u_flipped[:-1]))
+                        W[i, :] = u_flipped[:m_candidate]
+                    
+                    Minfo = A - _np.dot(W.T, W)
+                    Vinfo = phiuy - _np.dot(W.T, y[:m_candidate - 1])
+                    
+                    g = _np.linalg.solve(Minfo, Vinfo)
+                    
+                    # Compute predicted output and residuals
+                    y_hat = _np.convolve(u[:N], g, mode='full')[:N]
+                    residuals = y[:N] - y_hat
+                    sse = _np.sum(residuals ** 2)
+                    
+                    if sse < 1e-9:
+                        continue  # Avoid division by zero in log
+                    
+                    aic = 2 * m_candidate + N * _np.log(sse/N)
+                                        
+                    if aic < best_aic:
+                        best_aic = aic
+                        best_m = m_candidate
+                        best_g = g
+                    else:
+                        aic_cnt += 1
+                        
+                    if aic_cnt >= 10:
+                        # Avoid useless computation
+                        break
+                
+                except _np.linalg.LinAlgError:
+                    continue  # Skip singular matrices
+            
+            m = best_m
+            self.m = best_m
+            
+            # Recompute Minfo and Vinfo for the best m to store in self
+            u_temp = u[:N].copy()
+            phiuu = _np.zeros(m)
+            phiuy = _np.zeros(m)
+            
+            for i in range(m):
+                phiuu[i] = _np.dot(u[:N], u_temp)
+                phiuy[i] = _np.dot(y[:N], u_temp)
+                u_temp = _np.concatenate(([u_temp[-1]], u_temp[:-1]))
+            
+            A = toeplitz(phiuu)
+            u_flipped = _np.flip(u[:N]).copy()
+            W = _np.zeros((m - 1, m))
+            
+            for i in range(m - 1):
+                u_flipped = _np.concatenate(([u_flipped[-1]], u_flipped[:-1]))
+                W[i, :] = u_flipped[:m]
+            
+            self.Minfo = A - _np.dot(W.T, W)
+            self.Vinfo = phiuy - _np.dot(W.T, y[:m - 1])
+            g = best_g
         
-        # Calculate U'U and U'y the fast way
-        for i in range(m):
-            phiuu[i] = _np.dot(u[:N], u_temp)
-            phiuy[i] = _np.dot(y[:N], u_temp)
-            u_temp = _np.concatenate(([u_temp[N-1]], u_temp[0:N-1]))
+        else:
+            
+            # Original logic for given m
+            u_temp = u[:N].copy()
+            phiuu = _np.zeros(m)
+            phiuy = _np.zeros(m)
+            
+            for i in range(m):
+                phiuu[i] = _np.dot(u[:N], u_temp)
+                phiuy[i] = _np.dot(y[:N], u_temp)
+                u_temp = _np.concatenate(([u_temp[-1]], u_temp[:-1]))
+            
+            A = toeplitz(phiuu)
+            u_flipped = _np.flip(u[:N]).copy()
+            W = _np.zeros((m - 1, m))
+            
+            for i in range(m - 1):
+                u_flipped = _np.concatenate(([u_flipped[-1]], u_flipped[:-1]))
+                W[i, :] = u_flipped[:m]
+            
+            self.Minfo = A - _np.dot(W.T, W)
+            self.Vinfo = phiuy - _np.dot(W.T, y[:m - 1])
+            g = _np.linalg.solve(self.Minfo, self.Vinfo)
         
-        # Create Toeplitz matrix
-        A = toeplitz(phiuu)
-        
-        # Calculate extra terms
-        u_temp = _np.flip(u[:N])
-        W = _np.zeros((m-1, m))
-        
-        for i in range(m-1):
-            # Shift by one data point
-            u_temp = _np.concatenate(([u_temp[N-1]], u_temp[0:N-1]))
-            W[i, :] = u_temp[0:m]
-        
-        # Information matrix and vector
-        self.Minfo = A - _np.dot(W.T, W)
-        self.Vinfo = phiuy - _np.dot(W.T, y[0:m-1])
-        
-        # Least squares estimation
-        g = _np.linalg.solve(self.Minfo, self.Vinfo)
-        w_imp, h = _sig.freqz(g, worN=int(self.params['nperseg']/2+1))
+        # Frequency response calculation
+        w_imp, h = _sig.freqz(g, worN=int(self.params['nperseg'] / 2 + 1))
         freqs = w_imp * fs / (2 * _np.pi)
-        
-        # Mag and phase
         mag = _np.abs(h)
         phase = _np.angle(h, deg=True)
         
-        # Store computed values
         self.freqs = freqs
         self.tf = h
         self.g = g
         
         return freqs, mag, phase, None, g
-        
+    
     def plot_impulse_info(self, title="", figsize=(12, 8), **kwargs):
         """
         Plot the information matrix (Minfo), information vector (Vinfo), 
@@ -1531,6 +1613,9 @@ class FRF:
             elif self.method == "p_etfe":
                 addstr = f"[{self.method}-{self.params['nperseg']}] "
                 label = addstr.upper() + label
+            elif self.method == "ls_ir":
+                addstr = f"[{self.method}-{self.params['self.m']}] "
+                label = addstr.upper() + label
             else:
                 addstr = f"[{self.method}] "
                 label = addstr.upper() + label
@@ -1590,6 +1675,9 @@ class FRF:
                 label = addstr.upper() + label
             elif self.method == "p_etfe":
                 addstr = f"[{self.method}-{self.params['nperseg']}] "
+                label = addstr.upper() + label
+            elif self.method == "ls_ir":
+                addstr = f"[{self.method}-{self.m}] "
                 label = addstr.upper() + label
             else:
                 addstr = f"[{self.method}] "
