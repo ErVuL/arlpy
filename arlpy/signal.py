@@ -1429,7 +1429,7 @@ c data (N parameter in MATLAB).
                     else:
                         aic_cnt += 1
                         
-                    if aic_cnt >= 10:
+                    if aic_cnt >= 100:
                         # Avoid useless computation
                         break
                 
