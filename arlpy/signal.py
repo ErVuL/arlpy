@@ -1421,7 +1421,8 @@ class FRF:
                     sse = _np.sum(residuals ** 2)
                     
                     if sse < 1e-9:
-                        continue  # Avoid division by zero in log
+                        # Avoid division by zero in log
+                        continue
                     
                     aic = 2 * m_candidate + N * _np.log(sse/N)
                                         
@@ -1429,6 +1430,7 @@ class FRF:
                         best_aic = aic
                         best_m = m_candidate
                         best_g = g
+                        aic_cnt = 0
                     else:
                         aic_cnt += 1
                         
@@ -1437,7 +1439,8 @@ class FRF:
                         break
                 
                 except _np.linalg.LinAlgError:
-                    continue  # Skip singular matrices
+                    # Skip singular matrices
+                    continue
             
             m = best_m
             self.m = best_m
@@ -1617,7 +1620,7 @@ class FRF:
                 addstr = f"[{self.method}-{self.params['nperseg']}] "
                 label = addstr.upper() + label
             elif self.method == "ls_ir":
-                addstr = f"[{self.method}-{self.params['self.m']}] "
+                addstr = f"[{self.method}-{self.m}] "
                 label = addstr.upper() + label
             else:
                 addstr = f"[{self.method}] "
