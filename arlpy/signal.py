@@ -954,6 +954,34 @@ class SEL:
         ax.set_axisbelow(True)
         return fig, ax
 
+def shift2maxCor(x, y):
+    """
+    Shifts two signals `x` and `y` based on the maximum cross-correlation.
+
+    Parameters:
+    - x (numpy array): First signal to be shifted.
+    - y (numpy array): Second signal to be shifted.
+
+    Returns:
+    - tuple: The shifted signals `x` and `y` as numpy arrays.
+    
+    This function computes the cross-correlation between the signals `x` and `y`, 
+    extracts the lag that maximizes the correlation, and shifts one of the signals accordingly.
+    """
+
+    correlation = _sig.correlate(x, y, mode="full")
+    lags = _sig.correlation_lags(x.size, y.size, mode="full")
+    lag = lags[_np.argmax(correlation)]
+    
+    if lag < 0:
+        y = y[-lag:]
+        x = x[:lag]
+    else:
+        x = x[lag:]
+        y = y[:-lag]
+    
+    return x, y
+
 class PSD:
 
     def __init__(self, ref=1e-6, **kwargs):
@@ -1142,45 +1170,6 @@ class FRF:
             freqs, mag, phase, coh, g = self.compute_periodic_etfe(x, y, fs)
 
         return freqs, mag, phase, coh, g
-
-    def shift2maxCor(x, y, idx_min, idx_max):
-        """
-        Shifts two signals `x` and `y` based on the maximum cross-correlation between their 
-        sections defined by `idx_min` and `idx_max`.
-    
-        Parameters:
-        - x (numpy array): First signal to be shifted.
-        - y (numpy array): Second signal to be shifted.
-        - idx_min (int): The starting index of the section to be used for correlation.
-        - idx_max (int): The ending index of the section to be used for correlation.
-    
-        Returns:
-        - tuple: The shifted signals `x` and `y` as numpy arrays.
-        
-        This function computes the cross-correlation between slices of the signals `x` and `y`, 
-        extracts the lag that maximizes the correlation, and shifts one of the signals accordingly.
-        """
-        
-        # Extract the section of x and y defined by the indices idx_min and idx_max
-        x1 = x[idx_min:idx_max]
-        y1 = y[idx_min:idx_max]
-        
-        # Calculate the cross-correlation between the two signals in the specified range
-        correlation = _sig.correlate(x1, y1, mode="full")
-        
-        # Calculate the lags associated with the correlation values
-        lags = _sig.correlation_lags(x1.size, y1.size, mode="full")
-        
-        # Find the lag that gives the maximum correlation
-        lag = lags[_np.argmax(correlation)]
-        
-        # Shift y or x depending on the sign of the lag
-        if lag < 0:
-            y = y[abs(lag):]  # Shift y forward if lag is negative
-        else:
-            x = x[lag:]  # Shift x forward if lag is positive
-        
-        return x, y  # Return the shifted signals
     
     def compute_welch(self, x, y, fs):
         """
