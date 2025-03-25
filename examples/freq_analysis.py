@@ -29,15 +29,16 @@ if __name__ == "__main__":
     # Add noise to the chirp signal
     signal_1 += _np.random.normal(0, 100, int(fs * duration))
     
-    # Process signal_2 (e.g., apply a lowpass filter and add noise)
-    def lowpass(signal, cutoff, fs, order=5):
+    # Process signal_2 with more magnitude & phase variation
+    def chebyshev_lowpass(signal, cutoff, fs, order=8, rp=0.5):
         nyquist = 0.5 * fs
         normal_cutoff = cutoff / nyquist
-        b, a = _sig.butter(order, normal_cutoff, btype='low', analog=False)
+        b, a = _sig.cheby1(order, rp, normal_cutoff, btype='low', analog=False)
         filtered_signal = _sig.lfilter(b, a, signal)
         return filtered_signal
     
-    signal_2 = lowpass(signal_1 * 10, fs/10, fs) + _np.random.normal(0, 50, int(fs * duration))
+    # Apply the modified filter
+    signal_2 = chebyshev_lowpass(signal_1 * 10, fs/10, fs) + _np.random.normal(0, 50, int(fs * duration))
     
     # SEL
     sel = usp.SEL()
@@ -55,21 +56,25 @@ if __name__ == "__main__":
     # FRF    
     frf = usp.FRF()
     frf.compute(signal_1, signal_2, fs, method='etfe')
-    fig, ax = frf.plot(title="Example signal", label="Butterworth LP")
+    fig, ax = frf.plot(title="Example signal", label="Chebyshev LP")
     
     frf.compute(signal_1, signal_2, fs, method='welch', estimator='H1', nperseg=2048)
-    frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
-    fig_coh, ax_coh = frf.plot_coh(label="Butterworth LP")
+    frf.add2plot(ax, label="Chebyshev LP", linestyle='dashed')
+    fig_coh, ax_coh = frf.plot_coh(label="Chebyshev LP")
     
     frf.compute(signal_1, signal_2, fs, method='p_etfe', nperseg=2048)
-    frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
+    frf.add2plot(ax, label="Chebyshev LP", linestyle='dashed')
         
     frf.compute(signal_1, signal_2, fs, method='welch', estimator='H2')
-    frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
-    frf.add2plot_coh(ax_coh, label="Butterworth LP", linestyle='dashed')
+    frf.add2plot(ax, label="Chebyshev LP", linestyle='dashed')
+    frf.add2plot_coh(ax_coh, label="Chebyshev LP", linestyle='dashed')
     
     frf.compute(signal_1, signal_2, fs, method='ls_ir', m='AIC', m_max=1024, stop_count=50)
-    frf.add2plot(ax, label="Butterworth LP", linestyle='dashed')
+    frf.add2plot(ax, label="Chebyshev LP", linestyle='dashed')
+    frf.plot_impulse_info(title="Example signal")
+    
+    frf.compute(signal_1, signal_2, fs, method='ls_ir', m='FPE', m_max=1024, stop_count=50)
+    frf.add2plot(ax, label="Chebyshev LP", linestyle='dashed')
     frf.plot_impulse_info(title="Example signal")
     
     # PSDPDF

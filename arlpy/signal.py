@@ -1332,12 +1332,17 @@ class FRF:
     def compute_lsir(self, y, u, fs, m, N, m_max=4096, stop_count=50):
         """
         Finds the impulse response, g via an information matrix/vector method.
-        AIC criterion can be used for automatic m definition.
+        AIC or FPE criterion can be used for automatic m definition.
         
         This code follows in part the math of Ilvedson MIT MS Thesis
         "Transfer Function Estimation Using Time-Frequency
         Analysis" 1998
         Section 2.2.1
+        
+        The AIC and FPE criteria are from 
+        "Finite Sample FPE and AIC Criteria for Autoregressive Model
+        Order Selection Using Same-Realization Predictions""
+        Shapoor Khorshidi and Mahmood Karimi, 2009
         
         Parameters:
         -----------
@@ -1345,7 +1350,7 @@ class FRF:
             System output
         u : array-like
             System input
-        m : int or 'AIC'
+        m : int or 'AIC', 'FPE'
             y depends on m previous u data points
         N : int
             Will only consider first N data points of y and u (N >= m)
@@ -1354,7 +1359,7 @@ class FRF:
         m_max : int
             Maximum m value possible for best AIC research
         stop_count : int
-            Stop best AIC research after stop_count steps with no improvements
+            Stop best AIC/FPE research after stop_count steps with no improvements
         
         Returns:
         --------
@@ -1407,16 +1412,17 @@ class FRF:
                     # Compute predicted output and residuals
                     y_hat = _np.convolve(u[:N], g, mode='full')[:N]
                     residuals = y[:N] - y_hat
-                    sse = _np.sum(residuals ** 2)
+                    sse = _np.sum(residuals ** 2)/(N-m_candidate)
                     
                     if sse < 1e-9:
                         # Avoid division by zero in log
                         continue
                     
-                    aic = 2 * m_candidate + N * _np.log(sse/N)
-                                        
-                    if aic < best_aic:
-                        best_aic = aic
+                    aicf = (1+m_candidate/(N-m_candidate)) / (1-m_candidate/(N-m_candidate)) + _np.log(sse)
+                    # aic = 2*m_candidate/N + _np.log(sse)
+                    
+                    if aicf < best_aic:
+                        best_aic = aicf
                         best_m = m_candidate
                         best_g = g
                         aic_cnt = 0
@@ -1455,7 +1461,94 @@ class FRF:
             self.Minfo = A - _np.dot(W.T, W)
             self.Vinfo = phiuy - _np.dot(W.T, y[:m - 1])
             g = best_g
-        
+            
+        elif m == 'FPE':
+            
+            # Determine m using FPE
+            m_max = min(m_max, N - 1)
+            best_fpe = _np.inf
+            best_m = 1
+            best_g = None
+            fpe_cnt = 0
+            
+            for m_candidate in range(1, m_max + 1):
+                try:
+                    # Compute information matrix and vector for current m_candidate
+                    u_temp = u[:N].copy()
+                    phiuu = _np.zeros(m_candidate)
+                    phiuy = _np.zeros(m_candidate)
+                    
+                    for i in range(m_candidate):
+                        phiuu[i] = _np.dot(u[:N], u_temp)
+                        phiuy[i] = _np.dot(y[:N], u_temp)
+                        u_temp = _np.concatenate(([u_temp[-1]], u_temp[:-1]))  # Right shift
+                    
+                    A = toeplitz(phiuu)
+                    u_flipped = _np.flip(u[:N]).copy()
+                    W = _np.zeros((m_candidate - 1, m_candidate))
+                    
+                    for i in range(m_candidate - 1):
+                        u_flipped = _np.concatenate(([u_flipped[-1]], u_flipped[:-1]))
+                        W[i, :] = u_flipped[:m_candidate]
+                    
+                    Minfo = A - _np.dot(W.T, W)
+                    Vinfo = phiuy - _np.dot(W.T, y[:m_candidate - 1])
+                    
+                    g = _np.linalg.solve(Minfo, Vinfo)
+                    
+                    # Compute predicted output and residuals
+                    y_hat = _np.convolve(u[:N], g, mode='full')[:N]
+                    residuals = y[:N] - y_hat
+                    sse = _np.sum(residuals ** 2)/(N-m_candidate)
+                    
+                    if sse < 1e-9:
+                        # Avoid division by zero in log
+                        continue
+                    
+                    fpef = sse * (1+m_candidate/(N-m_candidate)) / (1-m_candidate/(N-m_candidate))
+                    # fpe = sse * (1+m_candidate/N) / (1-m_candidate/N)
+                                        
+                    if fpef < best_fpe:
+                        best_fpe = fpef
+                        best_m = m_candidate
+                        best_g = g
+                        fpe_cnt = 0
+                    else:
+                        fpe_cnt += 1
+                        
+                    if fpe_cnt >= stop_count:
+                        # Avoid useless computation
+                        break
+                
+                except _np.linalg.LinAlgError:
+                    # Skip singular matrices
+                    continue
+            
+            m = best_m
+            self.m = best_m
+            
+            # Recompute Minfo and Vinfo for the best m to store in self
+            u_temp = u[:N].copy()
+            phiuu = _np.zeros(m)
+            phiuy = _np.zeros(m)
+            
+            for i in range(m):
+                phiuu[i] = _np.dot(u[:N], u_temp)
+                phiuy[i] = _np.dot(y[:N], u_temp)
+                u_temp = _np.concatenate(([u_temp[-1]], u_temp[:-1]))
+            
+            A = toeplitz(phiuu)
+            u_flipped = _np.flip(u[:N]).copy()
+            W = _np.zeros((m - 1, m))
+            
+            for i in range(m - 1):
+                u_flipped = _np.concatenate(([u_flipped[-1]], u_flipped[:-1]))
+                W[i, :] = u_flipped[:m]
+            
+            self.Minfo = A - _np.dot(W.T, W)
+            self.Vinfo = phiuy - _np.dot(W.T, y[:m - 1])
+            g = best_g
+                                
         else:
             
             # Original logic for given m
