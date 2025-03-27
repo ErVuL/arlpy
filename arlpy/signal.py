@@ -1422,12 +1422,14 @@ class FRF:
     
                     if sse < 1e-9:
                         continue  # Avoid log issues
+
+                    if m == 'AIC': # AICF
+                        # AIC: score = _np.log(sse) + 2*m_candidate/N
+                        score = _np.log(sse) + (1 + m_candidate/ (N-m_candidate)) / (1 - m_candidate/(N-m_candidate))
     
-                    if m == 'AIC':
-                        score = _np.log(sse) + 2*m_candidate/N
-    
-                    elif m == 'FPE':
-                        score = sse * (1 + m_candidate/N) / (1 - m_candidate/N)
+                    elif m == 'FPE': # FPEF
+                        # FPE: score = sse * (1 + m_candidate/N) / (1 - m_candidate/N)
+                        score = sse * (1 + m_candidate/ (N-m_candidate)) / (1 - m_candidate/(N-m_candidate))
     
                     elif m == 'CP': # Mallows' Cp
                         score = sse * (N - m_candidate) / sigma2 - N + 2*(m_candidate+1)
