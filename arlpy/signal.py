@@ -1082,7 +1082,7 @@ class FRF:
 
         Method:
         - welch: use Welch periodogram for PSD estimate, dedicated to stationary signals
-        - ls_ir: use least square impulse response method
+        - ls_fir: use least square impulse response method
         - etfe: use ETFE method over the whole signal
         - p_etfe: use Periodic ETFE that compute average signal over segments
 
@@ -1091,7 +1091,7 @@ class FRF:
         - H2: minimizes the effect of noise introduced at the system input
 
         Parameters:
-        - m: length of the impulse response in sample for the ls_ir method
+        - m: length of the impulse response in sample for the ls_fir method
 
         Notes:
         The Transfer Function (FRF) is a complex function that relates the input and output of a linear time-invariant (LTI) system in the frequency domain.
@@ -1119,7 +1119,7 @@ class FRF:
         self.m = m
         self.g = 0 # Impulse response
 
-    def compute(self, x, y, fs, m=None, method=None, estimator=None, nperseg=None, noverlap=None, wavelet=None, scales=None, m_max=4096, stop_count=50):
+    def compute(self, x, y, fs, m=None, method=None, estimator=None, nperseg=None, noverlap=None, wavelet=None, scales=None, m_max=4096, stop_count=None):
         """
         Compute the Frequency Response Function (FRF).
         
@@ -1159,11 +1159,14 @@ class FRF:
             
         if m is not None:
             self.m = m
+            
+        if stop_count is None:
+            self.stop_count = m_max
 
         if self.method == 'welch':
             freqs, mag, phase, coh, g = self.compute_welch(x, y, fs)
-        elif self.method == 'ls_ir':
-            freqs, mag, phase, coh, g = self.compute_lsir(y, x, fs, self.m, len(x), m_max=m_max, stop_count=stop_count)
+        elif self.method == 'ls_fir':
+            freqs, mag, phase, coh, g = self.compute_lsfir(y, x, fs, self.m, len(x), m_max=m_max, stop_count=stop_count)
         elif self.method == 'etfe':
             freqs, mag, phase, coh, g = self.compute_etfe(x, y, fs)
         elif self.method == 'p_etfe':
@@ -1329,20 +1332,10 @@ class FRF:
         
         return freqs, mag, phase, None, None
     
-    def compute_lsir(self, y, u, fs, m, N, m_max=4096, stop_count=50):
+    def compute_lsfir(self, y, u, fs, m, N, m_max=4096, stop_count=50):
         """
-        Finds the impulse response, g via an information matrix/vector method.
-        AIC or FPE criterion can be used for automatic m definition.
-        
-        This code follows in part the math of Ilvedson MIT MS Thesis
-        "Transfer Function Estimation Using Time-Frequency
-        Analysis" 1998
-        Section 2.2.1
-        
-        The AIC and FPE criteria are from 
-        "Finite Sample FPE and AIC Criteria for Autoregressive Model
-        Order Selection Using Same-Realization Predictions""
-        Shapoor Khorshidi and Mahmood Karimi, 2009
+        Compute the finite impulse response estimation using an information matrix/vector method.
+        Supports model order selection using AIC, BIC, FPE, or Mallows' Cp.
         
         Parameters:
         -----------
@@ -1350,241 +1343,172 @@ class FRF:
             System output
         u : array-like
             System input
-        m : int or 'AIC', 'FPE'
-            y depends on m previous u data points
+        m : int or 'AIC', 'BIC', 'FPE', 'CP'
+            Model order or selection criterion
         N : int
-            Will only consider first N data points of y and u (N >= m)
+            Number of data points to consider (N >= m)
         fs : int
-            Sample rate in Hz
+            Sampling rate in Hz
         m_max : int
-            Maximum m value possible for best AIC research
+            Maximum model order for automatic selection
         stop_count : int
-            Stop best AIC/FPE research after stop_count steps with no improvements
+            Stop search after stop_count consecutive steps with no improvement
+        criterion : str
+            Model selection criterion: 'AIC', 'BIC', 'FPE', or 'CP' (Mallows' criterion)
         
         Returns:
         --------
-        Minfo : ndarray
-            Information matrix
-        Vinfo : ndarray
-            Information vector
-        g : ndarray
-            Impulse response estimate
+        freqs, mag, phase, None, g : tuple
+            Frequency response and impulse response estimate.
         """
         
         y = _np.array(y)
         u = _np.array(u)
         self.m = m
         
-        if m == 'AIC':
+        if m in ['AIC', 'FPE', 'CP', 'BIC']:
             
-            # Determine m using AIC
+            # Model order selection
             m_max = min(m_max, N - 1)
-            best_aic = _np.inf
+            best_score = _np.inf
             best_m = 1
             best_g = None
-            aic_cnt = 0
+            count = 0
             
+            if m == 'CP':
+                # Estimation of noise variance (for Cp)
+                full_model_m = min(m_max, N - 1)
+                u_temp = u[:N].copy()
+                phiuu_full = _np.zeros(full_model_m)
+                phiuy_full = _np.zeros(full_model_m)
+                
+                for i in range(full_model_m):
+                    phiuu_full[i] = _np.dot(u[:N], u_temp)
+                    phiuy_full[i] = _np.dot(y[:N], u_temp)
+                    u_temp = _np.concatenate(([u_temp[-1]], u_temp[:-1]))
+        
+                sigma2 = _np.sum((y[:N] - _np.mean(y[:N])) ** 2) / (N - full_model_m)
+    
             for m_candidate in range(1, m_max + 1):
+                
                 try:
-                    # Compute information matrix and vector for current m_candidate
+                    # Compute information matrix and vector
                     u_temp = u[:N].copy()
                     phiuu = _np.zeros(m_candidate)
                     phiuy = _np.zeros(m_candidate)
-                    
+    
                     for i in range(m_candidate):
                         phiuu[i] = _np.dot(u[:N], u_temp)
                         phiuy[i] = _np.dot(y[:N], u_temp)
-                        u_temp = _np.concatenate(([u_temp[-1]], u_temp[:-1]))  # Right shift
+                        u_temp = _np.concatenate(([u_temp[-1]], u_temp[:-1]))  # Shift right
                     
                     A = toeplitz(phiuu)
                     u_flipped = _np.flip(u[:N]).copy()
                     W = _np.zeros((m_candidate - 1, m_candidate))
-                    
+    
                     for i in range(m_candidate - 1):
                         u_flipped = _np.concatenate(([u_flipped[-1]], u_flipped[:-1]))
                         W[i, :] = u_flipped[:m_candidate]
-                    
+    
                     Minfo = A - _np.dot(W.T, W)
                     Vinfo = phiuy - _np.dot(W.T, y[:m_candidate - 1])
                     
                     g = _np.linalg.solve(Minfo, Vinfo)
-                    
-                    # Compute predicted output and residuals
+    
+                    # Compute residuals
                     y_hat = _np.convolve(u[:N], g, mode='full')[:N]
                     residuals = y[:N] - y_hat
-                    sse = _np.sum(residuals ** 2)/(N-m_candidate)
-                    
+                    sse = _np.sum(residuals ** 2) / (N - m_candidate)
+    
                     if sse < 1e-9:
-                        # Avoid division by zero in log
-                        continue
-                    
-                    aicf = (1+m_candidate/(N-m_candidate)) / (1-m_candidate/(N-m_candidate)) + _np.log(sse)
-                    # aic = 2*m_candidate/N + _np.log(sse)
-                    
-                    if aicf < best_aic:
-                        best_aic = aicf
+                        continue  # Avoid log issues
+    
+                    if m == 'AIC':
+                        score = _np.log(sse) + 2*m_candidate/N
+    
+                    elif m == 'FPE':
+                        score = sse * (1 + m_candidate/N) / (1 - m_candidate/N)
+    
+                    elif m == 'CP': # Mallows' Cp
+                        score = sse * (N - m_candidate) / sigma2 - N + 2*(m_candidate+1)
+                        
+                    elif m == 'BIC': # Bayesian Information Criterion
+                        score = _np.log(sse) + (m_candidate * _np.log(N)) / N  
+
+                    if score < best_score:
+                        best_score = score
                         best_m = m_candidate
                         best_g = g
-                        aic_cnt = 0
+                        count = 0
                     else:
-                        aic_cnt += 1
-                        
-                    if aic_cnt >= stop_count:
-                        # Avoid useless computation
-                        break
+                        count += 1
+                    
+                    if count >= stop_count:
+                        break  # Stop search early
                 
                 except _np.linalg.LinAlgError:
-                    # Skip singular matrices
-                    continue
+                    continue  # Skip singular matrices
             
             m = best_m
             self.m = best_m
-            
-            # Recompute Minfo and Vinfo for the best m to store in self
+    
+            # Recompute Minfo and Vinfo for the best m
             u_temp = u[:N].copy()
             phiuu = _np.zeros(m)
             phiuy = _np.zeros(m)
-            
+    
             for i in range(m):
                 phiuu[i] = _np.dot(u[:N], u_temp)
                 phiuy[i] = _np.dot(y[:N], u_temp)
                 u_temp = _np.concatenate(([u_temp[-1]], u_temp[:-1]))
-            
+    
             A = toeplitz(phiuu)
             u_flipped = _np.flip(u[:N]).copy()
             W = _np.zeros((m - 1, m))
-            
+    
             for i in range(m - 1):
                 u_flipped = _np.concatenate(([u_flipped[-1]], u_flipped[:-1]))
                 W[i, :] = u_flipped[:m]
-            
+    
             self.Minfo = A - _np.dot(W.T, W)
             self.Vinfo = phiuy - _np.dot(W.T, y[:m - 1])
             g = best_g
-            
-        elif m == 'FPE':
-            
-            # Determine m using FPE
-            m_max = min(m_max, N - 1)
-            best_fpe = _np.inf
-            best_m = 1
-            best_g = None
-            fpe_cnt = 0
-            
-            for m_candidate in range(1, m_max + 1):
-                try:
-                    # Compute information matrix and vector for current m_candidate
-                    u_temp = u[:N].copy()
-                    phiuu = _np.zeros(m_candidate)
-                    phiuy = _np.zeros(m_candidate)
-                    
-                    for i in range(m_candidate):
-                        phiuu[i] = _np.dot(u[:N], u_temp)
-                        phiuy[i] = _np.dot(y[:N], u_temp)
-                        u_temp = _np.concatenate(([u_temp[-1]], u_temp[:-1]))  # Right shift
-                    
-                    A = toeplitz(phiuu)
-                    u_flipped = _np.flip(u[:N]).copy()
-                    W = _np.zeros((m_candidate - 1, m_candidate))
-                    
-                    for i in range(m_candidate - 1):
-                        u_flipped = _np.concatenate(([u_flipped[-1]], u_flipped[:-1]))
-                        W[i, :] = u_flipped[:m_candidate]
-                    
-                    Minfo = A - _np.dot(W.T, W)
-                    Vinfo = phiuy - _np.dot(W.T, y[:m_candidate - 1])
-                    
-                    g = _np.linalg.solve(Minfo, Vinfo)
-                    
-                    # Compute predicted output and residuals
-                    y_hat = _np.convolve(u[:N], g, mode='full')[:N]
-                    residuals = y[:N] - y_hat
-                    sse = _np.sum(residuals ** 2)/(N-m_candidate)
-                    
-                    if sse < 1e-9:
-                        # Avoid division by zero in log
-                        continue
-                    
-                    fpef = sse * (1+m_candidate/(N-m_candidate)) / (1-m_candidate/(N-m_candidate))
-                    # fpe = sse * (1+m_candidate/N) / (1-m_candidate/N)
-                                        
-                    if fpef < best_fpe:
-                        best_fpe = fpef
-                        best_m = m_candidate
-                        best_g = g
-                        fpe_cnt = 0
-                    else:
-                        fpe_cnt += 1
-                        
-                    if fpe_cnt >= stop_count:
-                        # Avoid useless computation
-                        break
-                
-                except _np.linalg.LinAlgError:
-                    # Skip singular matrices
-                    continue
-            
-            m = best_m
-            self.m = best_m
-            
-            # Recompute Minfo and Vinfo for the best m to store in self
-            u_temp = u[:N].copy()
-            phiuu = _np.zeros(m)
-            phiuy = _np.zeros(m)
-            
-            for i in range(m):
-                phiuu[i] = _np.dot(u[:N], u_temp)
-                phiuy[i] = _np.dot(y[:N], u_temp)
-                u_temp = _np.concatenate(([u_temp[-1]], u_temp[:-1]))
-            
-            A = toeplitz(phiuu)
-            u_flipped = _np.flip(u[:N]).copy()
-            W = _np.zeros((m - 1, m))
-            
-            for i in range(m - 1):
-                u_flipped = _np.concatenate(([u_flipped[-1]], u_flipped[:-1]))
-                W[i, :] = u_flipped[:m]
-            
-            self.Minfo = A - _np.dot(W.T, W)
-            self.Vinfo = phiuy - _np.dot(W.T, y[:m - 1])
-            g = best_g
-                                
+    
         else:
-            
-            # Original logic for given m
+            # Given m, compute directly
             u_temp = u[:N].copy()
             phiuu = _np.zeros(m)
             phiuy = _np.zeros(m)
-            
+    
             for i in range(m):
                 phiuu[i] = _np.dot(u[:N], u_temp)
                 phiuy[i] = _np.dot(y[:N], u_temp)
                 u_temp = _np.concatenate(([u_temp[-1]], u_temp[:-1]))
-            
+    
             A = toeplitz(phiuu)
             u_flipped = _np.flip(u[:N]).copy()
             W = _np.zeros((m - 1, m))
-            
+    
             for i in range(m - 1):
                 u_flipped = _np.concatenate(([u_flipped[-1]], u_flipped[:-1]))
                 W[i, :] = u_flipped[:m]
-            
+    
             self.Minfo = A - _np.dot(W.T, W)
             self.Vinfo = phiuy - _np.dot(W.T, y[:m - 1])
             g = _np.linalg.solve(self.Minfo, self.Vinfo)
-        
-        # Frequency response calculation
+    
+        # Frequency response
         w_imp, h = _sig.freqz(g, worN=int(self.params['nperseg'] / 2 + 1))
         freqs = w_imp * fs / (2 * _np.pi)
         mag = _np.abs(h)
         phase = _np.angle(h, deg=True)
-        
+    
         self.freqs = freqs
         self.tf = h
         self.g = g
-        
-        return freqs, mag, phase, None, g
     
+        return freqs, mag, phase, None, g    
+
     def plot_impulse_info(self, title="", figsize=(12, 8), **kwargs):
         """
         Plot the information matrix (Minfo), information vector (Vinfo), 
@@ -1701,7 +1625,7 @@ class FRF:
             elif self.method == "p_etfe":
                 addstr = f"[{self.method}-{self.params['nperseg']}] "
                 label = addstr.upper() + label
-            elif self.method == "ls_ir":
+            elif self.method == "ls_fir":
                 addstr = f"[{self.method}-{self.m}] "
                 label = addstr.upper() + label
             else:
@@ -1764,7 +1688,7 @@ class FRF:
             elif self.method == "p_etfe":
                 addstr = f"[{self.method}-{self.params['nperseg']}] "
                 label = addstr.upper() + label
-            elif self.method == "ls_ir":
+            elif self.method == "ls_fir":
                 addstr = f"[{self.method}-{self.m}] "
                 label = addstr.upper() + label
             else:

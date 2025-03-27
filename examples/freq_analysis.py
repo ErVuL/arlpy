@@ -5,10 +5,6 @@ import matplotlib.pyplot as plt
 from scipy.signal import butter, lfilter
 import scipy.signal as _sig
 
-def lowpass(signal, cutoff, fs, order=4):
-    b, a = butter(order, cutoff / (0.5 * fs), btype='low')
-    return lfilter(b, a, signal)  # Causal filtering, introducing phase delay
-
 # Example usage
 if __name__ == "__main__":
     
@@ -69,11 +65,16 @@ if __name__ == "__main__":
     frf.add2plot(ax, label="Chebyshev LP", linestyle='dashed')
     frf.add2plot_coh(ax_coh, label="Chebyshev LP", linestyle='dashed')
     
-    frf.compute(signal_1, signal_2, fs, method='ls_ir', m='AIC', m_max=1024, stop_count=50)
+    frf.compute(signal_1, signal_2, fs, method='ls_fir', m='AIC', m_max=1024, stop_count=50)
     frf.add2plot(ax, label="Chebyshev LP", linestyle='dashed')
-    frf.plot_impulse_info(title="Example signal")
     
-    frf.compute(signal_1, signal_2, fs, method='ls_ir', m='FPE', m_max=1024, stop_count=50)
+    frf.compute(signal_1, signal_2, fs, method='ls_fir', m='BIC', m_max=1024, stop_count=50)
+    frf.add2plot(ax, label="Chebyshev LP", linestyle='dashed')
+    
+    frf.compute(signal_1, signal_2, fs, method='ls_fir', m='CP', m_max=1024, stop_count=50)
+    frf.add2plot(ax, label="Chebyshev LP", linestyle='dashed')
+    
+    frf.compute(signal_1, signal_2, fs, method='ls_fir', m='FPE', m_max=1024, stop_count=50)
     frf.add2plot(ax, label="Chebyshev LP", linestyle='dashed')
     frf.plot_impulse_info(title="Example signal")
     
