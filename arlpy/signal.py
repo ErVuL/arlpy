@@ -1180,38 +1180,35 @@ class FRF:
                 
             # Compute FRF for this measurement
             if self.method == 'welch':
-                freqs_i, tf_i, coh_i, g_i = self.compute_welch(x_i, y_i, fs)
+                freqs_i, tf_i, coh_i = self.compute_welch(x_i, y_i, fs)
+                coh_list.append(coh_i)
             elif self.method == 'ls_fir':
-                freqs_i, tf_i, coh_i, g_i = self.compute_lsfir(y_i, x_i, fs, self.m, len(x_i), m_max=m_max, stop_count=stop_count)
+                freqs_i, tf_i, g_i = self.compute_lsfir(y_i, x_i, fs, self.m, len(x_i), m_max=m_max, stop_count=stop_count)
+                m_list.append(len(g_i))
             elif self.method == 'etfe':
-                freqs_i, tf_i, coh_i, g_i = self.compute_etfe(x_i, y_i, fs)
+                freqs_i, tf_i = self.compute_etfe(x_i, y_i, fs)
             elif self.method == 'p_etfe':
-                freqs_i, tf_i, coh_i, g_i = self.compute_periodic_etfe(x_i, y_i, fs)
+                freqs_i, tf_i = self.compute_periodic_etfe(x_i, y_i, fs)
             else:
                 raise ValueError(f"Unsupported method: {self.method}")
     
             # Append results
-            freqs_list.append(freqs_i)
             tf_list.append(tf_i)
-            coh_list.append(coh_i)
-            if g_i is not None:
-                m_list.append(len(g_i))
-            else:
-                m_list = [0]
             
         # Average results
         freqs = freqs_i
         tf    = _np.mean(tf_list, axis=0)
-        coh   = _np.mean(coh_list, axis=0) if all(c is not None for c in coh_list) else None
     
         # Update object state
         self.freqs = freqs
         self.tf    = tf
-        self.coh   = coh
-        self.g     = g_i
-        self.m     = int(_np.mean(m_list) if all(mi is not None for mi in m_list) else None)
-
-        return freqs, tf, coh, g_i
+        if self.method == 'welch':
+            self.coh   = _np.mean(coh_list, axis=0) if all(c is not None for c in coh_list) else None
+        if self.method == 'ls_fir':
+            self.g     = g_i # TODO: find a way to get an average value ?
+            self.m     = int(_np.mean(m_list) if all(mi is not None for mi in m_list) else None)
+        
+        return freqs, tf
     
     def compute_welch(self, x, y, fs):
         """
@@ -1245,7 +1242,7 @@ class FRF:
         # Compute coherence
         coh = abs(Pxy)**2 / (Pxx * Pyy)
 
-        return freqs, tf, coh, None
+        return freqs, tf, coh
         
     def compute_periodic_etfe(self, x, y, fs, nperseg=None):
         """
@@ -1301,7 +1298,7 @@ class FRF:
         # Compute transfer function where input has significant energy
         tf = Y / X
         
-        return freqs, tf, None, None
+        return freqs, tf
     
     def compute_etfe(self, x, y, fs):
         """
@@ -1346,7 +1343,7 @@ class FRF:
         # Compute transfer function
         tf = Y / X
                
-        return freqs, tf, None, None
+        return freqs, tf
     
     def compute_lsfir(self, y, u, fs, m, N, m_max=4096, stop_count=50):
         """
@@ -1517,7 +1514,7 @@ class FRF:
         w_imp, h = _sig.freqz(g, worN=int(self.params['nperseg'] / 2 + 1))
         freqs = w_imp * fs / (2 * _np.pi)
     
-        return freqs, h, None, g
+        return freqs, h, g
 
     def plot_impulse_info(self, title="", figsize=(12, 8), **kwargs):
         """
