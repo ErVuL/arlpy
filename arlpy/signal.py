@@ -1170,7 +1170,7 @@ class FRF:
         n_meas = x.shape[0]
     
         # Initialize lists to store results from all measurements
-        m_list, freqs_list, tf_list, coh_list, g_list = [], [], [], [], []
+        m_list, freqs_list, tf_list, coh_list = [], [], [], []
 
         for i in range(n_meas):
             
@@ -1194,27 +1194,24 @@ class FRF:
             freqs_list.append(freqs_i)
             tf_list.append(tf_i)
             coh_list.append(coh_i)
-            g_list.append(g_i)
-            m_list.append(self.m)
-    
-        # Validate consistent frequency bins
-        if not all(_np.array_equal(freqs_list[0], f) for f in freqs_list):
-            raise ValueError("Inconsistent frequency bins across measurements")
-        freqs = freqs_list[0]
-    
+            if g_i is not None:
+                m_list.append(len(g_i))
+            else:
+                m_list = [0]
+            
         # Average results
-        tf     = _np.mean(tf_list, axis=0)  # Complex mean for transfer function
-        coh    = _np.mean(coh_list, axis=0) if all(c is not None for c in coh_list) else None
-        g      = _np.mean(g_list, axis=0) if all(gi is not None for gi in g_list) else None
-        self.m = int(_np.mean(m_list, axis=0) if all(mi is not None for mi in m_list) else None)
+        freqs = freqs_i
+        tf    = _np.mean(tf_list, axis=0)
+        coh   = _np.mean(coh_list, axis=0) if all(c is not None for c in coh_list) else None
     
         # Update object state
         self.freqs = freqs
-        self.tf = tf
-        self.coh = coh
-        self.g = g
-    
-        return freqs, tf, coh, g
+        self.tf    = tf
+        self.coh   = coh
+        self.g     = g_i
+        self.m     = int(_np.mean(m_list) if all(mi is not None for mi in m_list) else None)
+
+        return freqs, tf, coh, g_i
     
     def compute_welch(self, x, y, fs):
         """
@@ -1383,7 +1380,6 @@ class FRF:
         
         y = _np.array(y)
         u = _np.array(u)
-        self.m = m
         
         if m in ['AIC', 'FPE', 'CP', 'BIC']:
             
@@ -1471,7 +1467,6 @@ class FRF:
                     continue  # Skip singular matrices
             
             m = best_m
-            self.m = best_m
     
             # Recompute Minfo and Vinfo for the best m
             u_temp = u[:N].copy()
@@ -1522,7 +1517,7 @@ class FRF:
         w_imp, h = _sig.freqz(g, worN=int(self.params['nperseg'] / 2 + 1))
         freqs = w_imp * fs / (2 * _np.pi)
     
-        return freqs, h, None, g    
+        return freqs, h, None, g
 
     def plot_impulse_info(self, title="", figsize=(12, 8), **kwargs):
         """
