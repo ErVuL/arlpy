@@ -1121,58 +1121,100 @@ class FRF:
 
     def compute(self, x, y, fs, m=None, method=None, estimator=None, nperseg=None, noverlap=None, wavelet=None, scales=None, m_max=4096, stop_count=None):
         """
-        Compute the Frequency Response Function (FRF).
+        Compute the Frequency Response Function (FRF), supporting both 1D and 2D inputs.
+        If inputs are 2D, average results are computed over all measurements.
         
         Parameters:
-        - x: Input signal array (reference).
-        - y: Output signal array.
-        - fs: Sampling frequency of the signals (Hz).
-        - method: Method to use ('welch' or 'tf')
-        - estimator: Estimator to use ('H1', 'H2') (for Welch method)
-        - nperseg: Length of each segment (for Welch method)
-        - noverlap: Number of overlapping points between segments (for Welch method)
-        - m : impulse response length in sample (for tf only)
-        - m_max : Maximum m value possible for best AIC research
-        - stop_count : Stop best AIC research after stop_count steps with no improvements
+        - x: Input signal array (reference) as 1D (single measurement) or 2D (rows = measurements).
+        - y: Output signal array as 1D (single measurement) or 2D (rows = measurements).
+        - fs: Sampling frequency (Hz).
+        - method: Method to use ('welch', 'ls_fir', 'etfe', 'p_etfe').
+        - estimator: Estimator for Welch method ('H1', 'H2').
+        - nperseg: Segment length for Welch.
+        - noverlap: Overlap for Welch.
+        - m: Impulse response length (for TF methods).
+        - m_max: Maximum impulse response length.
+        - stop_count: Stop AIC search after no improvements.
         
         Returns:
-        - freqs: Array of frequencies (Hz).
-        - mag: Magnitude of the transfer function.
-        - phase: Phase of the transfer function (degrees).
-        - coh: Coherence values for Welch method.
-        - g: Impulse response estimate for TF method.
+        - freqs: Frequency array (Hz).
+        - tf: Transfer function (complex-valued).
+        - coh: Coherence (None if any measurement returns None).
+        - g: Impulse response (None if any measurement returns None).
         """
+        # Update parameters
         if method is not None:
             self.method = method
-
         if nperseg is not None:
             self.params['nperseg'] = nperseg
-
         if noverlap is not None:
             self.params['noverlap'] = noverlap
-
         if estimator is not None:
             self.estimator = estimator
-            
         if scales is not None:
             self.scales = scales
-            
         if m is not None:
             self.m = m
-            
         if stop_count is None:
             self.stop_count = m_max
+    
+        # Convert inputs to 2D arrays (rows = measurements)
+        x = _np.asarray(x)
+        y = _np.asarray(y)
+        if x.ndim == 1:
+            x = x.reshape(1, -1)
+        if y.ndim == 1:
+            y = y.reshape(1, -1)
+        if x.shape[0] != y.shape[0]:
+            raise ValueError("x and y must have the same number of measurements")
+        n_meas = x.shape[0]
+    
+        # Initialize lists to store results from all measurements
+        m_list, freqs_list, tf_list, coh_list, g_list = [], [], [], [], []
 
-        if self.method == 'welch':
-            freqs, mag, phase, coh, g = self.compute_welch(x, y, fs)
-        elif self.method == 'ls_fir':
-            freqs, mag, phase, coh, g = self.compute_lsfir(y, x, fs, self.m, len(x), m_max=m_max, stop_count=stop_count)
-        elif self.method == 'etfe':
-            freqs, mag, phase, coh, g = self.compute_etfe(x, y, fs)
-        elif self.method == 'p_etfe':
-            freqs, mag, phase, coh, g = self.compute_periodic_etfe(x, y, fs)
-
-        return freqs, mag, phase, coh, g
+        for i in range(n_meas):
+            
+            # Extract the i-th measurement
+            x_i = x[i, :].ravel()
+            y_i = y[i, :].ravel()
+                
+            # Compute FRF for this measurement
+            if self.method == 'welch':
+                freqs_i, tf_i, coh_i, g_i = self.compute_welch(x_i, y_i, fs)
+            elif self.method == 'ls_fir':
+                freqs_i, tf_i, coh_i, g_i = self.compute_lsfir(y_i, x_i, fs, self.m, len(x_i), m_max=m_max, stop_count=stop_count)
+            elif self.method == 'etfe':
+                freqs_i, tf_i, coh_i, g_i = self.compute_etfe(x_i, y_i, fs)
+            elif self.method == 'p_etfe':
+                freqs_i, tf_i, coh_i, g_i = self.compute_periodic_etfe(x_i, y_i, fs)
+            else:
+                raise ValueError(f"Unsupported method: {self.method}")
+    
+            # Append results
+            freqs_list.append(freqs_i)
+            tf_list.append(tf_i)
+            coh_list.append(coh_i)
+            g_list.append(g_i)
+            m_list.append(self.m)
+    
+        # Validate consistent frequency bins
+        if not all(_np.array_equal(freqs_list[0], f) for f in freqs_list):
+            raise ValueError("Inconsistent frequency bins across measurements")
+        freqs = freqs_list[0]
+    
+        # Average results
+        tf     = _np.mean(tf_list, axis=0)  # Complex mean for transfer function
+        coh    = _np.mean(coh_list, axis=0) if all(c is not None for c in coh_list) else None
+        g      = _np.mean(g_list, axis=0) if all(gi is not None for gi in g_list) else None
+        self.m = int(_np.mean(m_list, axis=0) if all(mi is not None for mi in m_list) else None)
+    
+        # Update object state
+        self.freqs = freqs
+        self.tf = tf
+        self.coh = coh
+        self.g = g
+    
+        return freqs, tf, coh, g
     
     def compute_welch(self, x, y, fs):
         """
@@ -1203,17 +1245,10 @@ class FRF:
         else:  # Default to H1
             tf = _np.conj(Pxy) / Pxx
 
-        # Compute coherence, magnitude and phase
+        # Compute coherence
         coh = abs(Pxy)**2 / (Pxx * Pyy)
-        mag = _np.abs(tf)
-        phase = _np.angle(tf, deg=True)
 
-        # Store computed values
-        self.freqs = freqs
-        self.tf = tf
-        self.coh = coh
-
-        return freqs, mag, phase, coh, None
+        return freqs, tf, coh, None
         
     def compute_periodic_etfe(self, x, y, fs, nperseg=None):
         """
@@ -1269,15 +1304,7 @@ class FRF:
         # Compute transfer function where input has significant energy
         tf = Y / X
         
-        # Calculate magnitude and phase
-        mag = _np.abs(tf)
-        phase = _np.angle(tf, deg=True)
-        
-        # Store computed values
-        self.freqs = freqs
-        self.tf = tf
-        
-        return freqs, mag, phase, None, None
+        return freqs, tf, None, None
     
     def compute_etfe(self, x, y, fs):
         """
@@ -1321,16 +1348,8 @@ class FRF:
         
         # Compute transfer function
         tf = Y / X
-        
-        # Calculate magnitude and phase
-        mag = _np.abs(tf)
-        phase = _np.angle(tf, deg=True)
-        
-        # Store computed values
-        self.freqs = freqs
-        self.tf = tf
-        
-        return freqs, mag, phase, None, None
+               
+        return freqs, tf, None, None
     
     def compute_lsfir(self, y, u, fs, m, N, m_max=4096, stop_count=50):
         """
@@ -1502,14 +1521,8 @@ class FRF:
         # Frequency response
         w_imp, h = _sig.freqz(g, worN=int(self.params['nperseg'] / 2 + 1))
         freqs = w_imp * fs / (2 * _np.pi)
-        mag = _np.abs(h)
-        phase = _np.angle(h, deg=True)
     
-        self.freqs = freqs
-        self.tf = h
-        self.g = g
-    
-        return freqs, mag, phase, None, g    
+        return freqs, h, None, g    
 
     def plot_impulse_info(self, title="", figsize=(12, 8), **kwargs):
         """
@@ -1666,7 +1679,7 @@ class FRF:
 
         return fig, (ax1, ax2)
 
-    def add2plot(self, axes, freqs=None, mag=None, phase=None, coh=None, method=None, estimator=None, label="", **kwargs):
+    def add2plot(self, axes, freqs=None, mag=None, phase=None, method=None, estimator=None, label="", **kwargs):
         """
         Add transfer function data to existing plots.
 
