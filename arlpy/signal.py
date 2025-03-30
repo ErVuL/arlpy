@@ -1205,7 +1205,7 @@ class FRF:
         if self.method == 'welch':
             self.coh   = _np.mean(coh_list, axis=0) if all(c is not None for c in coh_list) else None
         if self.method == 'ls_fir':
-            self.g     = g_i # TODO: find a way to get an average value ?
+            self.g     = g_i # TODO: find a way to get an average value for 2D inputs ?
             self.m     = int(_np.mean(m_list) if all(mi is not None for mi in m_list) else None)
         
         return freqs, tf
@@ -1345,7 +1345,7 @@ class FRF:
                
         return freqs, tf
     
-    def compute_lsfir(self, y, u, fs, m, N, m_max=4096, stop_count=50):
+    def compute_lsfir(self, y, u, fs, m, N, m_max=4096, stop_count=50, nperseg=None):
         """
         Compute the finite impulse response estimation using an information matrix/vector method.
         Supports model order selection using AIC, BIC, FPE, or Mallows' Cp.
@@ -1366,14 +1366,17 @@ class FRF:
             Maximum model order for automatic selection
         stop_count : int
             Stop search after stop_count consecutive steps with no improvement
-        criterion : str
-            Model selection criterion: 'AIC', 'BIC', 'FPE', or 'CP' (Mallows' criterion)
+        nperseg : int
+            Frequency axis will be nperseg/2+1 samples between 0 and fs/2
         
         Returns:
         --------
         freqs, mag, phase, None, g : tuple
             Frequency response and impulse response estimate.
         """
+        
+        if nperseg:
+            self.params['nperseg'] = nperseg
         
         y = _np.array(y)
         u = _np.array(u)

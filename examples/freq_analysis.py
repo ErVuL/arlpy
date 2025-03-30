@@ -74,7 +74,7 @@ if __name__ == "__main__":
     frf.compute(signal_1, signal_2, fs, method='ls_fir', m='CP', m_max=1024, stop_count=50)
     frf.add2plot(ax, label="Chebyshev LP", linestyle='dashed')
     
-    frf.compute(signal_1, signal_2, fs, method='ls_fir', m='FPE', m_max=1024, stop_count=50)
+    frf.compute(signal_1, signal_2, fs, method='ls_fir', m='FPE', m_max=1024, stop_count=50, nperseg=512)
     frf.add2plot(ax, label="Chebyshev LP", linestyle='dashed')
     frf.plot_impulse_info(title="Example signal")
     
